@@ -1,0 +1,422 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum BusinessType {
+  CAFE
+  RETAIL
+  LAUNDRY
+  GYM
+  HOTEL
+  MANUFACTURING
+}
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  businessType BusinessType @default(CAFE)
+  createdAt DateTime @default(now())
+
+  users    User[]
+  outlets  Outlet[]
+  roles    Role[]
+  products Product[]
+  orders CustomerOrder[]
+  inventoryMovements InventoryMovement[]
+  payments Payment[]
+  recipes Recipe[]
+  ingredients Ingredient[]
+  warehouses Warehouse[]
+  suppliers Supplier[]
+  inventoryItems InventoryItem[]
+}
+
+model User {
+  id          String   @id @default(cuid())
+
+  email       String   @unique
+  password    String
+
+  tenantId    String
+  tenant      Tenant @relation(fields: [tenantId], references: [id])
+
+  roleId      String
+  role        Role @relation(fields: [roleId], references: [id])
+
+  outletId    String?
+  outlet      Outlet? @relation(fields: [outletId], references: [id])
+
+  createdAt   DateTime @default(now())
+
+  inventoryMovementsCreated InventoryMovement[] @relation("InventoryMovementCreatedBy")
+
+  paymentsCreated Payment[] @relation("PaymentCreatedBy")
+}
+
+model Role {
+  id          String @id @default(cuid())
+
+  name        String
+
+  tenantId    String
+  tenant      Tenant @relation(fields: [tenantId], references: [id])
+
+  users       User[]
+  rolePermissions RolePermission[]
+}
+
+model Outlet {
+  id          String @id @default(cuid())
+
+  name        String
+
+  tenantId    String
+  tenant      Tenant @relation(fields: [tenantId], references: [id])
+
+  users       User[]
+
+  createdAt   DateTime @default(now())
+
+  orders      CustomerOrder[]
+
+  warehouses Warehouse[]
+}
+
+model Product {
+  id          String   @id @default(cuid())
+
+  name        String
+  description String?
+
+  sku         String?
+
+  price       Int
+
+  isActive    Boolean @default(true)
+
+  tenantId    String
+  tenant      Tenant @relation(fields: [tenantId], references: [id])
+
+  inventoryItemId String? @unique
+  inventoryItem InventoryItem? @relation(fields:[inventoryItemId], references:[id])
+
+  outletId    String?
+
+  createdAt   DateTime @default(now())
+
+  orderItems  CustomerOrderItem[]
+  recipe Recipe?
+
+  @@unique([tenantId, sku])
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  COMPLETED
+  CANCELLED
+  IN_PROGRESS
+  READY
+}
+
+model CustomerOrder {
+  id String @id @default(cuid())
+
+  orderNumber String @db.VarChar(50)
+
+  status OrderStatus @default(PENDING)
+
+  totalAmount Int
+
+  tenantId String
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  outletId String?
+  outlet Outlet? @relation(fields: [outletId], references: [id])
+
+  items CustomerOrderItem[]
+
+  payments Payment[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, orderNumber])
+}
+
+model CustomerOrderItem {
+  id         String @id @default(cuid())
+
+  orderId    String
+  order      CustomerOrder @relation(fields: [orderId], references: [id])
+
+  productId  String
+  product    Product @relation(fields: [productId], references: [id])
+
+  quantity   Int
+
+  price      Int
+  subtotal   Int
+}
+
+model Permission {
+  id          String @id @default(cuid())
+
+  code        String @unique
+  name        String
+
+  rolePermissions RolePermission[]
+}
+
+model RolePermission {
+  id            String @id @default(cuid())
+
+  roleId        String
+  role          Role @relation(fields: [roleId], references: [id])
+
+  permissionId  String
+  permission    Permission @relation(fields: [permissionId], references: [id])
+
+  @@unique([roleId, permissionId])
+}
+
+enum PaymentMethod {
+  CASH
+  QRIS
+  TRANSFER
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model Payment {
+  id String @id @default(cuid())
+
+  orderId String
+  order CustomerOrder @relation(fields: [orderId], references: [id])
+
+  tenantId String
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  method PaymentMethod
+
+  status PaymentStatus @default(PENDING)
+
+  amount Int
+
+  referenceNumber String?
+
+  paidAt DateTime?
+
+  createdById String?
+  createdBy User? @relation("PaymentCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model Ingredient {
+  id          String @id @default(cuid())
+
+  name        String
+
+  unit        String
+
+  tenantId    String
+  tenant      Tenant @relation(fields: [tenantId], references: [id])
+
+  inventoryItemId String @unique
+  inventoryItem InventoryItem @relation(fields:[inventoryItemId], references:[id])
+
+  createdAt   DateTime @default(now())
+
+  recipeItems RecipeItem[]
+}
+
+model Recipe {
+  id          String @id @default(cuid())
+
+  tenantId    String
+  tenant      Tenant @relation(fields: [tenantId], references: [id])
+
+  productId   String @unique
+  product     Product @relation(fields: [productId], references: [id])
+
+  items       RecipeItem[]
+
+  createdAt   DateTime @default(now())
+}
+
+model RecipeItem {
+  id            String @id @default(cuid())
+
+  recipeId      String
+  recipe        Recipe @relation(fields: [recipeId], references: [id])
+
+  ingredientId  String
+  ingredient    Ingredient @relation(fields: [ingredientId], references: [id])
+
+  quantity      Float
+}
+
+model Warehouse {
+  id String @id @default(cuid())
+
+  code String
+
+  name String
+
+  tenantId String
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  outletId String?
+  outlet Outlet? @relation(fields: [outletId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  stocks InventoryStock[]
+
+  movements InventoryMovement[]
+
+  @@unique([tenantId, code])
+
+  @@unique([tenantId, name])
+}
+
+model Supplier {
+  id String @id @default(cuid())
+
+  name String
+
+  contactPerson String?
+
+  phone String?
+
+  email String?
+
+  address String?
+
+  taxNumber String?
+
+  isActive Boolean @default(true)
+
+  tenantId String
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, name])
+}
+
+enum InventoryItemType {
+  PRODUCT
+  INGREDIENT
+  MATERIAL
+  ASSET
+  SUPPLY
+  SERVICE
+}
+
+model InventoryItem {
+  id String @id @default(cuid())
+
+  code String
+
+  name String
+
+  description String?
+
+  unit String?
+
+  type InventoryItemType
+
+  isActive Boolean @default(true)
+
+  tenantId String
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  stocks InventoryStock[]
+  movements InventoryMovement[]
+
+  product Product?
+  ingredient Ingredient?
+
+  @@unique([tenantId, code])
+}
+
+model InventoryStock {
+  id String @id @default(cuid())
+
+  warehouseId String
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+
+  inventoryItemId String
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+
+  quantity Float @default(0)
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([warehouseId, inventoryItemId])
+  @@index([inventoryItemId])
+  @@index([warehouseId])
+}
+
+enum InventoryMovementType {
+  STOCK_IN
+  STOCK_OUT
+  SALE
+  PURCHASE
+  CONSUMPTION
+  PRODUCTION
+  TRANSFER
+  ADJUSTMENT
+  RETURN
+  WASTE
+}
+
+model InventoryMovement {
+  id String @id @default(cuid())
+
+  inventoryItemId String
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+
+  warehouseId String?
+  warehouse Warehouse? @relation(fields: [warehouseId], references: [id])
+
+  tenantId String
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  type InventoryMovementType
+
+  referenceType String?
+  referenceId String?
+
+  quantity Float
+
+  beforeQuantity Float?
+  afterQuantity Float?
+
+  note String?
+
+  createdById String?
+  createdBy User? @relation("InventoryMovementCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([inventoryItemId])
+  @@index([warehouseId])
+  @@index([referenceType, referenceId])
+}
