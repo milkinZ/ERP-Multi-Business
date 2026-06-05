@@ -11,89 +11,54 @@ import { Permissions } from '../../common/decorator/permissions.decorator';
 import { WasteDto } from './dto/waste.dto';
 
 @Controller('inventory')
-@UseGuards(
-    JwtAuthGuard,
-    PermissionGuard,
-)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class InventoryController {
-    constructor(
-        private inventoryService: InventoryService,
-    ) { }
+  constructor(private inventoryService: InventoryService) {}
 
-    @Post('stock-in')
-    @Permissions(
-        PERMISSIONS.INVENTORY_ADJUST,
-    )
-    stockIn(
-        @Body() dto: StockInDto,
-        @CurrentUser() user: JwtUser,
-    ) {
-        return this.inventoryService.stockIn(
-            user.tenantId,
-            dto,
-            user.userId,
-        )
-    }
+  @Post('stock-in')
+  @Permissions(PERMISSIONS.INVENTORY_ADJUST)
+  stockIn(@Body() dto: StockInDto, @CurrentUser() user: JwtUser) {
+    return this.inventoryService.stockIn(user.tenantId, dto, user.userId);
+  }
 
-    @Post('adjustment')
-    @Permissions(
-        PERMISSIONS.INVENTORY_ADJUST,
-    )
-    adjustment(
-        @Body() dto: StockAdjustmentDto,
-        @CurrentUser() 
-        user: JwtUser,
-    ) {
-        return this.inventoryService.adjustment(
-            user.tenantId,
-            dto,
-            user.userId,
-        )
-    }
+  @Post('adjustment')
+  @Permissions(PERMISSIONS.INVENTORY_ADJUST)
+  adjustment(
+    @Body() dto: StockAdjustmentDto,
+    @CurrentUser()
+    user: JwtUser,
+  ) {
+    return this.inventoryService.adjustment(user.tenantId, dto, user.userId);
+  }
 
-    @Post('waste')
-    @Permissions(
-        PERMISSIONS.INVENTORY_ADJUST,
-    )
-    waste(
-        @Body() dto: WasteDto,
-        @CurrentUser() 
-        user: JwtUser,
-    ) {
-        return this.inventoryService.waste(
-            user.tenantId,
-            dto,
-            user.userId,
-        )
-    }
+  @Post('waste')
+  @Permissions(PERMISSIONS.INVENTORY_ADJUST)
+  waste(
+    @Body() dto: WasteDto,
+    @CurrentUser()
+    user: JwtUser,
+  ) {
+    return this.inventoryService.waste(user.tenantId, dto, user.userId);
+  }
 
-    @Get('history')
-    @Permissions(
-        PERMISSIONS.INVENTORY_READ,
-    )
-    history(
-        @CurrentUser() 
-        user: JwtUser,
-    ) {
-        return this.inventoryService.history(
-            user.tenantId,
-        )
-    }
+  @Get('history')
+  @Permissions(PERMISSIONS.INVENTORY_READ)
+  history(
+    @CurrentUser()
+    user: JwtUser,
+  ) {
+    return this.inventoryService.history(user.tenantId);
+  }
 
-    @Get('history/:inventoryItemId')
-    @Permissions(
-        PERMISSIONS.INVENTORY_READ,
-    )
-    historyByItem(
-        @Param('inventoryItemId')
-        inventoryItemId: string,
+  @Get('history/:inventoryItemId')
+  @Permissions(PERMISSIONS.INVENTORY_READ)
+  historyByItem(
+    @Param('inventoryItemId')
+    inventoryItemId: string,
 
-        @CurrentUser() 
-        user: JwtUser,
-    ) {
-        return this.inventoryService.historyByItem(
-            user.tenantId,
-            inventoryItemId,
-        )
-    }
+    @CurrentUser()
+    user: JwtUser,
+  ) {
+    return this.inventoryService.historyByItem(user.tenantId, inventoryItemId);
+  }
 }

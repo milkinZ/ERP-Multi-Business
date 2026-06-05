@@ -1,11 +1,9 @@
-import {
-    IsString,
-} from 'class-validator'
+import { IsString } from 'class-validator';
 
 export class CreateIngredientDto {
-    @IsString()
-    name!: string
+  @IsString()
+  name!: string;
 
-    @IsString()
-    unit!: string
+  @IsString()
+  unit!: string;
 }

@@ -1,18 +1,15 @@
-import {
-    IsInt,
-    IsString,
-} from 'class-validator'
+import { IsInt, IsString } from 'class-validator';
 
 export class StockAdjustmentDto {
-     @IsString()
-    inventoryItemId!: string
+  @IsString()
+  inventoryItemId!: string;
 
-    @IsString()
-    warehouseId!: string
+  @IsString()
+  warehouseId!: string;
 
-    @IsInt()
-    quantity!: number
+  @IsInt()
+  quantity!: number;
 
-    @IsString()
-    note!: string
+  @IsString()
+  note!: string;
 }

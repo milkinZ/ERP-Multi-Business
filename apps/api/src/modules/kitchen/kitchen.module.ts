@@ -1,15 +1,11 @@
-import { Module } from '@nestjs/common'
+import { Module } from '@nestjs/common';
 
-import { KitchenController } from './kitchen.controller'
-import { KitchenService } from './kitchen.service'
+import { KitchenController } from './kitchen.controller';
+import { KitchenService } from './kitchen.service';
 
 @Module({
-  controllers: [
-    KitchenController,
-  ],
+  controllers: [KitchenController],
 
-  providers: [
-    KitchenService,
-  ],
+  providers: [KitchenService],
 })
-export class KitchenModule { }
+export class KitchenModule {}

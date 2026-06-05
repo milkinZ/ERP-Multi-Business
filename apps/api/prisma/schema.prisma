@@ -26,7 +26,7 @@ model Tenant {
   outlets  Outlet[]
   roles    Role[]
   products Product[]
-  orders CustomerOrder[]
+  orders SalesOrder[]
   inventoryMovements InventoryMovement[]
   payments Payment[]
   recipes Recipe[]
@@ -34,6 +34,7 @@ model Tenant {
   warehouses Warehouse[]
   suppliers Supplier[]
   inventoryItems InventoryItem[]
+  purchaseOrders PurchaseOrder[]
 }
 
 model User {
@@ -82,7 +83,7 @@ model Outlet {
 
   createdAt   DateTime @default(now())
 
-  orders      CustomerOrder[]
+  orders      SalesOrder[]
 
   warehouses Warehouse[]
 }
@@ -109,7 +110,7 @@ model Product {
 
   createdAt   DateTime @default(now())
 
-  orderItems  CustomerOrderItem[]
+  orderItems  SalesOrderItem[]
   recipe Recipe?
 
   @@unique([tenantId, sku])
@@ -124,7 +125,7 @@ enum OrderStatus {
   READY
 }
 
-model CustomerOrder {
+model SalesOrder {
   id String @id @default(cuid())
 
   orderNumber String @db.VarChar(50)
@@ -139,7 +140,7 @@ model CustomerOrder {
   outletId String?
   outlet Outlet? @relation(fields: [outletId], references: [id])
 
-  items CustomerOrderItem[]
+  items SalesOrderItem[]
 
   payments Payment[]
 
@@ -148,11 +149,11 @@ model CustomerOrder {
   @@unique([tenantId, orderNumber])
 }
 
-model CustomerOrderItem {
+model SalesOrderItem {
   id         String @id @default(cuid())
 
   orderId    String
-  order      CustomerOrder @relation(fields: [orderId], references: [id])
+  order SalesOrder @relation(fields: [orderId], references: [id])
 
   productId  String
   product    Product @relation(fields: [productId], references: [id])
@@ -201,7 +202,7 @@ model Payment {
   id String @id @default(cuid())
 
   orderId String
-  order CustomerOrder @relation(fields: [orderId], references: [id])
+  order SalesOrder @relation(fields: [orderId], references: [id])
 
   tenantId String
   tenant Tenant @relation(fields: [tenantId], references: [id])
@@ -269,6 +270,8 @@ model RecipeItem {
 model Warehouse {
   id String @id @default(cuid())
 
+  purchaseOrders PurchaseOrder[]
+
   code String
 
   name String
@@ -312,6 +315,8 @@ model Supplier {
 
   createdAt DateTime @default(now())
 
+  purchaseOrders PurchaseOrder[]
+
   @@unique([tenantId, name])
 }
 
@@ -327,9 +332,11 @@ enum InventoryItemType {
 model InventoryItem {
   id String @id @default(cuid())
 
-  code String
-
   name String
+
+  purchaseOrderItems PurchaseOrderItem[] @relation("PurchaseOrderItemInventory")
+
+  code String
 
   description String?
 
@@ -384,6 +391,74 @@ enum InventoryMovementType {
   ADJUSTMENT
   RETURN
   WASTE
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  COMPLETED
+  CANCELLED
+}
+
+model PurchaseOrder {
+  id String @id @default(cuid())
+
+  poNumber String @db.VarChar(50)
+
+  status PurchaseOrderStatus @default(DRAFT)
+
+  supplierId String
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+
+  tenantId String
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  warehouseId String?
+  warehouse Warehouse? @relation(fields: [warehouseId], references: [id])
+
+  expectedDeliveryDate DateTime?
+
+  totalAmount Int
+
+  notes String?
+
+  items PurchaseOrderItem[]
+
+  receivedAt DateTime?
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, poNumber])
+  @@index([tenantId])
+  @@index([supplierId])
+  @@index([status])
+}
+
+model PurchaseOrderItem {
+  id String @id @default(cuid())
+
+  purchaseOrderId String
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  inventoryItemId String
+  inventoryItem InventoryItem @relation("PurchaseOrderItemInventory", fields: [inventoryItemId], references: [id])
+
+  quantity Float
+
+  unitPrice Int
+
+  subtotal Int
+
+  receivedQuantity Float @default(0)
+
+  @@index([purchaseOrderId])
+  @@index([inventoryItemId])
 }
 
 model InventoryMovement {

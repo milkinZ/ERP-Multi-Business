@@ -1,42 +1,41 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
-import { PrismaService } from '../../core/database/prisma.service'
-import { InventoryItemType } from '@prisma/client'
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { PrismaService } from '../../core/database/prisma.service';
+import { InventoryItemType } from '@prisma/client';
 
 @Injectable()
 export class ProductsService {
-  constructor(private prisma: PrismaService) { }
+  constructor(private prisma: PrismaService) {}
 
   async create(data: {
-    name: string
-    description?: string
-    sku?: string
-    price: number
-    tenantId: string
+    name: string;
+    description?: string;
+    sku?: string;
+    price: number;
+    tenantId: string;
   }) {
     return this.prisma.$transaction(async (tx) => {
       const inventoryItem = await tx.inventoryItem.create({
         data: {
-          code: data.sku ?? `PRD-${new Date().getTime()}-${Math.floor(Math.random() * 1000)}`,
+          code:
+            data.sku ??
+            `PRD-${new Date().getTime()}-${Math.floor(Math.random() * 1000)}`,
           name: data.name,
           description: data.description,
           type: InventoryItemType.PRODUCT,
           tenantId: data.tenantId,
         },
-      })
+      });
 
       if (data.sku) {
-        const existing =
-          await tx.product.findFirst({
-            where: {
-              tenantId: data.tenantId,
-              sku: data.sku,
-            },
-          })
+        const existing = await tx.product.findFirst({
+          where: {
+            tenantId: data.tenantId,
+            sku: data.sku,
+          },
+        });
 
         if (existing) {
-          throw new BadRequestException(
-            'SKU already exists',
-          )
+          throw new BadRequestException('SKU already exists');
         }
       }
 
@@ -52,10 +51,10 @@ export class ProductsService {
         include: {
           inventoryItem: true,
         },
-      })
+      });
 
-      return product
-    })
+      return product;
+    });
   }
 
   findAll(tenantId: string) {
@@ -77,7 +76,7 @@ export class ProductsService {
       orderBy: {
         createdAt: 'desc',
       },
-    })
+    });
   }
 
   findOne(id: string, tenantId: string) {
@@ -97,6 +96,6 @@ export class ProductsService {
           },
         },
       },
-    })
+    });
   }
 }

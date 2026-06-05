@@ -23,34 +23,28 @@ export class OrdersService {
     }[],
   ) {
     const order = await this.prisma.$transaction(async (tx) => {
-      // ambil semua product
       const productIds = items.map((item) => item.productId);
 
       const products = await tx.product.findMany({
         where: {
-          id: {
-            in: productIds,
-          },
+          id: { in: productIds },
           tenantId,
         },
       });
-      // validasi product
+
       if (products.length !== items.length) {
         throw new BadRequestException('Some products not found');
       }
 
-      // hitung total
       let totalAmount = 0;
 
       const orderItemsData = items.map((item) => {
         const product = products.find((p) => p.id === item.productId);
-
         if (!product) {
           throw new BadRequestException('Product not found');
         }
 
         const subtotal = product.price * item.quantity;
-
         totalAmount += subtotal;
 
         return {
@@ -61,8 +55,7 @@ export class OrdersService {
         };
       });
 
-      // create order
-      const order = await tx.customerOrder.create({
+      const createdOrder = await tx.salesOrder.create({
         data: {
           orderNumber: `ORD-${Date.now()}`,
           tenantId,
@@ -70,20 +63,16 @@ export class OrdersService {
           totalAmount,
         },
       });
-      // create order items
-      await tx.customerOrderItem.createMany({
+
+      await tx.salesOrderItem.createMany({
         data: orderItemsData.map((item) => ({
           ...item,
-          orderId: order.id,
+          orderId: createdOrder.id,
         })),
       });
 
-      // return full order
-      return tx.customerOrder.findUnique({
-        where: {
-          id: order.id,
-        },
-
+      return tx.salesOrder.findUnique({
+        where: { id: createdOrder.id },
         include: {
           items: {
             include: {
@@ -111,16 +100,14 @@ export class OrdersService {
   }
 
   findAll(user: JwtUser) {
-    return this.prisma.customerOrder.findMany({
+    return this.prisma.salesOrder.findMany({
       where: {
         tenantId: user.tenantId,
         ...buildOutletFilter(user),
       },
-
       include: {
         items: true,
       },
-
       orderBy: {
         createdAt: 'desc',
       },
@@ -128,13 +115,12 @@ export class OrdersService {
   }
 
   findOne(id: string, user: JwtUser) {
-    return this.prisma.customerOrder.findFirst({
+    return this.prisma.salesOrder.findFirst({
       where: {
         id,
         tenantId: user.tenantId,
         ...buildOutletFilter(user),
       },
-
       include: {
         items: {
           include: {
@@ -147,13 +133,12 @@ export class OrdersService {
 
   async updateStatus(id: string, user: JwtUser, status: OrderStatus) {
     return this.prisma.$transaction(async (tx) => {
-      const order = await tx.customerOrder.findFirst({
+      const order = await tx.salesOrder.findFirst({
         where: {
           id,
           tenantId: user.tenantId,
           ...buildOutletFilter(user),
         },
-
         include: {
           items: {
             include: {
@@ -173,20 +158,26 @@ export class OrdersService {
         );
       }
 
-      return tx.customerOrder.update({
+      await tx.salesOrder.update({
         where: {
           id,
         },
-
         data: {
           status,
+        },
+      });
+
+      return tx.salesOrder.findFirst({
+        where: {
+          id,
+          tenantId: user.tenantId,
         },
       });
     });
   }
 
   async markPaid(id: string, tenantId: string) {
-    const order = await this.prisma.customerOrder.findFirst({
+    const order = await this.prisma.salesOrder.findFirst({
       where: {
         id,
         tenantId,
@@ -201,7 +192,7 @@ export class OrdersService {
       throw new BadRequestException('Cannot pay cancelled order');
     }
 
-    const updated = await this.prisma.customerOrder.updateMany({
+    const updated = await this.prisma.salesOrder.updateMany({
       where: {
         id,
         tenantId,
@@ -215,7 +206,7 @@ export class OrdersService {
       throw new BadRequestException('Order not found');
     }
 
-    return this.prisma.customerOrder.findFirst({
+    return this.prisma.salesOrder.findFirst({
       where: {
         id,
         tenantId,
@@ -224,7 +215,7 @@ export class OrdersService {
   }
 
   async cancelOrder(id: string, tenantId: string) {
-    const order = await this.prisma.customerOrder.findFirst({
+    const order = await this.prisma.salesOrder.findFirst({
       where: {
         id,
         tenantId,
@@ -242,7 +233,7 @@ export class OrdersService {
       return order;
     }
 
-    const updated = await this.prisma.customerOrder.updateMany({
+    const updated = await this.prisma.salesOrder.updateMany({
       where: {
         id,
         tenantId,
@@ -256,7 +247,7 @@ export class OrdersService {
       throw new BadRequestException('Order not found');
     }
 
-    return this.prisma.customerOrder.findFirst({
+    return this.prisma.salesOrder.findFirst({
       where: {
         id,
         tenantId,
@@ -265,7 +256,7 @@ export class OrdersService {
   }
 
   async markCompleted(id: string, tenantId: string) {
-    const order = await this.prisma.customerOrder.findFirst({
+    const order = await this.prisma.salesOrder.findFirst({
       where: {
         id,
         tenantId,
@@ -276,7 +267,7 @@ export class OrdersService {
       throw new BadRequestException('Order not found');
     }
 
-    const updated = await this.prisma.customerOrder.updateMany({
+    const updated = await this.prisma.salesOrder.updateMany({
       where: {
         id,
         tenantId,
@@ -290,7 +281,7 @@ export class OrdersService {
       throw new BadRequestException('Order not found');
     }
 
-    return this.prisma.customerOrder.findFirst({
+    return this.prisma.salesOrder.findFirst({
       where: {
         id,
         tenantId,
@@ -298,3 +289,4 @@ export class OrdersService {
     });
   }
 }
+
