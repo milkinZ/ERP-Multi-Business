@@ -43,4 +43,12 @@ export const PERMISSIONS = {
   STOCK_READ: 'stock.read',
   STOCK_UPDATE: 'stock.update',
   STOCK_DELETE: 'stock.delete',
+
+  // Purchase Order (Purchase Orders Controller)
+  PURCHASE_ORDER_CREATE: 'purchase_order.create',
+  PURCHASE_ORDER_READ: 'purchase_order.read',
+  PURCHASE_ORDER_UPDATE: 'purchase_order.update',
+  PURCHASE_ORDER_DELETE: 'purchase_order.delete',
+  PURCHASE_ORDER_APPROVE: 'purchase_order.approve',
+  PURCHASE_ORDER_RECEIVE: 'purchase_order.receive',
 } as const;

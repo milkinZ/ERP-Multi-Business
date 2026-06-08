@@ -9,7 +9,7 @@ export class KitchenService {
   constructor(private prisma: PrismaService) {}
 
   async getQueue(tenantId: string) {
-    return this.prisma.customerOrder.findMany({
+    return this.prisma.salesOrder.findMany({
       where: {
         tenantId,
 
@@ -33,7 +33,7 @@ export class KitchenService {
   }
 
   async startCooking(id: string, tenantId: string) {
-    const order = await this.prisma.customerOrder.findFirst({
+    const order = await this.prisma.salesOrder.findFirst({
       where: {
         id,
         tenantId,
@@ -48,7 +48,7 @@ export class KitchenService {
       throw new BadRequestException('Order must be PAID');
     }
 
-    return this.prisma.customerOrder.update({
+    return this.prisma.salesOrder.update({
       where: {
         id,
       },
@@ -60,7 +60,7 @@ export class KitchenService {
   }
 
   async ready(id: string, tenantId: string) {
-    const order = await this.prisma.customerOrder.findFirst({
+    const order = await this.prisma.salesOrder.findFirst({
       where: {
         id,
         tenantId,
@@ -75,7 +75,7 @@ export class KitchenService {
       throw new BadRequestException('Order must be IN_PROGRESS');
     }
 
-    return this.prisma.customerOrder.update({
+    return this.prisma.salesOrder.update({
       where: {
         id,
       },
@@ -87,7 +87,7 @@ export class KitchenService {
   }
 
   async complete(id: string, tenantId: string) {
-    const order = await this.prisma.customerOrder.findFirst({
+    const order = await this.prisma.salesOrder.findFirst({
       where: {
         id,
         tenantId,
@@ -102,7 +102,7 @@ export class KitchenService {
       throw new BadRequestException('Order must be READY');
     }
 
-    return this.prisma.customerOrder.update({
+    return this.prisma.salesOrder.update({
       where: {
         id,
       },

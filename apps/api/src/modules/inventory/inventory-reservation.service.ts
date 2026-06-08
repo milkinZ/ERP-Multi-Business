@@ -39,7 +39,7 @@ export class InventoryReservationService {
           };
         }
 
-        const order = await tx.customerOrder.findFirst({
+        const order = await tx.salesOrder.findFirst({
           where: {
             id: orderId,
             tenantId,
@@ -193,7 +193,7 @@ export class InventoryReservationService {
   async commitReservation(orderId: string, tenantId: string) {
     return this.prisma.$transaction(
       async (tx) => {
-        const order = await tx.customerOrder.findFirst({
+        const order = await tx.salesOrder.findFirst({
           where: {
             id: orderId,
             tenantId,

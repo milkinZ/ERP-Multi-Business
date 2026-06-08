@@ -64,7 +64,7 @@ export class OrderOrchestratorService implements OnModuleInit {
 
     await this.ordersService.markPaid(orderId, tenantId);
 
-    const fulfillment = await this.fulfillmentService.startFulfillment(
+    const fulfillment = await this.fulfillmentService.processOrder(
       orderId,
       tenantId,
     );
@@ -77,7 +77,7 @@ export class OrderOrchestratorService implements OnModuleInit {
       },
     });
 
-    if (fulfillment.completed) {
+    if (fulfillment) {
       await this.ordersService.markCompleted(orderId, tenantId);
 
       await this.events.publish({

@@ -15,6 +15,7 @@ import { IngredientsModule } from './modules/ingredients/ingredients.module';
 import { RecipesModule } from './modules/recipes/recipes.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { SupplierModule } from './modules/supplier/supplier.module';
+import { PurchaseOrderModule } from './modules/purchase-orders/purchase-order.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { SupplierModule } from './modules/supplier/supplier.module';
     RecipesModule,
     WarehouseModule,
     SupplierModule,
+    PurchaseOrderModule,
     ConfigModule.forRoot({
       isGlobal: true,
     }),

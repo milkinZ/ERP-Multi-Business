@@ -158,14 +158,20 @@ export class OrdersService {
         );
       }
 
-      await tx.salesOrder.update({
+      const updated = await tx.salesOrder.updateMany({
         where: {
           id,
+          tenantId: user.tenantId,
+          ...buildOutletFilter(user),
         },
         data: {
           status,
         },
       });
+
+      if (updated.count !== 1) {
+        throw new BadRequestException('Order not found');
+      }
 
       return tx.salesOrder.findFirst({
         where: {

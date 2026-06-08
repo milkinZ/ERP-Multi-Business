@@ -59,7 +59,7 @@ export class PurchaseOrderService extends BaseService {
           : null,
         totalAmount,
         notes,
-        createdById: userId,
+        // createdById: userId,
         items: {
           create: items.map((item) => ({
             inventoryItemId: item.inventoryItemId,
@@ -72,7 +72,7 @@ export class PurchaseOrderService extends BaseService {
       include: {
         items: true,
         supplier: true,
-        createdBy: true,
+        // createdBy: true,
       },
     });
 
@@ -92,7 +92,10 @@ export class PurchaseOrderService extends BaseService {
     const { skip: paginationSkip, take: paginationTake } =
       this.getPaginationParams(skip, take);
 
-    const where: any = { tenantId, deletedAt: null };
+    const where: any = { 
+      tenantId, 
+      // deletedAt: null 
+    };
     if (status) where.status = status;
     if (supplierId) where.supplierId = supplierId;
 
@@ -102,8 +105,8 @@ export class PurchaseOrderService extends BaseService {
         include: {
           items: true,
           supplier: true,
-          createdBy: true,
-          updatedBy: true,
+          // createdBy: true,
+          // updatedBy: true,
         },
         skip: paginationSkip,
         take: paginationTake,
@@ -126,7 +129,7 @@ export class PurchaseOrderService extends BaseService {
       include: {
         items: { include: { inventoryItem: true } },
         supplier: true,
-        createdBy: true,
+        // createdBy: true,
         warehouse: true,
       },
     });
@@ -179,19 +182,23 @@ export class PurchaseOrderService extends BaseService {
       data: {
         ...updateData,
         totalAmount,
-        updatedById: userId,
+        // updatedById: userId,
         items: items
           ? {
-              create: items.map((item) => ({
-                inventoryItemId: item.inventoryItemId!,
-                quantity: item.quantity!,
-                unitPrice: item.unitPrice!,
-                subtotal: item.quantity! * item.unitPrice!,
-              })),
-            }
+            create: items.map((item) => ({
+              inventoryItemId: item.inventoryItemId!,
+              quantity: item.quantity!,
+              unitPrice: item.unitPrice!,
+              subtotal: item.quantity! * item.unitPrice!,
+            })),
+          }
           : undefined,
       },
-      include: { items: true, supplier: true, updatedBy: true },
+      include: {
+        items: true,
+        supplier: true,
+        // updatedBy: true 
+      },
     });
 
     return updatedPo;
@@ -206,28 +213,28 @@ export class PurchaseOrderService extends BaseService {
 
     // Validate status transition
     const validTransitions: Record<PurchaseOrderStatus, PurchaseOrderStatus[]> =
-      {
-        [PurchaseOrderStatus.DRAFT]: [
-          PurchaseOrderStatus.PENDING,
-          PurchaseOrderStatus.CANCELLED,
-        ],
-        [PurchaseOrderStatus.PENDING]: [
-          PurchaseOrderStatus.APPROVED,
-          PurchaseOrderStatus.REJECTED,
-          PurchaseOrderStatus.CANCELLED,
-        ],
-        [PurchaseOrderStatus.APPROVED]: [
-          PurchaseOrderStatus.PARTIALLY_RECEIVED,
-          PurchaseOrderStatus.RECEIVED,
-        ],
-        [PurchaseOrderStatus.PARTIALLY_RECEIVED]: [
-          PurchaseOrderStatus.RECEIVED,
-        ],
-        [PurchaseOrderStatus.RECEIVED]: [PurchaseOrderStatus.COMPLETED],
-        [PurchaseOrderStatus.REJECTED]: [PurchaseOrderStatus.CANCELLED],
-        [PurchaseOrderStatus.CANCELLED]: [],
-        [PurchaseOrderStatus.COMPLETED]: [],
-      };
+    {
+      [PurchaseOrderStatus.DRAFT]: [
+        PurchaseOrderStatus.PENDING,
+        PurchaseOrderStatus.CANCELLED,
+      ],
+      [PurchaseOrderStatus.PENDING]: [
+        PurchaseOrderStatus.APPROVED,
+        PurchaseOrderStatus.REJECTED,
+        PurchaseOrderStatus.CANCELLED,
+      ],
+      [PurchaseOrderStatus.APPROVED]: [
+        PurchaseOrderStatus.PARTIALLY_RECEIVED,
+        PurchaseOrderStatus.RECEIVED,
+      ],
+      [PurchaseOrderStatus.PARTIALLY_RECEIVED]: [
+        PurchaseOrderStatus.RECEIVED,
+      ],
+      [PurchaseOrderStatus.RECEIVED]: [PurchaseOrderStatus.COMPLETED],
+      [PurchaseOrderStatus.REJECTED]: [PurchaseOrderStatus.CANCELLED],
+      [PurchaseOrderStatus.CANCELLED]: [],
+      [PurchaseOrderStatus.COMPLETED]: [],
+    };
 
     if (!validTransitions[po.status]?.includes(status)) {
       throw new BadRequestException(
@@ -280,8 +287,8 @@ export class PurchaseOrderService extends BaseService {
         tenantId,
       },
       data: {
-        deletedAt: new Date(),
-        deletedById: userId,
+        // deletedAt: new Date(),
+        // deletedById: userId,
       },
     });
 

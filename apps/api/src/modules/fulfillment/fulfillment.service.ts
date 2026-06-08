@@ -33,7 +33,7 @@ export class FulfillmentService {
 
   private async processRetail(orderId: string, tenantId: string) {
     return this.prisma.$transaction(async (tx) => {
-      const order = await tx.customerOrder.findFirst({
+      const order = await tx.salesOrder.findFirst({
         where: {
           id: orderId,
           tenantId,
@@ -120,7 +120,7 @@ export class FulfillmentService {
 
   private async processCafe(orderId: string, tenantId: string) {
     return this.prisma.$transaction(async (tx) => {
-      const order = await tx.customerOrder.findFirst({
+      const order = await tx.salesOrder.findFirst({
         where: {
           id: orderId,
           tenantId,

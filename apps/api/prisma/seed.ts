@@ -47,6 +47,13 @@ const permissions = [
     'stock.read',
     'stock.update',
     'stock.delete',
+
+    'purchase_order.create',
+    'purchase_order.read',
+    'purchase_order.update',
+    'purchase_order.delete',
+    'purchase_order.approve',
+    'purchase_order.receive',
 ]
 
 async function main() {
