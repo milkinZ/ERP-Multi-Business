@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import Link from 'next/link';
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
 
-import { apiClient } from '../../../../src/lib/apiClient';
-import { RequireAuth } from '../../../../src/components/RequireAuth';
-import { useAuth } from '../../../../src/providers/AuthProvider';
-import { ErrorAlert } from '../../../../src/components/ErrorAlert';
+import { apiClient } from "../../../../src/lib/apiClient";
+import { RequireAuth } from "../../../../src/components/RequireAuth";
+import { useAuth } from "../../../../src/providers/AuthProvider";
+import { ErrorAlert } from "../../../../src/components/ErrorAlert";
 
 type Product = {
   id: string;
@@ -42,7 +42,7 @@ function SalesOrderCreateInner() {
   const [success, setSuccess] = useState<string | null>(null);
 
   const [form, setForm] = useState<CreateSalesOrderForm>({
-    items: [{ productId: '', quantity: '1' }],
+    items: [{ productId: "", quantity: "1" }],
   });
 
   useEffect(() => {
@@ -52,11 +52,11 @@ function SalesOrderCreateInner() {
       setLoading(true);
       setError(null);
       try {
-        const data = await apiClient.get<Product[]>('/products', { token });
+        const data = await apiClient.get<Product[]>("/products", { token });
         setProducts(data ?? []);
       } catch (e) {
         const err = e as { message?: string };
-        setError(err?.message ?? 'Failed to load products');
+        setError(err?.message ?? "Failed to load products");
       } finally {
         setLoading(false);
       }
@@ -74,11 +74,10 @@ function SalesOrderCreateInner() {
     });
   }
 
-
   function addItem() {
     setForm((s) => ({
       ...s,
-      items: [...s.items, { productId: '', quantity: '1' }],
+      items: [...s.items, { productId: "", quantity: "1" }],
     }));
   }
 
@@ -99,7 +98,7 @@ function SalesOrderCreateInner() {
         .map((it) => {
           const quantity = Number(it.quantity);
           if (!Number.isFinite(quantity) || quantity <= 0) {
-            throw new Error('quantity must be > 0');
+            throw new Error("quantity must be > 0");
           }
 
           return {
@@ -109,22 +108,22 @@ function SalesOrderCreateInner() {
         });
 
       if (itemsPayload.length === 0) {
-        throw new Error('At least one valid item is required');
+        throw new Error("At least one valid item is required");
       }
 
       await apiClient.post(
-        '/salesOrders',
+        "/salesOrders",
         {
           items: itemsPayload,
         },
         { token },
       );
 
-      setSuccess('Sales order created');
-      window.location.href = '/sales-orders';
+      setSuccess("Sales order created");
+      window.location.href = "/sales-orders";
     } catch (e) {
       const err = e as { message?: string };
-      setError(err?.message ?? 'Failed to create sales order');
+      setError(err?.message ?? "Failed to create sales order");
     } finally {
       setSubmitting(false);
     }
@@ -132,7 +131,7 @@ function SalesOrderCreateInner() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
         <h1 style={{ fontSize: 20, marginBottom: 12 }}>New Sales Order</h1>
         <Link href="/sales-orders" style={{ fontSize: 13 }}>
           ← Back
@@ -140,33 +139,51 @@ function SalesOrderCreateInner() {
       </div>
 
       {error ? <ErrorAlert message={error} /> : null}
-      {success ? <div style={{ color: 'green', marginBottom: 12 }}>{success}</div> : null}
+      {success ? (
+        <div style={{ color: "green", marginBottom: 12 }}>{success}</div>
+      ) : null}
 
       {loading ? <div>Loading...</div> : null}
 
       {!loading ? (
-        <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div
+          style={{
+            maxWidth: 720,
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+          }}
+        >
           <div>
             <div style={{ marginBottom: 8, fontWeight: 700 }}>Items</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {form.items.map((it, idx) => (
                 <div
                   key={idx}
                   style={{
                     padding: 12,
-                    border: '1px solid #e5e5e5',
+                    border: "1px solid #e5e5e5",
                     borderRadius: 8,
-                    display: 'flex',
+                    display: "flex",
                     gap: 12,
-                    flexWrap: 'wrap',
-                    alignItems: 'flex-end',
+                    flexWrap: "wrap",
+                    alignItems: "flex-end",
                   }}
                 >
-                  <label style={{ flex: '1 1 260px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <label
+                    style={{
+                      flex: "1 1 260px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 6,
+                    }}
+                  >
                     Product
                     <select
                       value={it.productId}
-                      onChange={(e) => setItemAt(idx, { productId: e.target.value })}
+                      onChange={(e) =>
+                        setItemAt(idx, { productId: e.target.value })
+                      }
                       style={{ padding: 10 }}
                     >
                       <option value="">Select product</option>
@@ -178,12 +195,21 @@ function SalesOrderCreateInner() {
                     </select>
                   </label>
 
-                  <label style={{ flex: '0 0 140px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <label
+                    style={{
+                      flex: "0 0 140px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 6,
+                    }}
+                  >
                     Quantity
                     <input
                       type="number"
                       value={it.quantity}
-                      onChange={(e) => setItemAt(idx, { quantity: e.target.value })}
+                      onChange={(e) =>
+                        setItemAt(idx, { quantity: e.target.value })
+                      }
                       style={{ padding: 10 }}
                       min={1}
                     />
@@ -193,16 +219,20 @@ function SalesOrderCreateInner() {
                     type="button"
                     onClick={() => removeItem(idx)}
                     style={{
-                      padding: '10px 12px',
+                      padding: "10px 12px",
                       borderRadius: 8,
-                      border: '1px solid #b00020',
-                      background: '#fff',
-                      color: '#b00020',
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
+                      border: "1px solid #b00020",
+                      background: "#fff",
+                      color: "#b00020",
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
                     }}
                     disabled={form.items.length <= 1}
-                    title={form.items.length <= 1 ? 'At least one item required' : 'Remove'}
+                    title={
+                      form.items.length <= 1
+                        ? "At least one item required"
+                        : "Remove"
+                    }
                   >
                     Remove
                   </button>
@@ -215,11 +245,11 @@ function SalesOrderCreateInner() {
                 type="button"
                 onClick={addItem}
                 style={{
-                  padding: '10px 12px',
+                  padding: "10px 12px",
                   borderRadius: 8,
-                  border: '1px solid #ddd',
-                  background: '#fff',
-                  cursor: 'pointer',
+                  border: "1px solid #ddd",
+                  background: "#fff",
+                  cursor: "pointer",
                 }}
               >
                 + Add item
@@ -232,20 +262,19 @@ function SalesOrderCreateInner() {
             onClick={() => void submit()}
             disabled={submitting}
             style={{
-              width: '100%',
+              width: "100%",
               padding: 12,
-              background: submitting ? '#999' : '#111',
-              color: '#fff',
-              border: 'none',
+              background: submitting ? "#999" : "#111",
+              color: "#fff",
+              border: "none",
               borderRadius: 8,
-              cursor: submitting ? 'not-allowed' : 'pointer',
+              cursor: submitting ? "not-allowed" : "pointer",
             }}
           >
-            {submitting ? 'Submitting...' : 'Create Sales Order'}
+            {submitting ? "Submitting..." : "Create Sales Order"}
           </button>
         </div>
       ) : null}
     </div>
   );
 }
-

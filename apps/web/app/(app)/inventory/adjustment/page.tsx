@@ -1,13 +1,13 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
+import React, { useState } from "react";
 
-import { apiClient } from '../../../../src/lib/apiClient';
-import { useAuth } from '../../../../src/providers/AuthProvider';
-import { RequireAuth } from '../../../../src/components/RequireAuth';
-import { FormButton } from '../../../../src/components/FormButton';
-import Can from '../../../../src/components/Can';
-import { PERMISSIONS } from '../../../../src/lib/permissions';
+import { apiClient } from "../../../../src/lib/apiClient";
+import { useAuth } from "../../../../src/providers/AuthProvider";
+import { RequireAuth } from "../../../../src/components/RequireAuth";
+import { FormButton } from "../../../../src/components/FormButton";
+import Can from "../../../../src/components/Can";
+import { PERMISSIONS } from "../../../../src/lib/permissions";
 
 export default function InventoryAdjustmentPage() {
   return (
@@ -20,10 +20,10 @@ export default function InventoryAdjustmentPage() {
 function InventoryAdjustmentInner() {
   const { token } = useAuth();
 
-  const [inventoryItemId, setInventoryItemId] = useState('');
-  const [warehouseId, setWarehouseId] = useState('');
+  const [inventoryItemId, setInventoryItemId] = useState("");
+  const [warehouseId, setWarehouseId] = useState("");
   const [quantity, setQuantity] = useState<number>(0);
-  const [note, setNote] = useState('');
+  const [note, setNote] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,12 +36,12 @@ function InventoryAdjustmentInner() {
     setSuccess(null);
 
     try {
-      if (!inventoryItemId) throw new Error('inventoryItemId is required');
-      if (!warehouseId) throw new Error('warehouseId is required');
-      if (!quantity || quantity === 0) throw new Error('quantity is required');
+      if (!inventoryItemId) throw new Error("inventoryItemId is required");
+      if (!warehouseId) throw new Error("warehouseId is required");
+      if (!quantity || quantity === 0) throw new Error("quantity is required");
 
       await apiClient.post(
-        '/inventory/adjustment',
+        "/inventory/adjustment",
         {
           inventoryItemId,
           warehouseId,
@@ -51,14 +51,14 @@ function InventoryAdjustmentInner() {
         { token },
       );
 
-      setSuccess('Adjustment submitted');
-      setInventoryItemId('');
-      setWarehouseId('');
+      setSuccess("Adjustment submitted");
+      setInventoryItemId("");
+      setWarehouseId("");
       setQuantity(0);
-      setNote('');
+      setNote("");
     } catch (e) {
       const err = e as { message?: string };
-      setError(err?.message ?? 'Failed to submit adjustment');
+      setError(err?.message ?? "Failed to submit adjustment");
     } finally {
       setLoading(false);
     }
@@ -78,51 +78,54 @@ function InventoryAdjustmentInner() {
             <input
               value={inventoryItemId}
               onChange={(e) => setInventoryItemId(e.target.value)}
-              style={{ width: '100%', padding: 10, marginTop: 6 }}
+              style={{ width: "100%", padding: 10, marginTop: 6 }}
               placeholder="uuid/ID"
             />
           </label>
 
-          <label style={{ display: 'block', marginBottom: 10 }}>
+          <label style={{ display: "block", marginBottom: 10 }}>
             Warehouse ID
             <input
               value={warehouseId}
               onChange={(e) => setWarehouseId(e.target.value)}
-              style={{ width: '100%', padding: 10, marginTop: 6 }}
+              style={{ width: "100%", padding: 10, marginTop: 6 }}
               placeholder="uuid/ID"
             />
           </label>
 
-          <label style={{ display: 'block', marginBottom: 10 }}>
+          <label style={{ display: "block", marginBottom: 10 }}>
             Quantity
             <input
               type="number"
               value={quantity}
               onChange={(e) => setQuantity(Number(e.target.value))}
-              style={{ width: '100%', padding: 10, marginTop: 6 }}
+              style={{ width: "100%", padding: 10, marginTop: 6 }}
               placeholder="0"
             />
           </label>
 
-          <label style={{ display: 'block', marginBottom: 10 }}>
+          <label style={{ display: "block", marginBottom: 10 }}>
             Note (optional)
             <input
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              style={{ width: '100%', padding: 10, marginTop: 6 }}
+              style={{ width: "100%", padding: 10, marginTop: 6 }}
               placeholder="optional"
             />
           </label>
 
-          {error ? <div style={{ color: 'red', marginBottom: 10 }}>{error}</div> : null}
-          {success ? <div style={{ color: 'green', marginBottom: 10 }}>{success}</div> : null}
+          {error ? (
+            <div style={{ color: "red", marginBottom: 10 }}>{error}</div>
+          ) : null}
+          {success ? (
+            <div style={{ color: "green", marginBottom: 10 }}>{success}</div>
+          ) : null}
 
           <FormButton disabled={loading} onClick={() => void submit()}>
-            {loading ? 'Submitting...' : 'Submit Adjustment'}
+            {loading ? "Submitting..." : "Submit Adjustment"}
           </FormButton>
         </div>
       </Can>
     </div>
   );
 }
-

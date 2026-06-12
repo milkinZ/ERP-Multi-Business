@@ -1,13 +1,13 @@
-'use client';
+"use client";
 
-import React, { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 
-import { apiClient } from '../../../../../src/lib/apiClient';
-import { useAuth } from '../../../../../src/providers/AuthProvider';
-import { RequireAuth } from '../../../../../src/components/RequireAuth';
-import { ErrorAlert } from '../../../../../src/components/ErrorAlert';
+import { apiClient } from "../../../../../src/lib/apiClient";
+import { useAuth } from "../../../../../src/providers/AuthProvider";
+import { RequireAuth } from "../../../../../src/components/RequireAuth";
+import { ErrorAlert } from "../../../../../src/components/ErrorAlert";
 
 type PurchaseOrderItem = {
   product?: { id: string; name: string };
@@ -35,7 +35,7 @@ export default function PurchaseOrderDetailPage() {
 
 function PurchaseOrderDetailInner() {
   const params = useParams();
-  const id = String(params.id ?? '');
+  const id = String(params.id ?? "");
   const { token } = useAuth();
 
   const [order, setOrder] = useState<PurchaseOrder | null>(null);
@@ -44,14 +44,14 @@ function PurchaseOrderDetailInner() {
 
   const statusOptions = useMemo(() => {
     return [
-      'DRAFT',
-      'PENDING',
-      'APPROVED',
-      'REJECTED',
-      'PARTIALLY_RECEIVED',
-      'RECEIVED',
-      'COMPLETED',
-      'CANCELLED',
+      "DRAFT",
+      "PENDING",
+      "APPROVED",
+      "REJECTED",
+      "PARTIALLY_RECEIVED",
+      "RECEIVED",
+      "COMPLETED",
+      "CANCELLED",
     ];
   }, []);
 
@@ -70,7 +70,7 @@ function PurchaseOrderDetailInner() {
         setOrder(data);
       } catch (e) {
         const err = e as { message?: string };
-        setError(err?.message ?? 'Failed to load purchase order');
+        setError(err?.message ?? "Failed to load purchase order");
       } finally {
         setLoading(false);
       }
@@ -94,7 +94,7 @@ function PurchaseOrderDetailInner() {
       setOrder(data);
     } catch (e) {
       const err = e as { message?: string };
-      setError(err?.message ?? 'Failed to update purchase order status');
+      setError(err?.message ?? "Failed to update purchase order status");
     } finally {
       setLoading(false);
     }
@@ -106,28 +106,41 @@ function PurchaseOrderDetailInner() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
         <h1 style={{ fontSize: 20, marginBottom: 12 }}>
           {order.orderNumber ?? order.id}
         </h1>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <Link href="/purchase-orders" style={{ fontSize: 13 }}>
             ← Back
           </Link>
-          <Link href={`/purchase-orders/${order.id}/edit`} style={{ fontSize: 13 }}>
+          <Link
+            href={`/purchase-orders/${order.id}/edit`}
+            style={{ fontSize: 13 }}
+          >
             Edit
           </Link>
-          <Link href={`/purchase-orders/${order.id}/delete`} style={{ fontSize: 13, color: '#b00020' }}>
+          <Link
+            href={`/purchase-orders/${order.id}/delete`}
+            style={{ fontSize: 13, color: "#b00020" }}
+          >
             Delete
           </Link>
         </div>
       </div>
 
       <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 12, color: '#666' }}>Status</div>
-        <div style={{ marginTop: 4 }}>{order.status ?? '-'}</div>
+        <div style={{ fontSize: 12, color: "#666" }}>Status</div>
+        <div style={{ marginTop: 4 }}>{order.status ?? "-"}</div>
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            marginTop: 10,
+            alignItems: "center",
+          }}
+        >
           <select
             value={nextStatus}
             onChange={(e) => setNextStatus(e.target.value)}
@@ -142,12 +155,12 @@ function PurchaseOrderDetailInner() {
           <button
             onClick={() => void updateStatus()}
             style={{
-              padding: '10px 12px',
-              background: '#111',
-              color: '#fff',
-              border: 'none',
+              padding: "10px 12px",
+              background: "#111",
+              color: "#fff",
+              border: "none",
               borderRadius: 8,
-              cursor: 'pointer',
+              cursor: "pointer",
             }}
           >
             Update
@@ -155,38 +168,62 @@ function PurchaseOrderDetailInner() {
         </div>
       </div>
 
-      <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>Items</div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>Items</div>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr>
-            <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>
+            <th
+              style={{
+                textAlign: "left",
+                borderBottom: "1px solid #ddd",
+                padding: 8,
+              }}
+            >
               Product
             </th>
-            <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>
+            <th
+              style={{
+                textAlign: "left",
+                borderBottom: "1px solid #ddd",
+                padding: 8,
+              }}
+            >
               Qty
             </th>
-            <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>
+            <th
+              style={{
+                textAlign: "left",
+                borderBottom: "1px solid #ddd",
+                padding: 8,
+              }}
+            >
               Price
             </th>
-            <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>
+            <th
+              style={{
+                textAlign: "left",
+                borderBottom: "1px solid #ddd",
+                padding: 8,
+              }}
+            >
               Subtotal
             </th>
           </tr>
         </thead>
         <tbody>
           {(order.items ?? []).map((it, idx) => (
-            <tr key={(it.product?.id ?? 'x') + '-' + idx}>
-              <td style={{ padding: 8, borderBottom: '1px solid #f0f0f0' }}>
-                {it.product?.name ?? it.product?.id ?? '-'}
+            <tr key={(it.product?.id ?? "x") + "-" + idx}>
+              <td style={{ padding: 8, borderBottom: "1px solid #f0f0f0" }}>
+                {it.product?.name ?? it.product?.id ?? "-"}
               </td>
-              <td style={{ padding: 8, borderBottom: '1px solid #f0f0f0' }}>
-                {it.quantity ?? '-'}
+              <td style={{ padding: 8, borderBottom: "1px solid #f0f0f0" }}>
+                {it.quantity ?? "-"}
               </td>
-              <td style={{ padding: 8, borderBottom: '1px solid #f0f0f0' }}>
-                {it.price ?? '-'}
+              <td style={{ padding: 8, borderBottom: "1px solid #f0f0f0" }}>
+                {it.price ?? "-"}
               </td>
-              <td style={{ padding: 8, borderBottom: '1px solid #f0f0f0' }}>
-                {it.subtotal ?? '-'}
+              <td style={{ padding: 8, borderBottom: "1px solid #f0f0f0" }}>
+                {it.subtotal ?? "-"}
               </td>
             </tr>
           ))}
@@ -194,9 +231,8 @@ function PurchaseOrderDetailInner() {
       </table>
 
       <div style={{ marginTop: 16, fontWeight: 700 }}>
-        Total: {order.totalAmount ?? '-'}
+        Total: {order.totalAmount ?? "-"}
       </div>
     </div>
   );
 }
-

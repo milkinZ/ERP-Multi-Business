@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import React, { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '../providers/AuthProvider';
+import React, { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "../providers/AuthProvider";
 
 export function RequireAuth({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -10,10 +10,9 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!loading && !token) {
-      router.replace('/');
+      router.replace("/");
     }
   }, [loading, token, router]);
-
 
   if (loading) {
     return <div style={{ padding: 24 }}>Loading...</div>;
@@ -25,4 +24,3 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
 
   return <>{children}</>;
 }
-

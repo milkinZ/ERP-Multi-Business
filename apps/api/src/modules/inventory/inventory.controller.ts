@@ -1,4 +1,12 @@
-import { Body, Controller, Post, UseGuards, Get, Param } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Post,
+  UseGuards,
+  Get,
+  Param,
+  Query,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { InventoryService } from './inventory.service';
 import { CurrentUser } from '../../common/decorator/current-user.decorator';
@@ -9,6 +17,7 @@ import { PermissionGuard } from '../rbac/permission.guard';
 import { PERMISSIONS } from '../rbac/permissions';
 import { Permissions } from '../../common/decorator/permissions.decorator';
 import { WasteDto } from './dto/waste.dto';
+import { InventoryItemListQueryDto } from './dto/inventory-item-list.dto';
 
 @Controller('inventory')
 @UseGuards(JwtAuthGuard, PermissionGuard)
@@ -48,6 +57,15 @@ export class InventoryController {
     user: JwtUser,
   ) {
     return this.inventoryService.history(user.tenantId);
+  }
+
+  @Get('items')
+  @Permissions(PERMISSIONS.INVENTORY_READ)
+  items(
+    @CurrentUser() user: JwtUser,
+    @Query() query: InventoryItemListQueryDto,
+  ) {
+    return this.inventoryService.listInventoryItems(user.tenantId, query.type);
   }
 
   @Get('history/:inventoryItemId')

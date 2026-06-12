@@ -1,10 +1,9 @@
-'use client';
+"use client";
 
-import React from 'react';
-import { useRouter } from 'next/navigation';
+import React from "react";
+import { useRouter } from "next/navigation";
 
-import { useAuth } from '../src/providers/AuthProvider';
-
+import { useAuth } from "../src/providers/AuthProvider";
 
 function PlanCard({
   title,
@@ -24,14 +23,14 @@ function PlanCard({
   return (
     <div
       style={{
-        border: '1px solid #eaeaea',
+        border: "1px solid #eaeaea",
         borderRadius: 16,
         padding: 16,
-        background: '#fff',
+        background: "#fff",
       }}
     >
       <div style={{ fontSize: 14, fontWeight: 800 }}>{title}</div>
-      <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+      <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
         {subtitle}
       </div>
 
@@ -51,14 +50,14 @@ function PlanCard({
         onClick={onClick}
         style={{
           marginTop: 14,
-          width: '100%',
-          padding: '12px 14px',
-          border: 'none',
+          width: "100%",
+          padding: "12px 14px",
+          border: "none",
           borderRadius: 12,
-          background: '#111',
-          color: '#fff',
+          background: "#111",
+          color: "#fff",
           fontWeight: 800,
-          cursor: 'pointer',
+          cursor: "pointer",
         }}
       >
         {cta}
@@ -67,7 +66,7 @@ function PlanCard({
   );
 }
 
-export default function ERPPlansHomePage() { 
+export default function ERPPlansHomePage() {
   const router = useRouter();
   const { token } = useAuth();
 
@@ -78,37 +77,35 @@ export default function ERPPlansHomePage() {
     // planId disimpan sementara untuk nanti dipakai saat backend subscription siap.
     // Saat ini cukup redirect.
     try {
-      window.sessionStorage.setItem('selectedPlanId', planId);
+      window.sessionStorage.setItem("selectedPlanId", planId);
     } catch {
       // ignore
     }
 
     if (!token) {
-      router.push('/login');
+      router.push("/login");
       return;
     }
 
-
     // After login, user should land on ERP home.
-router.push('/plans');
-
+    router.push("/plans");
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}>
+    <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
       <div style={{ marginBottom: 18 }}>
-        <div style={{ fontSize: 12, color: '#666' }}>ERP Multi Business</div>
+        <div style={{ fontSize: 12, color: "#666" }}>ERP Multi Business</div>
         <h1 style={{ fontSize: 30, marginTop: 6 }}>Paket ERP Anda</h1>
-        <div style={{ fontSize: 13, color: '#666', marginTop: 8 }}>
-          Pilih paket untuk mulai mengelola produk, inventory, purchase, pembayaran, dan
-          modul cafe/kitchen.
+        <div style={{ fontSize: 13, color: "#666", marginTop: 8 }}>
+          Pilih paket untuk mulai mengelola produk, inventory, purchase,
+          pembayaran, dan modul cafe/kitchen.
         </div>
       </div>
 
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
           gap: 14,
           marginTop: 18,
         }}
@@ -118,32 +115,48 @@ router.push('/plans');
           subtitle="Untuk bisnis kecil"
           price="Rp 299k / bulan"
           cta="Pilih Basic"
-          onClick={() => handleSelectPlan('basic')}
-          features={['Products', 'Inventory (stock in/adjust/waste)', 'Purchase Orders', 'Payments', 'Analytics (basic)']}
+          onClick={() => handleSelectPlan("basic")}
+          features={[
+            "Products",
+            "Inventory (stock in/adjust/waste)",
+            "Purchase Orders",
+            "Payments",
+            "Analytics (basic)",
+          ]}
         />
         <PlanCard
           title="Pro"
           subtitle="Untuk multi outlet"
           price="Rp 699k / bulan"
           cta="Pilih Pro"
-          onClick={() => handleSelectPlan('pro')}
-          features={['Sales Orders', 'Kitchen Queue', 'Recipes + Ingredients', 'Suppliers + Warehouses', 'Analytics (top products)']}
+          onClick={() => handleSelectPlan("pro")}
+          features={[
+            "Sales Orders",
+            "Kitchen Queue",
+            "Recipes + Ingredients",
+            "Suppliers + Warehouses",
+            "Analytics (top products)",
+          ]}
         />
         <PlanCard
           title="Enterprise"
           subtitle="Untuk kebutuhan custom"
           price="Hubungi kami"
           cta="Diskusikan"
-          onClick={() => handleSelectPlan('enterprise')}
-          features={['Semua fitur Pro', 'Custom reporting & permission', 'Priority support', 'Integrasi tambahan (roadmap)']}
+          onClick={() => handleSelectPlan("enterprise")}
+          features={[
+            "Semua fitur Pro",
+            "Custom reporting & permission",
+            "Priority support",
+            "Integrasi tambahan (roadmap)",
+          ]}
         />
       </div>
 
-      <div style={{ marginTop: 18, fontSize: 12, color: '#666' }}>
-        Catatan: halaman ini masih placeholder karena endpoint subscription/checkout
-        belum ada di backend pada task ini.
+      <div style={{ marginTop: 18, fontSize: 12, color: "#666" }}>
+        Catatan: halaman ini masih placeholder karena endpoint
+        subscription/checkout belum ada di backend pada task ini.
       </div>
     </div>
   );
 }
-

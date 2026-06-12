@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 
-import { apiClient } from '../../../../src/lib/apiClient';
-import { useAuth } from '../../../../src/providers/AuthProvider';
-import { RequireAuth } from '../../../../src/components/RequireAuth';
+import { apiClient } from "../../../../src/lib/apiClient";
+import { useAuth } from "../../../../src/providers/AuthProvider";
+import { RequireAuth } from "../../../../src/components/RequireAuth";
 
 type SaleOrderItem = {
   product: { id: string; name: string; price?: number };
@@ -35,7 +35,7 @@ export default function SalesOrderDetailPage() {
 
 function SalesOrderDetailInner() {
   const params = useParams();
-  const id = String(params.id ?? '');
+  const id = String(params.id ?? "");
   const { token } = useAuth();
 
   const [order, setOrder] = useState<SaleOrder | null>(null);
@@ -60,7 +60,7 @@ function SalesOrderDetailInner() {
         setOrder(data);
       } catch (e) {
         const err = e as { message?: string };
-        setError(err?.message ?? 'Failed to load order');
+        setError(err?.message ?? "Failed to load order");
       } finally {
         setLoading(false);
       }
@@ -87,12 +87,12 @@ function SalesOrderDetailInner() {
   // }
 
   if (loading) return <div>Loading...</div>;
-  if (error) return <div style={{ color: 'red' }}>{error}</div>;
+  if (error) return <div style={{ color: "red" }}>{error}</div>;
   if (!order) return <div>Not found</div>;
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
         <h1 style={{ fontSize: 20, marginBottom: 12 }}>
           {order.orderNumber ?? order.id}
         </h1>
@@ -102,7 +102,7 @@ function SalesOrderDetailInner() {
       </div>
 
       <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 12, color: '#666' }}>Status</div>
+        <div style={{ fontSize: 12, color: "#666" }}>Status</div>
         <div style={{ marginTop: 4 }}>{order.status}</div>
 
         {/* <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
@@ -133,28 +133,62 @@ function SalesOrderDetailInner() {
         </div> */}
       </div>
 
-      <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>Items</div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>Items</div>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr>
-            <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>Product</th>
-            <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>Qty</th>
-            <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>Price</th>
-            <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: 8 }}>Subtotal</th>
+            <th
+              style={{
+                textAlign: "left",
+                borderBottom: "1px solid #ddd",
+                padding: 8,
+              }}
+            >
+              Product
+            </th>
+            <th
+              style={{
+                textAlign: "left",
+                borderBottom: "1px solid #ddd",
+                padding: 8,
+              }}
+            >
+              Qty
+            </th>
+            <th
+              style={{
+                textAlign: "left",
+                borderBottom: "1px solid #ddd",
+                padding: 8,
+              }}
+            >
+              Price
+            </th>
+            <th
+              style={{
+                textAlign: "left",
+                borderBottom: "1px solid #ddd",
+                padding: 8,
+              }}
+            >
+              Subtotal
+            </th>
           </tr>
         </thead>
         <tbody>
           {order.items?.map((it, idx) => (
-            <tr key={it.product.id + '-' + idx}>
-              <td style={{ padding: 8, borderBottom: '1px solid #f0f0f0' }}>
+            <tr key={it.product.id + "-" + idx}>
+              <td style={{ padding: 8, borderBottom: "1px solid #f0f0f0" }}>
                 {it.product?.name ?? it.product?.id}
               </td>
-              <td style={{ padding: 8, borderBottom: '1px solid #f0f0f0' }}>{it.quantity}</td>
-              <td style={{ padding: 8, borderBottom: '1px solid #f0f0f0' }}>
-                {it.price ?? it.product?.price ?? '-'}
+              <td style={{ padding: 8, borderBottom: "1px solid #f0f0f0" }}>
+                {it.quantity}
               </td>
-              <td style={{ padding: 8, borderBottom: '1px solid #f0f0f0' }}>
-                {it.subtotal ?? '-'}
+              <td style={{ padding: 8, borderBottom: "1px solid #f0f0f0" }}>
+                {it.price ?? it.product?.price ?? "-"}
+              </td>
+              <td style={{ padding: 8, borderBottom: "1px solid #f0f0f0" }}>
+                {it.subtotal ?? "-"}
               </td>
             </tr>
           ))}
@@ -167,4 +201,3 @@ function SalesOrderDetailInner() {
     </div>
   );
 }
-

@@ -363,8 +363,8 @@ model InventoryItem {
 model InventoryStock {
   id String @id @default(cuid())
 
-  warehouseId String
-  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+  warehouseId String?
+  warehouse Warehouse? @relation(fields: [warehouseId], references: [id])
 
   inventoryItemId String
   inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])

@@ -1,13 +1,13 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 
-import { apiClient } from '../../../../src/lib/apiClient';
-import { useAuth } from '../../../../src/providers/AuthProvider';
-import { RequireAuth } from '../../../../src/components/RequireAuth';
-import { ErrorAlert } from '../../../../src/components/ErrorAlert';
+import { apiClient } from "../../../../src/lib/apiClient";
+import { useAuth } from "../../../../src/providers/AuthProvider";
+import { RequireAuth } from "../../../../src/components/RequireAuth";
+import { ErrorAlert } from "../../../../src/components/ErrorAlert";
 
 type Warehouse = {
   id: string;
@@ -27,7 +27,7 @@ export default function WarehouseDetailPage() {
 
 function WarehouseDetailInner() {
   const params = useParams();
-  const id = String(params.id ?? '');
+  const id = String(params.id ?? "");
   const { token } = useAuth();
 
   const [item, setItem] = useState<Warehouse | null>(null);
@@ -40,11 +40,13 @@ function WarehouseDetailInner() {
       try {
         setLoading(true);
         setError(null);
-        const data = await apiClient.get<Warehouse>(`/warehouses/${id}`, { token });
+        const data = await apiClient.get<Warehouse>(`/warehouses/${id}`, {
+          token,
+        });
         setItem(data);
       } catch (e) {
         const err = e as { message?: string };
-        setError(err?.message ?? 'Failed to load warehouse');
+        setError(err?.message ?? "Failed to load warehouse");
       } finally {
         setLoading(false);
       }
@@ -52,12 +54,12 @@ function WarehouseDetailInner() {
   }, [token, id]);
 
   if (loading) return <div>Loading...</div>;
-  if (error) return <div style={{ color: 'red' }}>{error}</div>;
+  if (error) return <div style={{ color: "red" }}>{error}</div>;
   if (!item) return <div>Not found</div>;
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
         <h1 style={{ fontSize: 20, marginBottom: 12 }}>{item.name}</h1>
         <Link href="/warehouses" style={{ fontSize: 13 }}>
           ← Back
@@ -66,18 +68,16 @@ function WarehouseDetailInner() {
 
       <div style={{ maxWidth: 520 }}>
         <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 12, color: '#666' }}>ID</div>
+          <div style={{ fontSize: 12, color: "#666" }}>ID</div>
           <div>{item.id}</div>
         </div>
         <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 12, color: '#666' }}>Code</div>
-          <div>{item.code ?? '-'}</div>
+          <div style={{ fontSize: 12, color: "#666" }}>Code</div>
+          <div>{item.code ?? "-"}</div>
         </div>
         <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 12, color: '#666' }}>Outlet</div>
-          <div>
-            {item.outlet?.name ?? item.outletId ?? '-'}
-          </div>
+          <div style={{ fontSize: 12, color: "#666" }}>Outlet</div>
+          <div>{item.outlet?.name ?? item.outletId ?? "-"}</div>
         </div>
       </div>
 
@@ -85,4 +85,3 @@ function WarehouseDetailInner() {
     </div>
   );
 }
-

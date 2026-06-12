@@ -13,23 +13,23 @@ import { Type } from 'class-transformer';
 export class CreatePurchaseOrderItemDto {
   @IsString()
   @IsNotEmpty()
-  inventoryItemId: string;
+  inventoryItemId!: string;
 
   @IsNumber()
   @IsNotEmpty()
   @Min(0.1)
-  quantity: number;
+  quantity!: number;
 
   @IsNumber()
   @IsNotEmpty()
   @Min(0)
-  unitPrice: number;
+  unitPrice!: number;
 }
 
 export class CreatePurchaseOrderDto {
   @IsString()
   @IsNotEmpty()
-  supplierId: string;
+  supplierId!: string;
 
   @IsString()
   @IsOptional()
@@ -46,5 +46,5 @@ export class CreatePurchaseOrderDto {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreatePurchaseOrderItemDto)
-  items: CreatePurchaseOrderItemDto[];
+  items!: CreatePurchaseOrderItemDto[];
 }

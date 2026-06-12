@@ -1,6 +1,7 @@
 # ERP Multi Business - Frontend Implementation Progress
 
 ## Completed
+
 - Inventory module pages:
   - apps/web/app/(app)/inventory/page.tsx
   - apps/web/app/(app)/inventory/history/page.tsx
@@ -24,6 +25,7 @@
   - apps/web/app/(app)/warehouses/page.tsx
 
 ## In Progress (next)
+
 - Implement missing CRUD/detail pages untuk:
   - Suppliers (create/update/delete + detail)
   - Warehouses (create/update/delete + detail)
@@ -35,6 +37,6 @@
   - pastikan permission constants dipakai benar
 
 ## Next (after that)
+
 - Re-check module coverage terhadap backend controllers:
   - auth, users, rbac, fulfillment (jika ada controller), purchase-orders actions, kitchen status endpoints
-

@@ -6,7 +6,7 @@ import {
 import { PrismaService } from '../../core/database/prisma.service';
 import { BaseService } from '../../core/services/base.service';
 import { CreatePurchaseOrderDto, UpdatePurchaseOrderDto } from './dto';
-import { PurchaseOrderStatus } from '@prisma/client';
+import { InventoryMovementType, PurchaseOrderStatus } from '@prisma/client';
 
 @Injectable()
 export class PurchaseOrderService extends BaseService {
@@ -92,9 +92,9 @@ export class PurchaseOrderService extends BaseService {
     const { skip: paginationSkip, take: paginationTake } =
       this.getPaginationParams(skip, take);
 
-    const where: any = { 
-      tenantId, 
-      // deletedAt: null 
+    const where: any = {
+      tenantId,
+      // deletedAt: null
     };
     if (status) where.status = status;
     if (supplierId) where.supplierId = supplierId;
@@ -185,19 +185,19 @@ export class PurchaseOrderService extends BaseService {
         // updatedById: userId,
         items: items
           ? {
-            create: items.map((item) => ({
-              inventoryItemId: item.inventoryItemId!,
-              quantity: item.quantity!,
-              unitPrice: item.unitPrice!,
-              subtotal: item.quantity! * item.unitPrice!,
-            })),
-          }
+              create: items.map((item) => ({
+                inventoryItemId: item.inventoryItemId!,
+                quantity: item.quantity!,
+                unitPrice: item.unitPrice!,
+                subtotal: item.quantity! * item.unitPrice!,
+              })),
+            }
           : undefined,
       },
       include: {
         items: true,
         supplier: true,
-        // updatedBy: true 
+        // updatedBy: true
       },
     });
 
@@ -213,28 +213,28 @@ export class PurchaseOrderService extends BaseService {
 
     // Validate status transition
     const validTransitions: Record<PurchaseOrderStatus, PurchaseOrderStatus[]> =
-    {
-      [PurchaseOrderStatus.DRAFT]: [
-        PurchaseOrderStatus.PENDING,
-        PurchaseOrderStatus.CANCELLED,
-      ],
-      [PurchaseOrderStatus.PENDING]: [
-        PurchaseOrderStatus.APPROVED,
-        PurchaseOrderStatus.REJECTED,
-        PurchaseOrderStatus.CANCELLED,
-      ],
-      [PurchaseOrderStatus.APPROVED]: [
-        PurchaseOrderStatus.PARTIALLY_RECEIVED,
-        PurchaseOrderStatus.RECEIVED,
-      ],
-      [PurchaseOrderStatus.PARTIALLY_RECEIVED]: [
-        PurchaseOrderStatus.RECEIVED,
-      ],
-      [PurchaseOrderStatus.RECEIVED]: [PurchaseOrderStatus.COMPLETED],
-      [PurchaseOrderStatus.REJECTED]: [PurchaseOrderStatus.CANCELLED],
-      [PurchaseOrderStatus.CANCELLED]: [],
-      [PurchaseOrderStatus.COMPLETED]: [],
-    };
+      {
+        [PurchaseOrderStatus.DRAFT]: [
+          PurchaseOrderStatus.PENDING,
+          PurchaseOrderStatus.CANCELLED,
+        ],
+        [PurchaseOrderStatus.PENDING]: [
+          PurchaseOrderStatus.APPROVED,
+          PurchaseOrderStatus.REJECTED,
+          PurchaseOrderStatus.CANCELLED,
+        ],
+        [PurchaseOrderStatus.APPROVED]: [
+          PurchaseOrderStatus.PARTIALLY_RECEIVED,
+          PurchaseOrderStatus.RECEIVED,
+        ],
+        [PurchaseOrderStatus.PARTIALLY_RECEIVED]: [
+          PurchaseOrderStatus.RECEIVED,
+        ],
+        [PurchaseOrderStatus.RECEIVED]: [PurchaseOrderStatus.COMPLETED],
+        [PurchaseOrderStatus.REJECTED]: [PurchaseOrderStatus.CANCELLED],
+        [PurchaseOrderStatus.CANCELLED]: [],
+        [PurchaseOrderStatus.COMPLETED]: [],
+      };
 
     if (!validTransitions[po.status]?.includes(status)) {
       throw new BadRequestException(
@@ -252,24 +252,102 @@ export class PurchaseOrderService extends BaseService {
       updateData.completedAt = new Date();
     }
 
-    const updated = await this.prisma.purchaseOrder.updateMany({
-      where: {
-        id,
-        tenantId,
-      },
-      data: updateData,
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.purchaseOrder.updateMany({
+        where: {
+          id,
+          tenantId,
+        },
+        data: updateData,
+      });
 
-    if (updated.count !== 1) {
-      throw new NotFoundException('Purchase Order not found');
-    }
+      if (updated.count !== 1) {
+        throw new NotFoundException('Purchase Order not found');
+      }
 
-    return this.prisma.purchaseOrder.findFirst({
-      where: {
-        id,
-        tenantId,
-      },
-      include: { items: true },
+      const freshPo = await tx.purchaseOrder.findFirst({
+        where: {
+          id,
+          tenantId,
+        },
+        include: {
+          items: true,
+        },
+      });
+
+      if (!freshPo) {
+        throw new NotFoundException('Purchase Order not found');
+      }
+
+      // Ensure inventory movements are created only when PO is COMPLETED.
+      // This prevents double counting across RECEIVED -> COMPLETED transitions.
+      if (status === PurchaseOrderStatus.COMPLETED) {
+        // warehouseId boleh null sesuai perubahan schema InventoryStock.
+        // Jika null, kita tetap tulis inventoryStock/inventoryMovement dengan warehouseId=null.
+        const warehouseId = freshPo.warehouseId ?? undefined;
+
+        for (const item of freshPo.items) {
+          const { inventoryItemId, quantity } = item;
+
+          const beforeQty =
+            (
+              await tx.inventoryStock.findFirst({
+                where: {
+                  warehouseId,
+                  inventoryItemId,
+                },
+              })
+            )?.quantity ?? 0;
+
+          const stock = await tx.inventoryStock.findFirst({
+            where: {
+              warehouseId,
+              inventoryItemId,
+            },
+          });
+
+          if (stock) {
+            await tx.inventoryStock.update({
+              where: { id: stock.id },
+              data: {
+                quantity: {
+                  increment: quantity,
+                },
+              },
+            });
+          } else {
+            await tx.inventoryStock.create({
+              data: {
+                warehouseId: freshPo?.warehouseId,
+                inventoryItemId,
+                quantity,
+              },
+            });
+          }
+
+          await tx.inventoryMovement.create({
+            data: {
+              tenantId,
+              warehouseId: freshPo.warehouseId,
+              inventoryItemId,
+              type: InventoryMovementType.STOCK_IN,
+              quantity,
+              beforeQuantity: beforeQty,
+              afterQuantity: beforeQty + quantity,
+              note: `PO ${freshPo.poNumber} ${status}`,
+              createdById: null,
+            },
+          });
+        }
+      }
+
+      return tx.purchaseOrder.findFirst({
+        where: {
+          id,
+          tenantId,
+        },
+        include: { items: true },
+      });
     });
   }
 

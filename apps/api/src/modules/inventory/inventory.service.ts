@@ -12,6 +12,21 @@ import { InventoryMovementType } from '@prisma/client';
 export class InventoryService {
   constructor(private prisma: PrismaService) {}
 
+  async listInventoryItems(tenantId: string, type?: string) {
+    const where: any = { tenantId };
+
+    if (type) {
+      // type comes from query string; map to InventoryItemType enum at runtime.
+      // If invalid type provided, just return empty.
+      where.type = type;
+    }
+
+    return this.prisma.inventoryItem.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async stockIn(tenantId: string, dto: StockInDto, userId: string) {
     return this.prisma.$transaction(async (tx) => {
       const stock = await tx.inventoryStock.findFirst({

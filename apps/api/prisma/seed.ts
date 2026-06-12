@@ -1,83 +1,83 @@
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient()
+const prisma = new PrismaClient();
 
 const permissions = [
-    'product.create',
-    'product.read',
-    'product.update',
-    'product.delete',
+  'product.create',
+  'product.read',
+  'product.update',
+  'product.delete',
 
-    'order.create',
-    'order.read',
-    'order.update',
+  'order.create',
+  'order.read',
+  'order.update',
 
-    'inventory.read',
-    'inventory.adjust',
+  'inventory.read',
+  'inventory.adjust',
 
-    'report.read',
+  'report.read',
 
-    'payment.create',
-    'payment.read',
+  'payment.create',
+  'payment.read',
 
-    'analytics.read',
+  'analytics.read',
 
-    'kitchen.read',
-    'kitchen.update',
+  'kitchen.read',
+  'kitchen.update',
 
-    'recipe.create',
-    'recipe.read',
-    'recipe.update',
+  'recipe.create',
+  'recipe.read',
+  'recipe.update',
 
-    'ingredient.create',
-    'ingredient.read',
-    'ingredient.update',
+  'ingredient.create',
+  'ingredient.read',
+  'ingredient.update',
 
-    'warehouse.read',
-    'warehouse.update',
-    'warehouse.create',
-    'warehouse.delete',
+  'warehouse.read',
+  'warehouse.update',
+  'warehouse.create',
+  'warehouse.delete',
 
-    'supplier.create',
-    'supplier.read',
-    'supplier.update',
-    'supplier.delete',
+  'supplier.create',
+  'supplier.read',
+  'supplier.update',
+  'supplier.delete',
 
-    'stock.create',
-    'stock.read',
-    'stock.update',
-    'stock.delete',
+  'stock.create',
+  'stock.read',
+  'stock.update',
+  'stock.delete',
 
-    'purchase_order.create',
-    'purchase_order.read',
-    'purchase_order.update',
-    'purchase_order.delete',
-    'purchase_order.approve',
-    'purchase_order.receive',
-]
+  'purchase_order.create',
+  'purchase_order.read',
+  'purchase_order.update',
+  'purchase_order.delete',
+  'purchase_order.approve',
+  'purchase_order.receive',
+];
 
 async function main() {
-    for (const code of permissions) {
-        await prisma.permission.upsert({
-            where: {
-                code,
-            },
+  for (const code of permissions) {
+    await prisma.permission.upsert({
+      where: {
+        code,
+      },
 
-            update: {},
+      update: {},
 
-            create: {
-                code,
-                name: code,
-            },
-        })
-    }
+      create: {
+        code,
+        name: code,
+      },
+    });
+  }
 }
 
 main()
-    .catch((error) => {
-        console.error(error)
-        process.exit(1)
-    })
-    .finally(async () => {
-        await prisma.$disconnect()
-    })
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

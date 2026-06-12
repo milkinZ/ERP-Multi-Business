@@ -133,6 +133,29 @@ export class OrdersService {
 
   async updateStatus(id: string, user: JwtUser, status: OrderStatus) {
     return this.prisma.$transaction(async (tx) => {
+      const tenant = await tx.tenant.findUnique({
+        where: { id: user.tenantId },
+        select: { businessType: true },
+      });
+
+      // Workflow kitchen (IN_PROGRESS/READY/COMPLETED) only for CAFE business type
+      const kitchenWorkflowStatuses = new Set<OrderStatus>([
+        OrderStatus.IN_PROGRESS,
+        OrderStatus.READY,
+        OrderStatus.COMPLETED,
+      ]);
+
+      const isKitchenWorkflowStatus = kitchenWorkflowStatuses.has(status);
+
+      if (
+        !tenant ||
+        (tenant.businessType !== 'CAFE' && isKitchenWorkflowStatus)
+      ) {
+        throw new BadRequestException(
+          'Kitchen workflow status transition is only available for CAFE business type',
+        );
+      }
+
       const order = await tx.salesOrder.findFirst({
         where: {
           id,
@@ -295,4 +318,3 @@ export class OrdersService {
     });
   }
 }
-

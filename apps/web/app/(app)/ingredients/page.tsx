@@ -1,11 +1,11 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import Link from 'next/link';
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
 
-import { useAuth } from '../../../src/providers/AuthProvider';
-import { RequireAuth } from '../../../src/components/RequireAuth';
-import { apiClient } from '../../../src/lib/apiClient';
+import { useAuth } from "../../../src/providers/AuthProvider";
+import { RequireAuth } from "../../../src/components/RequireAuth";
+import { apiClient } from "../../../src/lib/apiClient";
 
 type Ingredient = {
   id: string;
@@ -32,11 +32,13 @@ function IngredientsInner() {
       setLoading(true);
       setError(null);
       try {
-        const data = await apiClient.get<Ingredient[]>('/ingredients', { token });
+        const data = await apiClient.get<Ingredient[]>("/ingredients", {
+          token,
+        });
         setItems(data ?? []);
       } catch (e) {
         const err = e as { message?: string };
-        setError(err?.message ?? 'Failed to load ingredients');
+        setError(err?.message ?? "Failed to load ingredients");
       } finally {
         setLoading(false);
       }
@@ -45,7 +47,7 @@ function IngredientsInner() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
         <h1 style={{ fontSize: 20, marginBottom: 12 }}>Ingredients</h1>
         <Link href="/ingredients/new" style={{ fontSize: 13 }}>
           + New
@@ -53,9 +55,9 @@ function IngredientsInner() {
       </div>
 
       {loading ? <div>Loading...</div> : null}
-      {error ? <div style={{ color: 'red' }}>{error}</div> : null}
+      {error ? <div style={{ color: "red" }}>{error}</div> : null}
 
-      <ul style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <ul style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {items.map((p) => (
           <li key={p.id}>
             <Link href={`/ingredients/${p.id}`}>{p.name ?? p.id}</Link>
@@ -65,4 +67,3 @@ function IngredientsInner() {
     </div>
   );
 }
-

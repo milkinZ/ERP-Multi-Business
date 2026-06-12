@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import React from 'react';
-import { useAuth } from '../providers/AuthProvider';
+import React from "react";
+import { useAuth } from "../providers/AuthProvider";
 
 export default function Can({
   permission,
@@ -16,4 +16,3 @@ export default function Can({
   const ok = !!user?.permissions?.includes(permission);
   return <>{ok ? children : fallback}</>;
 }
-

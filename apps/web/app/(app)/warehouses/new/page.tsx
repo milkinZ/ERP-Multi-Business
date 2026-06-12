@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import Link from 'next/link';
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
 
-import { apiClient } from '../../../../src/lib/apiClient';
-import { useAuth } from '../../../../src/providers/AuthProvider';
-import { RequireAuth } from '../../../../src/components/RequireAuth';
-import { ErrorAlert } from '../../../../src/components/ErrorAlert';
+import { apiClient } from "../../../../src/lib/apiClient";
+import { useAuth } from "../../../../src/providers/AuthProvider";
+import { RequireAuth } from "../../../../src/components/RequireAuth";
+import { ErrorAlert } from "../../../../src/components/ErrorAlert";
 
 type WarehouseForm = {
   name: string;
@@ -26,7 +26,7 @@ export default function NewWarehousePage() {
 function NewWarehouseInner() {
   const { token } = useAuth();
 
-  const [form, setForm] = useState<WarehouseForm>({ name: '', outletId: '' });
+  const [form, setForm] = useState<WarehouseForm>({ name: "", outletId: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -44,15 +44,15 @@ function NewWarehouseInner() {
       };
       if (form.outletId) payload.outletId = form.outletId;
 
-      await apiClient.post('/warehouses', payload, { token });
+      await apiClient.post("/warehouses", payload, { token });
 
       setSuccess(true);
       setTimeout(() => {
-        window.location.href = '/warehouses';
+        window.location.href = "/warehouses";
       }, 500);
     } catch (e) {
       const err = e as { message?: string };
-      setError(err?.message ?? 'Failed to create warehouse');
+      setError(err?.message ?? "Failed to create warehouse");
     } finally {
       setLoading(false);
     }
@@ -60,7 +60,7 @@ function NewWarehouseInner() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
         <h1 style={{ fontSize: 20, marginBottom: 12 }}>New Warehouse</h1>
         <Link href="/warehouses" style={{ fontSize: 13 }}>
           ← Back
@@ -71,8 +71,8 @@ function NewWarehouseInner() {
       {success ? (
         <div
           style={{
-            background: '#e9ffe9',
-            border: '1px solid #8fda8f',
+            background: "#e9ffe9",
+            border: "1px solid #8fda8f",
             padding: 12,
             borderRadius: 8,
             marginBottom: 12,
@@ -82,8 +82,15 @@ function NewWarehouseInner() {
         </div>
       ) : null}
 
-      <div style={{ maxWidth: 520, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div
+        style={{
+          maxWidth: 520,
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+        }}
+      >
+        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           Name
           <input
             value={form.name}
@@ -92,11 +99,13 @@ function NewWarehouseInner() {
           />
         </label>
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           Outlet ID (optional)
           <input
-            value={form.outletId ?? ''}
-            onChange={(e) => setForm((s) => ({ ...s, outletId: e.target.value }))}
+            value={form.outletId ?? ""}
+            onChange={(e) =>
+              setForm((s) => ({ ...s, outletId: e.target.value }))
+            }
             style={{ padding: 10 }}
             placeholder="UUID or outlet id"
           />
@@ -107,17 +116,16 @@ function NewWarehouseInner() {
           disabled={loading}
           style={{
             padding: 12,
-            background: loading ? '#999' : '#111',
-            color: '#fff',
-            border: 'none',
+            background: loading ? "#999" : "#111",
+            color: "#fff",
+            border: "none",
             borderRadius: 8,
-            cursor: loading ? 'not-allowed' : 'pointer',
+            cursor: loading ? "not-allowed" : "pointer",
           }}
         >
-          {loading ? 'Creating...' : 'Create'}
+          {loading ? "Creating..." : "Create"}
         </button>
       </div>
     </div>
   );
 }
-

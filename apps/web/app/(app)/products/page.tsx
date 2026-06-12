@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { apiClient } from '../../../src/lib/apiClient';
-import { useAuth } from '../../../src/providers/AuthProvider';
-import { RequireAuth } from '../../../src/components/RequireAuth';
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
+import { apiClient } from "../../../src/lib/apiClient";
+import { useAuth } from "../../../src/providers/AuthProvider";
+import { RequireAuth } from "../../../src/components/RequireAuth";
 
 type Product = {
   id: string;
@@ -31,12 +31,13 @@ function ProductsInner() {
       try {
         setLoading(true);
         setError(null);
-        const data = await apiClient.get<Product[]>('/products', {
+        const data = await apiClient.get<Product[]>("/products", {
           token,
         });
         setItems(data ?? []);
-      } catch (e) { const err = e as { message?: string };
-        setError(err?.message ?? 'Failed to load products');
+      } catch (e) {
+        const err = e as { message?: string };
+        setError(err?.message ?? "Failed to load products");
       } finally {
         setLoading(false);
       }
@@ -45,7 +46,7 @@ function ProductsInner() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
         <h1 style={{ fontSize: 20, marginBottom: 12 }}>Products</h1>
         <Link href="/products/new" style={{ fontSize: 13 }}>
           + New
@@ -53,9 +54,9 @@ function ProductsInner() {
       </div>
 
       {loading ? <div>Loading...</div> : null}
-      {error ? <div style={{ color: 'red' }}>{error}</div> : null}
+      {error ? <div style={{ color: "red" }}>{error}</div> : null}
 
-      <ul style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <ul style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {items.map((p) => (
           <li key={p.id}>
             <Link href={`/products/${p.id}`}>{p.name ?? p.id}</Link>
@@ -65,4 +66,3 @@ function ProductsInner() {
     </div>
   );
 }
-

@@ -4,7 +4,7 @@ import { PrismaService } from '../../core/database/prisma.service';
 
 @Injectable()
 export class AnalyticsService {
-  constructor(private prisma: PrismaService) { }
+  constructor(private prisma: PrismaService) {}
 
   async getSummary(tenantId: string) {
     const [totalProducts, totalOrders, totalPayments, revenue] =

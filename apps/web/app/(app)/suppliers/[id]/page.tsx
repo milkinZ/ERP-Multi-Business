@@ -1,13 +1,13 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 
-import { apiClient } from '../../../../src/lib/apiClient';
-import { useAuth } from '../../../../src/providers/AuthProvider';
-import { RequireAuth } from '../../../../src/components/RequireAuth';
-import { ErrorAlert } from '../../../../src/components/ErrorAlert';
+import { apiClient } from "../../../../src/lib/apiClient";
+import { useAuth } from "../../../../src/providers/AuthProvider";
+import { RequireAuth } from "../../../../src/components/RequireAuth";
+import { ErrorAlert } from "../../../../src/components/ErrorAlert";
 
 type Supplier = {
   id: string;
@@ -27,7 +27,7 @@ export default function SupplierDetailPage() {
 
 function SupplierDetailInner() {
   const params = useParams();
-  const id = String(params.id ?? '');
+  const id = String(params.id ?? "");
   const { token } = useAuth();
 
   const [item, setItem] = useState<Supplier | null>(null);
@@ -40,11 +40,13 @@ function SupplierDetailInner() {
       try {
         setLoading(true);
         setError(null);
-        const data = await apiClient.get<Supplier>(`/suppliers/${id}`, { token });
+        const data = await apiClient.get<Supplier>(`/suppliers/${id}`, {
+          token,
+        });
         setItem(data);
       } catch (e) {
         const err = e as { message?: string };
-        setError(err?.message ?? 'Failed to load supplier');
+        setError(err?.message ?? "Failed to load supplier");
       } finally {
         setLoading(false);
       }
@@ -57,22 +59,22 @@ function SupplierDetailInner() {
       setLoading(true);
       setError(null);
       await apiClient.del(`/suppliers/${id}`, { token });
-      window.location.href = '/suppliers';
+      window.location.href = "/suppliers";
     } catch (e) {
       const err = e as { message?: string };
-      setError(err?.message ?? 'Failed to delete supplier');
+      setError(err?.message ?? "Failed to delete supplier");
     } finally {
       setLoading(false);
     }
   }
 
   if (loading) return <div>Loading...</div>;
-  if (error) return <div style={{ color: 'red' }}>{error}</div>;
+  if (error) return <div style={{ color: "red" }}>{error}</div>;
   if (!item) return <div>Not found</div>;
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
         <h1 style={{ fontSize: 20, marginBottom: 12 }}>{item.name}</h1>
         <Link href="/suppliers" style={{ fontSize: 13 }}>
           ← Back
@@ -81,32 +83,39 @@ function SupplierDetailInner() {
 
       <div style={{ maxWidth: 520 }}>
         <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 12, color: '#666' }}>ID</div>
+          <div style={{ fontSize: 12, color: "#666" }}>ID</div>
           <div>{item.id}</div>
         </div>
         <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 12, color: '#666' }}>Phone</div>
-          <div>{item.phone ?? '-'}</div>
+          <div style={{ fontSize: 12, color: "#666" }}>Phone</div>
+          <div>{item.phone ?? "-"}</div>
         </div>
         <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 12, color: '#666' }}>Email</div>
-          <div>{item.email ?? '-'}</div>
+          <div style={{ fontSize: 12, color: "#666" }}>Email</div>
+          <div>{item.email ?? "-"}</div>
         </div>
         <div>
-          <div style={{ fontSize: 12, color: '#666' }}>Address</div>
-          <div>{item.address ?? '-'}</div>
+          <div style={{ fontSize: 12, color: "#666" }}>Address</div>
+          <div>{item.address ?? "-"}</div>
         </div>
 
-        <div style={{ display: 'flex', gap: 10, marginTop: 16, alignItems: 'center' }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            marginTop: 16,
+            alignItems: "center",
+          }}
+        >
           <button
             onClick={() => void remove()}
             style={{
-              padding: '10px 12px',
-              background: '#fff',
-              color: '#b00020',
-              border: '1px solid #b00020',
+              padding: "10px 12px",
+              background: "#fff",
+              color: "#b00020",
+              border: "1px solid #b00020",
               borderRadius: 8,
-              cursor: 'pointer',
+              cursor: "pointer",
             }}
           >
             Delete
@@ -116,4 +125,3 @@ function SupplierDetailInner() {
     </div>
   );
 }
-

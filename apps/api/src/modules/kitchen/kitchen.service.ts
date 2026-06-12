@@ -9,6 +9,17 @@ export class KitchenService {
   constructor(private prisma: PrismaService) {}
 
   async getQueue(tenantId: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { businessType: true },
+    });
+
+    // Kitchen only applies to F&B business type (CAFE).
+    // For other industries, keep queue empty.
+    if (!tenant || tenant.businessType !== 'CAFE') {
+      return [];
+    }
+
     return this.prisma.salesOrder.findMany({
       where: {
         tenantId,
@@ -33,6 +44,17 @@ export class KitchenService {
   }
 
   async startCooking(id: string, tenantId: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { businessType: true },
+    });
+
+    if (!tenant || tenant.businessType !== 'CAFE') {
+      throw new BadRequestException(
+        'Kitchen is only available for CAFE business type',
+      );
+    }
+
     const order = await this.prisma.salesOrder.findFirst({
       where: {
         id,
@@ -60,6 +82,17 @@ export class KitchenService {
   }
 
   async ready(id: string, tenantId: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { businessType: true },
+    });
+
+    if (!tenant || tenant.businessType !== 'CAFE') {
+      throw new BadRequestException(
+        'Kitchen is only available for CAFE business type',
+      );
+    }
+
     const order = await this.prisma.salesOrder.findFirst({
       where: {
         id,
@@ -87,6 +120,17 @@ export class KitchenService {
   }
 
   async complete(id: string, tenantId: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { businessType: true },
+    });
+
+    if (!tenant || tenant.businessType !== 'CAFE') {
+      throw new BadRequestException(
+        'Kitchen is only available for CAFE business type',
+      );
+    }
+
     const order = await this.prisma.salesOrder.findFirst({
       where: {
         id,

@@ -1,11 +1,11 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import Link from 'next/link';
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
 
-import { useAuth } from '../../../src/providers/AuthProvider';
-import { RequireAuth } from '../../../src/components/RequireAuth';
-import { apiClient } from '../../../src/lib/apiClient';
+import { useAuth } from "../../../src/providers/AuthProvider";
+import { RequireAuth } from "../../../src/components/RequireAuth";
+import { apiClient } from "../../../src/lib/apiClient";
 
 type Warehouse = {
   id: string;
@@ -32,11 +32,11 @@ function WarehousesInner() {
       setLoading(true);
       setError(null);
       try {
-        const data = await apiClient.get<Warehouse[]>('/warehouses', { token });
+        const data = await apiClient.get<Warehouse[]>("/warehouses", { token });
         setItems(data ?? []);
       } catch (e) {
         const err = e as { message?: string };
-        setError(err?.message ?? 'Failed to load warehouses');
+        setError(err?.message ?? "Failed to load warehouses");
       } finally {
         setLoading(false);
       }
@@ -45,7 +45,7 @@ function WarehousesInner() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
         <h1 style={{ fontSize: 20, marginBottom: 12 }}>Warehouses</h1>
         <Link href="/warehouses/new" style={{ fontSize: 13 }}>
           + New
@@ -53,9 +53,9 @@ function WarehousesInner() {
       </div>
 
       {loading ? <div>Loading...</div> : null}
-      {error ? <div style={{ color: 'red' }}>{error}</div> : null}
+      {error ? <div style={{ color: "red" }}>{error}</div> : null}
 
-      <ul style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <ul style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {items.map((w) => (
           <li key={w.id}>
             <Link href={`/warehouses/${w.id}`}>{w.name ?? w.id}</Link>
@@ -65,4 +65,3 @@ function WarehousesInner() {
     </div>
   );
 }
-

@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 
-import { apiClient } from '../../../../src/lib/apiClient';
-import { useAuth } from '../../../../src/providers/AuthProvider';
-import { RequireAuth } from '../../../../src/components/RequireAuth';
+import { apiClient } from "../../../../src/lib/apiClient";
+import { useAuth } from "../../../../src/providers/AuthProvider";
+import { RequireAuth } from "../../../../src/components/RequireAuth";
 
 type Product = {
   id: string;
@@ -27,7 +27,7 @@ export default function ProductDetailPage() {
 function ProductDetailInner() {
   const params = useParams();
   const { token } = useAuth();
-  const id = String(params.id ?? '');
+  const id = String(params.id ?? "");
 
   const [item, setItem] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -43,8 +43,9 @@ function ProductDetailInner() {
           token,
         });
         setItem(data);
-    } catch (e) { const err = e as { message?: string };
-        setError(err?.message ?? 'Failed to load product');
+      } catch (e) {
+        const err = e as { message?: string };
+        setError(err?.message ?? "Failed to load product");
       } finally {
         setLoading(false);
       }
@@ -52,12 +53,12 @@ function ProductDetailInner() {
   }, [token, id]);
 
   if (loading) return <div>Loading...</div>;
-  if (error) return <div style={{ color: 'red' }}>{error}</div>;
+  if (error) return <div style={{ color: "red" }}>{error}</div>;
   if (!item) return <div>Not found</div>;
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
         <h1 style={{ fontSize: 20, marginBottom: 12 }}>{item.name}</h1>
         <Link href="/products" style={{ fontSize: 13 }}>
           ← Back
@@ -66,26 +67,25 @@ function ProductDetailInner() {
 
       <div style={{ maxWidth: 520 }}>
         <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 12, color: '#666' }}>ID</div>
+          <div style={{ fontSize: 12, color: "#666" }}>ID</div>
           <div>{item.id}</div>
         </div>
 
         <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 12, color: '#666' }}>Price</div>
-          <div>{item.price ?? '-'}</div>
+          <div style={{ fontSize: 12, color: "#666" }}>Price</div>
+          <div>{item.price ?? "-"}</div>
         </div>
 
         <div>
-          <div style={{ fontSize: 12, color: '#666' }}>Description</div>
-          <div>{item.description ?? '-'}</div>
+          <div style={{ fontSize: 12, color: "#666" }}>Description</div>
+          <div>{item.description ?? "-"}</div>
         </div>
 
         <div>
-          <div style={{ fontSize: 12, color: '#666' }}>Inventory Item ID</div>
-          <div>{item.inventoryItemId ?? '-'}</div>
+          <div style={{ fontSize: 12, color: "#666" }}>Inventory Item ID</div>
+          <div>{item.inventoryItemId ?? "-"}</div>
         </div>
       </div>
     </div>
   );
 }
-

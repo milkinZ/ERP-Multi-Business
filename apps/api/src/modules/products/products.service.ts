@@ -14,16 +14,9 @@ export class ProductsService {
     tenantId: string;
   }) {
     return this.prisma.$transaction(async (tx) => {
-      const inventoryItem = await tx.inventoryItem.create({
-        data: {
-          code:
-            data.sku ??
-            `PRD-${new Date().getTime()}-${Math.floor(Math.random() * 1000)}`,
-          name: data.name,
-          description: data.description,
-          type: InventoryItemType.PRODUCT,
-          tenantId: data.tenantId,
-        },
+      const tenant = await tx.tenant.findUnique({
+        where: { id: data.tenantId },
+        select: { businessType: true },
       });
 
       if (data.sku) {
@@ -39,6 +32,27 @@ export class ProductsService {
         }
       }
 
+      // Business rules:
+      // - CAFE: Product is a finished menu item; inventoryItem is created from ingredients/recipe, not from product.
+      // - RETAIL: Product is sellable inventory item; inventoryItem is created from product.
+      let inventoryItemId: string | null = null;
+
+      if (tenant?.businessType === 'RETAIL') {
+        const inventoryItem = await tx.inventoryItem.create({
+          data: {
+            code:
+              data.sku ??
+              `PRD-${new Date().getTime()}-${Math.floor(Math.random() * 1000)}`,
+            name: data.name,
+            description: data.description,
+            type: InventoryItemType.PRODUCT,
+            tenantId: data.tenantId,
+          },
+        });
+
+        inventoryItemId = inventoryItem.id;
+      }
+
       const product = await tx.product.create({
         data: {
           name: data.name,
@@ -46,7 +60,7 @@ export class ProductsService {
           sku: data.sku,
           price: data.price,
           tenantId: data.tenantId,
-          inventoryItemId: inventoryItem.id,
+          inventoryItemId: inventoryItemId ?? undefined,
         },
         include: {
           inventoryItem: true,

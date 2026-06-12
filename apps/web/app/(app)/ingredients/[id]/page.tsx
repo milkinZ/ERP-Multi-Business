@@ -1,13 +1,13 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 
-import { apiClient } from '../../../../src/lib/apiClient';
-import { useAuth } from '../../../../src/providers/AuthProvider';
-import { RequireAuth } from '../../../../src/components/RequireAuth';
-import { ErrorAlert } from '../../../../src/components/ErrorAlert';
+import { apiClient } from "../../../../src/lib/apiClient";
+import { useAuth } from "../../../../src/providers/AuthProvider";
+import { RequireAuth } from "../../../../src/components/RequireAuth";
+import { ErrorAlert } from "../../../../src/components/ErrorAlert";
 
 type Ingredient = {
   id: string;
@@ -26,7 +26,7 @@ export default function IngredientDetailPage() {
 
 function IngredientDetailInner() {
   const params = useParams();
-  const id = String(params.id ?? '');
+  const id = String(params.id ?? "");
   const { token } = useAuth();
 
   const [item, setItem] = useState<Ingredient | null>(null);
@@ -41,11 +41,13 @@ function IngredientDetailInner() {
       setError(null);
 
       try {
-        const data = await apiClient.get<Ingredient>(`/ingredients/${id}`, { token });
+        const data = await apiClient.get<Ingredient>(`/ingredients/${id}`, {
+          token,
+        });
         setItem(data);
       } catch (e) {
         const err = e as { message?: string };
-        setError(err?.message ?? 'Failed to load ingredient');
+        setError(err?.message ?? "Failed to load ingredient");
       } finally {
         setLoading(false);
       }
@@ -58,8 +60,10 @@ function IngredientDetailInner() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-        <h1 style={{ fontSize: 20, marginBottom: 12 }}>{item.name ?? item.id}</h1>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
+        <h1 style={{ fontSize: 20, marginBottom: 12 }}>
+          {item.name ?? item.id}
+        </h1>
         <Link href="/ingredients" style={{ fontSize: 13 }}>
           ← Back
         </Link>
@@ -67,21 +71,20 @@ function IngredientDetailInner() {
 
       <div style={{ maxWidth: 520 }}>
         <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 12, color: '#666' }}>ID</div>
+          <div style={{ fontSize: 12, color: "#666" }}>ID</div>
           <div>{item.id}</div>
         </div>
 
         <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 12, color: '#666' }}>Unit</div>
-          <div>{item.unit ?? '-'}</div>
+          <div style={{ fontSize: 12, color: "#666" }}>Unit</div>
+          <div>{item.unit ?? "-"}</div>
         </div>
 
         <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 12, color: '#666' }}>Inventory Item ID</div>
-          <div>{item.inventoryItemId ?? '-'}</div>
+          <div style={{ fontSize: 12, color: "#666" }}>Inventory Item ID</div>
+          <div>{item.inventoryItemId ?? "-"}</div>
         </div>
       </div>
     </div>
   );
 }
-

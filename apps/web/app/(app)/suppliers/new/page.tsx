@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import Link from 'next/link';
+import React, { useState } from "react";
+import Link from "next/link";
 
-import { apiClient } from '../../../../src/lib/apiClient';
-import { useAuth } from '../../../../src/providers/AuthProvider';
-import { RequireAuth } from '../../../../src/components/RequireAuth';
-import { ErrorAlert } from '../../../../src/components/ErrorAlert';
+import { apiClient } from "../../../../src/lib/apiClient";
+import { useAuth } from "../../../../src/providers/AuthProvider";
+import { RequireAuth } from "../../../../src/components/RequireAuth";
+import { ErrorAlert } from "../../../../src/components/ErrorAlert";
 
 type SupplierForm = {
   name: string;
@@ -27,10 +27,10 @@ function NewSupplierInner() {
   const { token } = useAuth();
 
   const [form, setForm] = useState<SupplierForm>({
-    name: '',
-    phone: '',
-    email: '',
-    address: '',
+    name: "",
+    phone: "",
+    email: "",
+    address: "",
   });
 
   const [loading, setLoading] = useState(false);
@@ -53,15 +53,15 @@ function NewSupplierInner() {
       if (form.email) payload.email = form.email;
       if (form.address) payload.address = form.address;
 
-      await apiClient.post('/suppliers', payload, { token });
+      await apiClient.post("/suppliers", payload, { token });
 
       setSuccess(true);
       setTimeout(() => {
-        window.location.href = '/suppliers';
+        window.location.href = "/suppliers";
       }, 500);
     } catch (e) {
       const err = e as { message?: string };
-      setError(err?.message ?? 'Failed to create supplier');
+      setError(err?.message ?? "Failed to create supplier");
     } finally {
       setLoading(false);
     }
@@ -69,7 +69,7 @@ function NewSupplierInner() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
         <h1 style={{ fontSize: 20, marginBottom: 12 }}>New Supplier</h1>
         <Link href="/suppliers" style={{ fontSize: 13 }}>
           ← Back
@@ -80,8 +80,8 @@ function NewSupplierInner() {
       {success ? (
         <div
           style={{
-            background: '#e9ffe9',
-            border: '1px solid #8fda8f',
+            background: "#e9ffe9",
+            border: "1px solid #8fda8f",
             padding: 12,
             borderRadius: 8,
             marginBottom: 12,
@@ -91,8 +91,15 @@ function NewSupplierInner() {
         </div>
       ) : null}
 
-      <div style={{ maxWidth: 520, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div
+        style={{
+          maxWidth: 520,
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+        }}
+      >
+        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           Name
           <input
             value={form.name}
@@ -101,29 +108,31 @@ function NewSupplierInner() {
           />
         </label>
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           Phone
           <input
-            value={form.phone ?? ''}
+            value={form.phone ?? ""}
             onChange={(e) => setForm((s) => ({ ...s, phone: e.target.value }))}
             style={{ padding: 10 }}
           />
         </label>
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           Email
           <input
-            value={form.email ?? ''}
+            value={form.email ?? ""}
             onChange={(e) => setForm((s) => ({ ...s, email: e.target.value }))}
             style={{ padding: 10 }}
           />
         </label>
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           Address
           <textarea
-            value={form.address ?? ''}
-            onChange={(e) => setForm((s) => ({ ...s, address: e.target.value }))}
+            value={form.address ?? ""}
+            onChange={(e) =>
+              setForm((s) => ({ ...s, address: e.target.value }))
+            }
             style={{ padding: 10, minHeight: 90 }}
           />
         </label>
@@ -133,17 +142,16 @@ function NewSupplierInner() {
           disabled={loading}
           style={{
             padding: 12,
-            background: loading ? '#999' : '#111',
-            color: '#fff',
-            border: 'none',
+            background: loading ? "#999" : "#111",
+            color: "#fff",
+            border: "none",
             borderRadius: 8,
-            cursor: loading ? 'not-allowed' : 'pointer',
+            cursor: loading ? "not-allowed" : "pointer",
           }}
         >
-          {loading ? 'Creating...' : 'Create'}
+          {loading ? "Creating..." : "Create"}
         </button>
       </div>
     </div>
   );
 }
-

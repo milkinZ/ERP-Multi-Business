@@ -7,17 +7,17 @@ export type ApiError = {
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ??
   // fallback for local dev
-  'http://localhost:3001';
+  "http://localhost:3001";
 
 function buildUrl(path: string) {
-  if (!path.startsWith('/')) return `${API_BASE_URL}/${path}`;
+  if (!path.startsWith("/")) return `${API_BASE_URL}/${path}`;
   return `${API_BASE_URL}${path}`;
 }
 
 async function request<T>(
   path: string,
   options: {
-    method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
+    method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
     body?: unknown;
     token?: string | null;
     signal?: AbortSignal;
@@ -35,7 +35,7 @@ async function request<T>(
   }
 
   const headers: Record<string, string> = {
-    Accept: 'application/json',
+    Accept: "application/json",
     ...(options.headers ?? {}),
   };
 
@@ -44,7 +44,7 @@ async function request<T>(
   }
 
   if (options.body !== undefined) {
-    headers['Content-Type'] = 'application/json';
+    headers["Content-Type"] = "application/json";
   }
 
   const res = await fetch(url.toString(), {
@@ -68,7 +68,7 @@ async function request<T>(
         (details as { message?: string })?.message ??
         (details as { error?: string })?.error ??
         res.statusText ??
-        'Request failed',
+        "Request failed",
       status: res.status,
       details,
     };
@@ -93,7 +93,7 @@ export const apiClient = {
     },
   ) {
     return request<T>(path, {
-      method: 'GET',
+      method: "GET",
       token: args?.token ?? null,
       query: args?.query,
     });
@@ -108,7 +108,7 @@ export const apiClient = {
     },
   ) {
     return request<T>(path, {
-      method: 'POST',
+      method: "POST",
       token: args?.token ?? null,
       query: args?.query,
       body,
@@ -124,7 +124,7 @@ export const apiClient = {
     },
   ) {
     return request<T>(path, {
-      method: 'PATCH',
+      method: "PATCH",
       token: args?.token ?? null,
       query: args?.query,
       body,
@@ -133,9 +133,8 @@ export const apiClient = {
 
   async del<T>(path: string, args?: { token?: string | null }) {
     return request<T>(path, {
-      method: 'DELETE',
+      method: "DELETE",
       token: args?.token ?? null,
     });
   },
 };
-

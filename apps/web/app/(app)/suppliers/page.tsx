@@ -1,11 +1,11 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import Link from 'next/link';
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
 
-import { useAuth } from '../../../src/providers/AuthProvider';
-import { RequireAuth } from '../../../src/components/RequireAuth';
-import { apiClient } from '../../../src/lib/apiClient';
+import { useAuth } from "../../../src/providers/AuthProvider";
+import { RequireAuth } from "../../../src/components/RequireAuth";
+import { apiClient } from "../../../src/lib/apiClient";
 
 type Supplier = {
   id: string;
@@ -32,11 +32,11 @@ function SuppliersInner() {
       setLoading(true);
       setError(null);
       try {
-        const data = await apiClient.get<Supplier[]>('/suppliers', { token });
+        const data = await apiClient.get<Supplier[]>("/suppliers", { token });
         setItems(data ?? []);
       } catch (e) {
         const err = e as { message?: string };
-        setError(err?.message ?? 'Failed to load suppliers');
+        setError(err?.message ?? "Failed to load suppliers");
       } finally {
         setLoading(false);
       }
@@ -45,16 +45,16 @@ function SuppliersInner() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
         <h1 style={{ fontSize: 20, marginBottom: 12 }}>Suppliers</h1>
         <Link href="/suppliers/new" style={{ fontSize: 13 }}>
           + New
         </Link>
       </div>
       {loading ? <div>Loading...</div> : null}
-      {error ? <div style={{ color: 'red' }}>{error}</div> : null}
+      {error ? <div style={{ color: "red" }}>{error}</div> : null}
 
-      <ul style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <ul style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {items.map((s) => (
           <li key={s.id}>
             <Link href={`/suppliers/${s.id}`}>{s.name ?? s.id}</Link>
@@ -64,4 +64,3 @@ function SuppliersInner() {
     </div>
   );
 }
-

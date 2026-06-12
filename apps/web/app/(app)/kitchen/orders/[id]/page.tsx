@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
-import Link from 'next/link';
+import React, { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+import Link from "next/link";
 
-import { RequireAuth } from '../../../../../src/components/RequireAuth';
-import { useAuth } from '../../../../../src/providers/AuthProvider';
-import { apiClient } from '../../../../../src/lib/apiClient';
+import { RequireAuth } from "../../../../../src/components/RequireAuth";
+import { useAuth } from "../../../../../src/providers/AuthProvider";
+import { apiClient } from "../../../../../src/lib/apiClient";
 
 type KitchenOrder = {
   id: string;
@@ -24,7 +24,7 @@ export default function KitchenOrderPage() {
 
 function KitchenOrderInner() {
   const params = useParams();
-  const id = String(params.id ?? '');
+  const id = String(params.id ?? "");
   const { token } = useAuth();
 
   const [item, setItem] = useState<KitchenOrder | null>(null);
@@ -38,11 +38,13 @@ function KitchenOrderInner() {
       setError(null);
       try {
         // No explicit GET detail endpoint in backend controller; best-effort fallback to queue list
-        const all = await apiClient.get<KitchenOrder[]>('/kitchen/orders', { token });
+        const all = await apiClient.get<KitchenOrder[]>("/kitchen/orders", {
+          token,
+        });
         setItem((all ?? []).find((o) => o.id === id) ?? null);
       } catch (e) {
         const err = e as { message?: string };
-        setError(err?.message ?? 'Failed to load');
+        setError(err?.message ?? "Failed to load");
       } finally {
         setLoading(false);
       }
@@ -50,21 +52,54 @@ function KitchenOrderInner() {
   }, [token, id]);
 
   if (loading) return <div>Loading...</div>;
-  if (error) return <div style={{ color: 'red' }}>{error}</div>;
-  if (!item) return <div>Not found</div>;
+  if (error) return <div style={{ color: "red" }}>{error}</div>;
+  if (!item) {
+    return (
+      <div>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            marginBottom: 12,
+          }}
+        >
+          <h1 style={{ fontSize: 20 }}>Kitchen Order</h1>
+          <Link href="/kitchen" style={{ fontSize: 13 }}>
+            ← Back
+          </Link>
+        </div>
+
+        <div style={{ fontSize: 13, color: "#666" }}>
+          Not found in current kitchen queue.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          marginBottom: 12,
+        }}
+      >
         <h1 style={{ fontSize: 20 }}>Kitchen Order</h1>
         <Link href="/kitchen" style={{ fontSize: 13 }}>
           ← Back
         </Link>
       </div>
 
-      <div>#{item.orderNumber ?? item.id}</div>
-      <div>Status: {item.status ?? '-'}</div>
+      <div style={{ fontSize: 13, color: "#666", marginBottom: 10 }}>
+        Detail ini diambil dari <b>Kitchen Queue</b> (karena backend tidak
+        menyediakan endpoint GET detail per order).
+      </div>
+
+      <div style={{ fontSize: 16, marginBottom: 6 }}>
+        #{item.orderNumber ?? item.id}
+      </div>
+      <div>Status: {item.status ?? "-"}</div>
     </div>
   );
 }
-
