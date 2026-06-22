@@ -3,10 +3,11 @@ import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 
 import { PERMISSIONS_KEY } from '../../common/decorator/permissions.decorator';
+import { extractUserPermissions } from '../../common/utils/request-extractors';
 
 @Injectable()
 export class PermissionGuard implements CanActivate {
-  constructor(private reflector: Reflector) {}
+  constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
     const requiredPermissions = this.reflector.getAllAndOverride<string[]>(
@@ -18,16 +19,16 @@ export class PermissionGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest();
+    const request = context.switchToHttp().getRequest<unknown>();
 
-    const user = request.user as { permissions?: string[] };
+    const permissions = extractUserPermissions(request);
 
-    if (!user?.permissions) {
+    if (!permissions) {
       return false;
     }
 
     return requiredPermissions.every((permission) =>
-      user.permissions!.includes(permission),
+      permissions.includes(permission),
     );
   }
 }

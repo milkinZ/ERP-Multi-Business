@@ -56,9 +56,9 @@ export class AnalyticsService {
       },
 
       include: {
-        items: {
+        SalesOrderItem: {
           include: {
-            product: true,
+            Product: true,
           },
         },
       },
@@ -74,7 +74,7 @@ export class AnalyticsService {
     >();
 
     for (const order of orders) {
-      for (const item of order.items) {
+      for (const item of order.SalesOrderItem) {
         const existing = map.get(item.productId);
 
         if (existing) {
@@ -83,7 +83,7 @@ export class AnalyticsService {
           map.set(item.productId, {
             productId: item.productId,
 
-            name: item.product.name,
+            name: item.Product.name,
 
             qtySold: item.quantity,
           });

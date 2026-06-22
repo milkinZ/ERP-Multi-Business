@@ -1,12 +1,13 @@
 import {
-  Injectable,
   BadRequestException,
+  Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { InventoryMovementType, PurchaseOrderStatus } from '@prisma/client';
+
 import { PrismaService } from '../../core/database/prisma.service';
 import { BaseService } from '../../core/services/base.service';
 import { CreatePurchaseOrderDto, UpdatePurchaseOrderDto } from './dto';
-import { InventoryMovementType, PurchaseOrderStatus } from '@prisma/client';
 
 @Injectable()
 export class PurchaseOrderService extends BaseService {
@@ -17,7 +18,6 @@ export class PurchaseOrderService extends BaseService {
   async create(tenantId: string, userId: string, dto: CreatePurchaseOrderDto) {
     const { supplierId, warehouseId, expectedDeliveryDate, notes, items } = dto;
 
-    // Validate supplier exists
     const supplier = await this.prisma.supplier.findUnique({
       where: { id: supplierId },
     });
@@ -26,7 +26,6 @@ export class PurchaseOrderService extends BaseService {
       throw new NotFoundException('Supplier not found');
     }
 
-    // Validate inventory items exist
     const inventoryItems = await this.prisma.inventoryItem.findMany({
       where: {
         id: { in: items.map((item) => item.inventoryItemId) },
@@ -38,29 +37,26 @@ export class PurchaseOrderService extends BaseService {
       throw new BadRequestException('Some inventory items not found');
     }
 
-    // Calculate total amount
     const totalAmount = items.reduce((sum, item) => {
       return sum + item.quantity * item.unitPrice;
     }, 0);
 
-    // Generate PO Number
     const poNumber = await this.generatePoNumber(tenantId);
 
-    // Create PurchaseOrder
-    const purchaseOrder = await this.prisma.purchaseOrder.create({
+    return this.prisma.purchaseOrder.create({
       data: {
         poNumber,
         status: PurchaseOrderStatus.DRAFT,
         supplierId,
         tenantId,
-        warehouseId,
+        warehouseId: warehouseId ?? null,
         expectedDeliveryDate: expectedDeliveryDate
           ? new Date(expectedDeliveryDate)
           : null,
         totalAmount,
-        notes,
-        // createdById: userId,
-        items: {
+        notes: notes ?? null,
+        updatedAt: new Date(),
+        PurchaseOrderItem: {
           create: items.map((item) => ({
             inventoryItemId: item.inventoryItemId,
             quantity: item.quantity,
@@ -70,13 +66,11 @@ export class PurchaseOrderService extends BaseService {
         },
       },
       include: {
-        items: true,
-        supplier: true,
-        // createdBy: true,
+        PurchaseOrderItem: true,
+        Supplier: true,
+        Warehouse: true,
       },
     });
-
-    return purchaseOrder;
   }
 
   async findAll(
@@ -92,21 +86,19 @@ export class PurchaseOrderService extends BaseService {
     const { skip: paginationSkip, take: paginationTake } =
       this.getPaginationParams(skip, take);
 
-    const where: any = {
+    const where = {
       tenantId,
-      // deletedAt: null
+      ...(status ? { status } : {}),
+      ...(supplierId ? { supplierId } : {}),
     };
-    if (status) where.status = status;
-    if (supplierId) where.supplierId = supplierId;
 
     const [data, total] = await Promise.all([
       this.prisma.purchaseOrder.findMany({
         where,
         include: {
-          items: true,
-          supplier: true,
-          // createdBy: true,
-          // updatedBy: true,
+          PurchaseOrderItem: true,
+          Supplier: true,
+          Warehouse: true,
         },
         skip: paginationSkip,
         take: paginationTake,
@@ -127,10 +119,9 @@ export class PurchaseOrderService extends BaseService {
     const purchaseOrder = await this.prisma.purchaseOrder.findUnique({
       where: { id },
       include: {
-        items: { include: { inventoryItem: true } },
-        supplier: true,
-        // createdBy: true,
-        warehouse: true,
+        PurchaseOrderItem: { include: { InventoryItem: true } },
+        Supplier: true,
+        Warehouse: true,
       },
     });
 
@@ -149,11 +140,11 @@ export class PurchaseOrderService extends BaseService {
   ) {
     const po = await this.findOne(tenantId, id);
 
-    // Can only edit DRAFT or PENDING status
     const editableStatuses: PurchaseOrderStatus[] = [
       PurchaseOrderStatus.DRAFT,
       PurchaseOrderStatus.PENDING,
     ];
+
     if (!editableStatuses.includes(po.status)) {
       throw new BadRequestException(
         'Can only edit PO in DRAFT or PENDING status',
@@ -164,44 +155,52 @@ export class PurchaseOrderService extends BaseService {
 
     let totalAmount = po.totalAmount;
 
-    // If items are updated
     if (items && items.length > 0) {
-      // Delete existing items
       await this.prisma.purchaseOrderItem.deleteMany({
         where: { purchaseOrderId: id },
       });
 
-      // Calculate new total
-      totalAmount = items.reduce((sum, item) => {
-        return sum + (item.quantity || 0) * (item.unitPrice || 0);
+      totalAmount = items.reduce((sum: number, item) => {
+        const quantity = item.quantity ?? 0;
+        const unitPrice = item.unitPrice ?? 0;
+        return sum + quantity * unitPrice;
       }, 0);
     }
 
-    const updatedPo = await this.prisma.purchaseOrder.update({
+    return this.prisma.purchaseOrder.update({
       where: { id },
       data: {
         ...updateData,
+        supplierId: supplierId ?? undefined,
         totalAmount,
-        // updatedById: userId,
-        items: items
+        updatedAt: new Date(),
+        PurchaseOrderItem: items
           ? {
-              create: items.map((item) => ({
-                inventoryItemId: item.inventoryItemId!,
-                quantity: item.quantity!,
-                unitPrice: item.unitPrice!,
-                subtotal: item.quantity! * item.unitPrice!,
-              })),
+              create: items.map((item) => {
+                const inventoryItemId = item.inventoryItemId;
+                const quantity = item.quantity;
+                const unitPrice = item.unitPrice;
+
+                if (!inventoryItemId || quantity == null || unitPrice == null) {
+                  throw new BadRequestException('Invalid purchase order item');
+                }
+
+                return {
+                  inventoryItemId,
+                  quantity,
+                  unitPrice,
+                  subtotal: quantity * unitPrice,
+                };
+              }),
             }
           : undefined,
       },
       include: {
-        items: true,
-        supplier: true,
-        // updatedBy: true
+        PurchaseOrderItem: true,
+        Supplier: true,
+        Warehouse: true,
       },
     });
-
-    return updatedPo;
   }
 
   async updateStatus(
@@ -211,7 +210,6 @@ export class PurchaseOrderService extends BaseService {
   ) {
     const po = await this.findOne(tenantId, id);
 
-    // Validate status transition
     const validTransitions: Record<PurchaseOrderStatus, PurchaseOrderStatus[]> =
       {
         [PurchaseOrderStatus.DRAFT]: [
@@ -242,22 +240,23 @@ export class PurchaseOrderService extends BaseService {
       );
     }
 
-    const updateData: any = { status };
+    const updateData: {
+      status: PurchaseOrderStatus;
+      updatedAt: Date;
+      receivedAt?: Date;
+      completedAt?: Date;
+    } = { status, updatedAt: new Date() };
 
     if (status === PurchaseOrderStatus.RECEIVED) {
       updateData.receivedAt = new Date();
     }
-
     if (status === PurchaseOrderStatus.COMPLETED) {
       updateData.completedAt = new Date();
     }
 
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.purchaseOrder.updateMany({
-        where: {
-          id,
-          tenantId,
-        },
+        where: { id, tenantId },
         data: updateData,
       });
 
@@ -266,12 +265,10 @@ export class PurchaseOrderService extends BaseService {
       }
 
       const freshPo = await tx.purchaseOrder.findFirst({
-        where: {
-          id,
-          tenantId,
-        },
+        where: { id, tenantId },
         include: {
-          items: true,
+          PurchaseOrderItem: true,
+          Warehouse: true,
         },
       });
 
@@ -279,48 +276,43 @@ export class PurchaseOrderService extends BaseService {
         throw new NotFoundException('Purchase Order not found');
       }
 
-      // Ensure inventory movements are created only when PO is COMPLETED.
-      // This prevents double counting across RECEIVED -> COMPLETED transitions.
+      // When PO is completed, create STOCK_IN movements.
       if (status === PurchaseOrderStatus.COMPLETED) {
-        // warehouseId boleh null sesuai perubahan schema InventoryStock.
-        // Jika null, kita tetap tulis inventoryStock/inventoryMovement dengan warehouseId=null.
-        const warehouseId = freshPo.warehouseId ?? undefined;
+        const warehouseId = freshPo.warehouseId;
 
-        for (const item of freshPo.items) {
+        if (!warehouseId) {
+          throw new BadRequestException('Warehouse is required for receiving');
+        }
+
+        for (const item of freshPo.PurchaseOrderItem) {
           const { inventoryItemId, quantity } = item;
 
           const beforeQty =
             (
               await tx.inventoryStock.findFirst({
-                where: {
-                  warehouseId,
-                  inventoryItemId,
-                },
+                where: { warehouseId, inventoryItemId },
               })
             )?.quantity ?? 0;
 
           const stock = await tx.inventoryStock.findFirst({
-            where: {
-              warehouseId,
-              inventoryItemId,
-            },
+            where: { warehouseId, inventoryItemId },
           });
 
           if (stock) {
             await tx.inventoryStock.update({
               where: { id: stock.id },
               data: {
-                quantity: {
-                  increment: quantity,
-                },
+                quantity: { increment: quantity },
+                updatedAt: new Date(),
               },
             });
           } else {
             await tx.inventoryStock.create({
               data: {
-                warehouseId: freshPo?.warehouseId,
+                warehouseId,
                 inventoryItemId,
                 quantity,
+                updatedAt: new Date(),
               },
             });
           }
@@ -328,7 +320,7 @@ export class PurchaseOrderService extends BaseService {
           await tx.inventoryMovement.create({
             data: {
               tenantId,
-              warehouseId: freshPo.warehouseId,
+              warehouseId,
               inventoryItemId,
               type: InventoryMovementType.STOCK_IN,
               quantity,
@@ -342,46 +334,25 @@ export class PurchaseOrderService extends BaseService {
       }
 
       return tx.purchaseOrder.findFirst({
-        where: {
-          id,
-          tenantId,
-        },
-        include: { items: true },
+        where: { id, tenantId },
+        include: { PurchaseOrderItem: true, Supplier: true, Warehouse: true },
       });
     });
   }
 
-  async delete(tenantId: string, id: string, userId: string) {
+  async delete(tenantId: string, id: string) {
+    // Schema currently does not support soft-delete fields on PurchaseOrder.
+    // Keep delete behavior as a hard delete for now.
+
     const po = await this.findOne(tenantId, id);
 
     if (po.status !== PurchaseOrderStatus.DRAFT) {
       throw new BadRequestException('Can only delete PO in DRAFT status');
     }
 
-    // Soft delete
-    const deleted = await this.prisma.purchaseOrder.updateMany({
-      where: {
-        id,
-        tenantId,
-      },
-      data: {
-        // deletedAt: new Date(),
-        // deletedById: userId,
-      },
-    });
+    await this.prisma.purchaseOrder.delete({ where: { id } });
 
-    if (deleted.count !== 1) {
-      throw new NotFoundException('Purchase Order not found');
-    }
-
-    const deletedPo = await this.prisma.purchaseOrder.findFirst({
-      where: { id, tenantId },
-    });
-
-    return {
-      message: 'Purchase Order deleted successfully',
-      data: deletedPo,
-    };
+    return this.findOne(tenantId, id);
   }
 
   private async generatePoNumber(tenantId: string): Promise<string> {

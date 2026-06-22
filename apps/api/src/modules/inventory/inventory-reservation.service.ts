@@ -5,16 +5,46 @@ import { BusinessType, InventoryMovementType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 
 const ACTIVE_RESERVATION_REF = 'ORDER_RESERVATION';
-
 const COMMITTED_RESERVATION_REF = 'ORDER_RESERVATION_COMMITTED';
-
 const RELEASED_RESERVATION_REF = 'ORDER_RESERVATION_RELEASED';
-
 const RELEASE_MOVEMENT_REF = 'ORDER_RESERVATION_RELEASE';
 
 type StockRequirement = {
   inventoryItemId: string;
   quantity: number;
+};
+
+type OrderWithRelations = {
+  id: string;
+  Tenant: {
+    businessType: BusinessType;
+  };
+  outletId?: string | null;
+  SalesOrderItem: {
+    quantity: number;
+
+    Product: {
+      inventoryItemId?: string | null;
+
+      InventoryItem?: {
+        id: string;
+      } | null;
+
+      Recipe?: {
+        RecipeItem: {
+          quantity: number;
+
+          Ingredient: {
+            inventoryItemId?: string | null;
+
+            InventoryItem?: {
+              id: string;
+            } | null;
+          };
+        }[];
+      } | null;
+    };
+  }[];
 };
 
 @Injectable()
@@ -33,28 +63,33 @@ export class InventoryReservationService {
         });
 
         if (existingReservation) {
-          return {
-            orderId,
-            reserved: true,
-          };
+          return { orderId, reserved: true };
         }
 
         const order = await tx.salesOrder.findFirst({
-          where: {
-            id: orderId,
-            tenantId,
-          },
+          where: { id: orderId, tenantId },
           include: {
-            tenant: true,
-            items: {
+            Tenant: true,
+            SalesOrderItem: {
               include: {
-                product: {
+                Product: {
                   include: {
-                    recipe: {
+                    InventoryItem: {
+                      select: {
+                        id: true,
+                      },
+                    },
+                    Recipe: {
                       include: {
-                        items: {
+                        RecipeItem: {
                           include: {
-                            ingredient: true,
+                            Ingredient: {
+                              include: {
+                                InventoryItem: {
+                                  select: { id: true },
+                                },
+                              },
+                            },
                           },
                         },
                       },
@@ -76,14 +111,9 @@ export class InventoryReservationService {
           await this.reserveRequirement(tx, tenantId, order, requirement);
         }
 
-        return {
-          orderId,
-          reserved: true,
-        };
+        return { orderId, reserved: true };
       },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
   }
 
@@ -99,27 +129,18 @@ export class InventoryReservationService {
         });
 
         if (reservations.length === 0) {
-          return {
-            orderId,
-            released: false,
-          };
+          return { orderId, released: false };
         }
 
-        const reservationIds = reservations.map(
-          (reservation) => reservation.id,
-        );
+        const reservationIds = reservations.map((r) => r.id);
 
         const claimed = await tx.inventoryMovement.updateMany({
           where: {
-            id: {
-              in: reservationIds,
-            },
+            id: { in: reservationIds },
             tenantId,
             referenceType: ACTIVE_RESERVATION_REF,
           },
-          data: {
-            referenceType: RELEASED_RESERVATION_REF,
-          },
+          data: { referenceType: RELEASED_RESERVATION_REF },
         });
 
         if (claimed.count !== reservations.length) {
@@ -144,13 +165,9 @@ export class InventoryReservationService {
 
           if (stock) {
             await tx.inventoryStock.update({
-              where: {
-                id: stock.id,
-              },
+              where: { id: stock.id },
               data: {
-                quantity: {
-                  increment: reservation.quantity,
-                },
+                quantity: { increment: reservation.quantity },
               },
             });
           } else {
@@ -159,6 +176,7 @@ export class InventoryReservationService {
                 warehouseId: reservation.warehouseId,
                 inventoryItemId: reservation.inventoryItemId,
                 quantity: reservation.quantity,
+                updatedAt: new Date(),
               },
             });
           }
@@ -179,14 +197,9 @@ export class InventoryReservationService {
           });
         }
 
-        return {
-          orderId,
-          released: true,
-        };
+        return { orderId, released: true };
       },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
   }
 
@@ -194,13 +207,8 @@ export class InventoryReservationService {
     return this.prisma.$transaction(
       async (tx) => {
         const order = await tx.salesOrder.findFirst({
-          where: {
-            id: orderId,
-            tenantId,
-          },
-          include: {
-            tenant: true,
-          },
+          where: { id: orderId, tenantId },
+          include: { Tenant: true },
         });
 
         if (!order) {
@@ -216,23 +224,18 @@ export class InventoryReservationService {
         });
 
         if (reservations.length === 0) {
-          return {
-            orderId,
-            committed: false,
-          };
+          return { orderId, committed: false };
         }
 
         const committed = await tx.inventoryMovement.updateMany({
           where: {
-            id: {
-              in: reservations.map((reservation) => reservation.id),
-            },
+            id: { in: reservations.map((r) => r.id) },
             tenantId,
             referenceType: ACTIVE_RESERVATION_REF,
           },
           data: {
             referenceType: COMMITTED_RESERVATION_REF,
-            type: this.getCommittedMovementType(order.tenant.businessType),
+            type: this.getCommittedMovementType(order.Tenant.businessType),
             note: 'Committed order stock reservation',
           },
         });
@@ -241,53 +244,48 @@ export class InventoryReservationService {
           throw new BadRequestException('Reservation already processed');
         }
 
-        return {
-          orderId,
-          committed: true,
-        };
+        return { orderId, committed: true };
       },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
   }
 
-  private buildRequirements(order: any): StockRequirement[] {
+  private buildRequirements(order: OrderWithRelations): StockRequirement[] {
     const requirements = new Map<string, StockRequirement>();
 
     const addRequirement = (
       inventoryItemId: string | null | undefined,
       quantity: number,
     ) => {
-      if (!inventoryItemId || quantity <= 0) {
-        return;
-      }
+      if (!inventoryItemId || quantity <= 0) return;
 
       const current = requirements.get(inventoryItemId);
-
       requirements.set(inventoryItemId, {
         inventoryItemId,
         quantity: (current?.quantity ?? 0) + quantity,
       });
     };
 
-    if (order.tenant.businessType === BusinessType.RETAIL) {
-      for (const item of order.items) {
-        addRequirement(item.product.inventoryItemId, item.quantity);
+    const businessType: BusinessType = order.Tenant.businessType;
+
+    if (businessType === BusinessType.RETAIL) {
+      for (const item of order.SalesOrderItem) {
+        addRequirement(
+          item.Product.InventoryItem?.id ?? item.Product.inventoryItemId,
+          item.quantity,
+        );
       }
     }
 
-    if (order.tenant.businessType === BusinessType.CAFE) {
-      for (const orderItem of order.items) {
-        const recipe = orderItem.product.recipe;
+    if (businessType === BusinessType.CAFE) {
+      for (const orderItem of order.SalesOrderItem) {
+        const recipe = orderItem.Product.Recipe;
+        if (!recipe) continue;
 
-        if (!recipe) {
-          continue;
-        }
-
-        for (const recipeItem of recipe.items) {
+        for (const recipeItem of recipe.RecipeItem) {
           addRequirement(
-            recipeItem.ingredient.inventoryItemId,
+            recipeItem.Ingredient.InventoryItem?.id ??
+              recipeItem.Ingredient.inventoryItemId,
             recipeItem.quantity * orderItem.quantity,
           );
         }
@@ -300,7 +298,7 @@ export class InventoryReservationService {
   private async reserveRequirement(
     tx: Prisma.TransactionClient,
     tenantId: string,
-    order: any,
+    order: OrderWithRelations,
     requirement: StockRequirement,
   ) {
     let remainingQuantity = requirement.quantity;
@@ -308,57 +306,34 @@ export class InventoryReservationService {
     const stocks = await tx.inventoryStock.findMany({
       where: {
         inventoryItemId: requirement.inventoryItemId,
-        quantity: {
-          gt: 0,
-        },
-        inventoryItem: {
-          tenantId,
-        },
-        warehouse: {
+        quantity: { gt: 0 },
+        InventoryItem: { tenantId },
+        Warehouse: {
           tenantId,
           ...(order.outletId
             ? {
-                OR: [
-                  {
-                    outletId: order.outletId,
-                  },
-                  {
-                    outletId: null,
-                  },
-                ],
+                OR: [{ outletId: order.outletId }, { outletId: null }],
               }
             : {}),
         },
       },
-      orderBy: {
-        createdAt: 'asc',
-      },
+      orderBy: { createdAt: 'asc' },
     });
 
     for (const stock of stocks) {
-      if (remainingQuantity <= 0) {
-        break;
-      }
+      if (remainingQuantity <= 0) break;
 
       const quantityToReserve = Math.min(stock.quantity, remainingQuantity);
 
       const updated = await tx.inventoryStock.updateMany({
         where: {
           id: stock.id,
-          quantity: {
-            gte: quantityToReserve,
-          },
-          inventoryItem: {
-            tenantId,
-          },
-          warehouse: {
-            tenantId,
-          },
+          quantity: { gte: quantityToReserve },
+          InventoryItem: { tenantId },
+          Warehouse: { tenantId },
         },
         data: {
-          quantity: {
-            decrement: quantityToReserve,
-          },
+          quantity: { decrement: quantityToReserve },
         },
       });
 
@@ -392,14 +367,9 @@ export class InventoryReservationService {
   }
 
   private getCommittedMovementType(businessType: BusinessType) {
-    if (businessType === BusinessType.CAFE) {
+    if (businessType === BusinessType.CAFE)
       return InventoryMovementType.CONSUMPTION;
-    }
-
-    if (businessType === BusinessType.RETAIL) {
-      return InventoryMovementType.SALE;
-    }
-
+    if (businessType === BusinessType.RETAIL) return InventoryMovementType.SALE;
     return InventoryMovementType.STOCK_OUT;
   }
 }

@@ -39,7 +39,7 @@ export class BaseService {
   /**
    * Apply soft delete filter (exclude deleted records by default)
    */
-  protected withoutDeleted<T extends { deletedAt?: any }>(
+  protected withoutDeleted<T extends { deletedAt?: Date | null }>(
     where: T,
     includeDeleted: boolean = false,
   ): T {
@@ -89,33 +89,51 @@ export class BaseService {
   /**
    * Soft delete - mark record as deleted
    */
-  protected async softDelete(model: any, where: any, userId: string) {
+  protected async softDelete<TWhere extends Record<string, unknown>, TUpdate>(
+    model: {
+      update: (args: { where: TWhere; data: TUpdate }) => Promise<unknown>;
+    },
+    where: TWhere,
+    userId: string,
+  ) {
+    const data = {
+      deletedAt: new Date(),
+      deletedById: userId,
+    } as unknown as TUpdate;
+
     return model.update({
       where,
-      data: {
-        deletedAt: new Date(),
-        deletedById: userId,
-      },
+      data,
     });
   }
 
   /**
    * Soft restore - unmark deleted record
    */
-  protected async softRestore(model: any, where: any) {
+  protected async softRestore<TWhere extends Record<string, unknown>, TUpdate>(
+    model: {
+      update: (args: { where: TWhere; data: TUpdate }) => Promise<unknown>;
+    },
+    where: TWhere,
+  ) {
+    const data = {
+      deletedAt: null,
+      deletedById: null,
+    } as unknown as TUpdate;
+
     return model.update({
       where,
-      data: {
-        deletedAt: null,
-        deletedById: null,
-      },
+      data,
     });
   }
 
   /**
    * Add audit fields to create data
    */
-  protected addAuditFields(data: any, userId: string) {
+  protected addAuditFields<TData extends Record<string, unknown>>(
+    data: TData,
+    userId: string,
+  ): TData & { createdById: string; updatedById: string } {
     return {
       ...data,
       createdById: userId,
@@ -126,7 +144,10 @@ export class BaseService {
   /**
    * Add audit fields to update data
    */
-  protected addUpdateAuditFields(data: any, userId: string) {
+  protected addUpdateAuditFields<TData extends Record<string, unknown>>(
+    data: TData,
+    userId: string,
+  ): TData & { updatedById: string; updatedAt: Date } {
     return {
       ...data,
       updatedById: userId,

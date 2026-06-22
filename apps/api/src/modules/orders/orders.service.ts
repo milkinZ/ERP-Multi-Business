@@ -74,9 +74,9 @@ export class OrdersService {
       return tx.salesOrder.findUnique({
         where: { id: createdOrder.id },
         include: {
-          items: {
+          SalesOrderItem: {
             include: {
-              product: true,
+              Product: true,
             },
           },
         },
@@ -106,7 +106,7 @@ export class OrdersService {
         ...buildOutletFilter(user),
       },
       include: {
-        items: true,
+        SalesOrderItem: true,
       },
       orderBy: {
         createdAt: 'desc',
@@ -122,9 +122,9 @@ export class OrdersService {
         ...buildOutletFilter(user),
       },
       include: {
-        items: {
+        SalesOrderItem: {
           include: {
-            product: true,
+            Product: true,
           },
         },
       },
@@ -163,9 +163,9 @@ export class OrdersService {
           ...buildOutletFilter(user),
         },
         include: {
-          items: {
+          SalesOrderItem: {
             include: {
-              product: true,
+              Product: true,
             },
           },
         },

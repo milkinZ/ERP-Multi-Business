@@ -20,6 +20,7 @@ import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { PermissionGuard } from '../rbac/permission.guard';
 import { PERMISSIONS } from '../rbac/permissions';
+import type { JwtUser } from '../../common/interfaces/jwt-user.interface';
 
 @UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller('suppliers')
@@ -33,7 +34,7 @@ export class SupplierController {
     dto: CreateSupplierDto,
 
     @CurrentUser()
-    user: any,
+    user: JwtUser,
   ) {
     return this.supplierService.create(user.tenantId, dto);
   }
@@ -42,7 +43,7 @@ export class SupplierController {
   @Permissions(PERMISSIONS.SUPPLIER_READ)
   findAll(
     @CurrentUser()
-    user: any,
+    user: JwtUser,
   ) {
     return this.supplierService.findAll(user.tenantId);
   }
@@ -53,7 +54,7 @@ export class SupplierController {
     @Param('id') id: string,
 
     @CurrentUser()
-    user: any,
+    user: JwtUser,
   ) {
     return this.supplierService.findOne(id, user.tenantId);
   }
@@ -67,7 +68,7 @@ export class SupplierController {
     dto: UpdateSupplierDto,
 
     @CurrentUser()
-    user: any,
+    user: JwtUser,
   ) {
     return this.supplierService.update(id, user.tenantId, dto);
   }
@@ -78,7 +79,7 @@ export class SupplierController {
     @Param('id') id: string,
 
     @CurrentUser()
-    user: any,
+    user: JwtUser,
   ) {
     return this.supplierService.remove(id, user.tenantId);
   }

@@ -9,6 +9,7 @@ import { WarehouseService } from './warehouse.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { PermissionGuard } from '../rbac/permission.guard';
 import { PERMISSIONS } from '../rbac/permissions';
+import type { JwtUser } from '../../common/interfaces/jwt-user.interface';
 
 @UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller('warehouses')
@@ -22,7 +23,7 @@ export class WarehouseController {
     dto: CreateWarehouseDto,
 
     @CurrentUser()
-    user: any,
+    user: JwtUser,
   ) {
     return this.warehouseService.create(user.tenantId, dto);
   }
@@ -31,7 +32,7 @@ export class WarehouseController {
   @Permissions(PERMISSIONS.WAREHOUSE_READ)
   findAll(
     @CurrentUser()
-    user: any,
+    user: JwtUser,
   ) {
     return this.warehouseService.findAll(user.tenantId);
   }
@@ -42,7 +43,7 @@ export class WarehouseController {
     @Param('id') id: string,
 
     @CurrentUser()
-    user: any,
+    user: JwtUser,
   ) {
     return this.warehouseService.findOne(id, user.tenantId);
   }

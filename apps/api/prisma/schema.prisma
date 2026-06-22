@@ -7,6 +7,376 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Ingredient {
+  id              String        @id @default(cuid())
+
+  name            String
+  unit            String
+  tenantId        String
+  createdAt       DateTime      @default(now())
+  inventoryItemId String        @unique
+  InventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  Tenant          Tenant        @relation(fields: [tenantId], references: [id])
+  RecipeItem      RecipeItem[]
+}
+
+model InventoryItem {
+  id                String              @id @default(cuid())
+
+  code              String
+  name              String
+  description       String?
+  unit              String?
+  type              InventoryItemType
+  isActive          Boolean             @default(true)
+  tenantId          String
+  createdAt         DateTime            @default(now())
+  Ingredient        Ingredient?
+  Tenant            Tenant              @relation(fields: [tenantId], references: [id])
+  InventoryMovement InventoryMovement[]
+  InventoryStock    InventoryStock[]
+  Product           Product?
+  PurchaseOrderItem PurchaseOrderItem[]
+
+  @@unique([tenantId, code])
+}
+
+model InventoryMovement {
+  id              String                @id @default(cuid())
+
+  tenantId        String
+  type            InventoryMovementType
+  quantity        Float
+  note            String?
+  createdAt       DateTime              @default(now())
+  afterQuantity   Float?
+  beforeQuantity  Float?
+  createdById     String?
+  inventoryItemId String
+  referenceId     String?
+  referenceType   String?
+  warehouseId     String?
+  User            User?                 @relation(fields: [createdById], references: [id])
+  InventoryItem   InventoryItem         @relation(fields: [inventoryItemId], references: [id])
+  Tenant          Tenant                @relation(fields: [tenantId], references: [id])
+  Warehouse       Warehouse?            @relation(fields: [warehouseId], references: [id])
+
+  @@index([inventoryItemId])
+  @@index([referenceType, referenceId])
+  @@index([tenantId])
+  @@index([warehouseId])
+}
+
+model InventoryStock {
+  id              String        @id @default(cuid())
+
+  warehouseId     String?
+  inventoryItemId String
+  quantity        Float         @default(0)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime
+  InventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  Warehouse       Warehouse?    @relation(fields: [warehouseId], references: [id])
+
+  @@unique([warehouseId, inventoryItemId])
+  @@index([inventoryItemId])
+  @@index([warehouseId])
+}
+
+model Outlet {
+  id         String       @id @default(cuid())
+
+  name       String
+  tenantId   String
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+  deletedAt  DateTime?
+  Tenant     Tenant       @relation(fields: [tenantId], references: [id])
+
+  // Phase-2 core entities
+  Session         Session[]
+  AuditLog        AuditLog[]
+  Notification    Notification[]
+  UserOutlet     UserOutlet[]
+
+  SalesOrder SalesOrder[]
+  Warehouse  Warehouse[]
+}
+
+
+
+model Payment {
+  id              String        @id @default(cuid())
+
+  orderId         String
+  tenantId        String
+  method          PaymentMethod
+  status          PaymentStatus @default(PENDING)
+  amount          Int
+  referenceNumber String?
+  paidAt          DateTime?
+  createdAt       DateTime      @default(now())
+  createdById     String?
+  User            User?         @relation(fields: [createdById], references: [id])
+  SalesOrder      SalesOrder    @relation(fields: [orderId], references: [id])
+  Tenant          Tenant        @relation(fields: [tenantId], references: [id])
+}
+
+model Permission {
+  id             String           @id @default(cuid())
+  code           String           @unique
+  name           String
+  RolePermission RolePermission[]
+}
+
+model Product {
+  id              String        @id @default(cuid())
+
+  name            String
+  description     String?
+  sku             String?
+  price           Int
+  isActive        Boolean          @default(true)
+  tenantId        String
+  createdAt       DateTime         @default(now())
+  outletId        String?
+  inventoryItemId String?          @unique
+  InventoryItem   InventoryItem?   @relation(fields: [inventoryItemId], references: [id])
+  Tenant          Tenant           @relation(fields: [tenantId], references: [id])
+  Recipe          Recipe?
+  SalesOrderItem  SalesOrderItem[]
+
+  @@unique([tenantId, sku])
+}
+
+model PurchaseOrder {
+  id                   String              @id @default(cuid())
+
+  poNumber             String              @db.VarChar(50)
+  status               PurchaseOrderStatus @default(DRAFT)
+  supplierId           String
+  tenantId             String
+  warehouseId          String?
+  expectedDeliveryDate DateTime?
+  totalAmount          Int
+  notes                String?
+  receivedAt           DateTime?
+  completedAt          DateTime?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime
+  Supplier             Supplier            @relation(fields: [supplierId], references: [id])
+  Tenant               Tenant              @relation(fields: [tenantId], references: [id])
+  Warehouse            Warehouse?          @relation(fields: [warehouseId], references: [id])
+  PurchaseOrderItem    PurchaseOrderItem[]
+
+  @@unique([tenantId, poNumber])
+  @@index([status])
+  @@index([supplierId])
+  @@index([tenantId])
+}
+
+model PurchaseOrderItem {
+  id               String        @id @default(cuid())
+
+  purchaseOrderId  String
+  inventoryItemId  String
+  quantity         Float
+  unitPrice        Int
+  subtotal         Int
+  receivedQuantity Float         @default(0)
+  InventoryItem    InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  PurchaseOrder    PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  @@index([inventoryItemId])
+  @@index([purchaseOrderId])
+}
+
+model Recipe {
+  id         String       @id @default(cuid())
+
+  tenantId   String
+  productId  String       @unique
+  createdAt  DateTime     @default(now())
+  Product    Product      @relation(fields: [productId], references: [id])
+  Tenant     Tenant       @relation(fields: [tenantId], references: [id])
+  RecipeItem RecipeItem[]
+}
+
+model RecipeItem {
+  id           String     @id @default(cuid())
+
+  recipeId     String
+  ingredientId String
+  quantity     Float
+  Ingredient   Ingredient @relation(fields: [ingredientId], references: [id])
+  Recipe       Recipe     @relation(fields: [recipeId], references: [id])
+}
+
+model RefreshToken {
+  id            String    @id @default(cuid())
+
+  tokenSelector String   @unique
+  tokenHash     String    @unique
+  userId        String
+
+  tenantId      String
+  roleId        String
+  outletId      String?
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  rotatedFromId String?
+  User          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Role {
+  id             String           @id @default(cuid())
+
+  name           String
+  tenantId       String
+  Tenant         Tenant           @relation(fields: [tenantId], references: [id])
+  RolePermission RolePermission[]
+
+  // Phase-2 core entities
+  UserRole       UserRole[]
+}
+
+
+model RolePermission {
+  id           String     @id
+  roleId       String
+  permissionId String
+  Permission   Permission @relation(fields: [permissionId], references: [id])
+  Role         Role       @relation(fields: [roleId], references: [id])
+
+  @@unique([roleId, permissionId])
+}
+
+model SalesOrder {
+  id             String           @id @default(cuid())
+
+  orderNumber    String           @db.VarChar(50)
+  status         OrderStatus      @default(PENDING)
+  totalAmount    Int
+  tenantId       String
+  outletId       String?
+  createdAt      DateTime         @default(now())
+  Payment        Payment[]
+  Outlet         Outlet?          @relation(fields: [outletId], references: [id])
+  Tenant         Tenant           @relation(fields: [tenantId], references: [id])
+  SalesOrderItem SalesOrderItem[]
+
+  @@unique([tenantId, orderNumber])
+}
+
+model SalesOrderItem {
+  id         String     @id @default(cuid())
+
+  orderId    String
+  productId  String
+  quantity   Int
+  price      Int
+  subtotal   Int
+  SalesOrder SalesOrder @relation(fields: [orderId], references: [id])
+  Product    Product    @relation(fields: [productId], references: [id])
+}
+
+model Supplier {
+  id            String          @id @default(cuid())
+
+  name          String
+  phone         String?
+  email         String?
+  address       String?
+  tenantId      String
+  createdAt     DateTime        @default(now())
+  contactPerson String?
+  isActive      Boolean         @default(true)
+  taxNumber     String?
+  PurchaseOrder PurchaseOrder[]
+  Tenant        Tenant          @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, name])
+}
+
+model Tenant {
+  id                String              @id @default(cuid())
+  name              String
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  deletedAt         DateTime?
+  businessType      BusinessType        @default(CAFE)
+  Ingredient        Ingredient[]
+  InventoryItem     InventoryItem[]
+  InventoryMovement InventoryMovement[]
+  Outlet            Outlet[]
+  Payment           Payment[]
+  Product           Product[]
+  PurchaseOrder     PurchaseOrder[]
+  Recipe            Recipe[]
+  Role              Role[]
+  SalesOrder        SalesOrder[]
+  Supplier          Supplier[]
+  User              User[]
+  Warehouse         Warehouse[]
+
+  // Phase-2 core entities
+  Session         Session[]
+  AuditLog        AuditLog[]
+  Notification    Notification[]
+  FeatureFlag     FeatureFlag[]
+  Subscription    Subscription[]
+  Invoice         Invoice[]
+  UserRole        UserRole[]
+  UserOutlet      UserOutlet[]
+}
+
+
+
+model User {
+  id                String              @id @default(cuid())
+
+  email             String              @unique
+  password          String
+  tenantId          String
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  deletedAt         DateTime?
+
+  InventoryMovement InventoryMovement[]
+  Payment           Payment[]
+  RefreshToken      RefreshToken[]
+
+  // Phase-2 core entities
+  Session         Session[]
+  AuditLog        AuditLog[]
+  Notification    Notification[]
+  UserRole        UserRole[]
+  UserOutlet      UserOutlet[]
+
+  Tenant            Tenant              @relation(fields: [tenantId], references: [id])
+}
+
+
+
+model Warehouse {
+  id                String              @id @default(cuid())
+
+  name              String
+  tenantId          String
+  outletId          String?
+  createdAt         DateTime            @default(now())
+  code              String
+  InventoryMovement InventoryMovement[]
+  InventoryStock    InventoryStock[]
+  PurchaseOrder     PurchaseOrder[]
+  Outlet            Outlet?             @relation(fields: [outletId], references: [id])
+  Tenant            Tenant              @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, code])
+  @@unique([tenantId, name])
+}
+
 enum BusinessType {
   CAFE
   RETAIL
@@ -16,104 +386,26 @@ enum BusinessType {
   MANUFACTURING
 }
 
-model Tenant {
-  id        String   @id @default(cuid())
-  name      String
-  businessType BusinessType @default(CAFE)
-  createdAt DateTime @default(now())
-
-  users    User[]
-  outlets  Outlet[]
-  roles    Role[]
-  products Product[]
-  orders SalesOrder[]
-  inventoryMovements InventoryMovement[]
-  payments Payment[]
-  recipes Recipe[]
-  ingredients Ingredient[]
-  warehouses Warehouse[]
-  suppliers Supplier[]
-  inventoryItems InventoryItem[]
-  purchaseOrders PurchaseOrder[]
+enum InventoryItemType {
+  PRODUCT
+  INGREDIENT
+  MATERIAL
+  ASSET
+  SUPPLY
+  SERVICE
 }
 
-model User {
-  id          String   @id @default(cuid())
-
-  email       String   @unique
-  password    String
-
-  tenantId    String
-  tenant      Tenant @relation(fields: [tenantId], references: [id])
-
-  roleId      String
-  role        Role @relation(fields: [roleId], references: [id])
-
-  outletId    String?
-  outlet      Outlet? @relation(fields: [outletId], references: [id])
-
-  createdAt   DateTime @default(now())
-
-  inventoryMovementsCreated InventoryMovement[] @relation("InventoryMovementCreatedBy")
-
-  paymentsCreated Payment[] @relation("PaymentCreatedBy")
-}
-
-model Role {
-  id          String @id @default(cuid())
-
-  name        String
-
-  tenantId    String
-  tenant      Tenant @relation(fields: [tenantId], references: [id])
-
-  users       User[]
-  rolePermissions RolePermission[]
-}
-
-model Outlet {
-  id          String @id @default(cuid())
-
-  name        String
-
-  tenantId    String
-  tenant      Tenant @relation(fields: [tenantId], references: [id])
-
-  users       User[]
-
-  createdAt   DateTime @default(now())
-
-  orders      SalesOrder[]
-
-  warehouses Warehouse[]
-}
-
-model Product {
-  id          String   @id @default(cuid())
-
-  name        String
-  description String?
-
-  sku         String?
-
-  price       Int
-
-  isActive    Boolean @default(true)
-
-  tenantId    String
-  tenant      Tenant @relation(fields: [tenantId], references: [id])
-
-  inventoryItemId String? @unique
-  inventoryItem InventoryItem? @relation(fields:[inventoryItemId], references:[id])
-
-  outletId    String?
-
-  createdAt   DateTime @default(now())
-
-  orderItems  SalesOrderItem[]
-  recipe Recipe?
-
-  @@unique([tenantId, sku])
+enum InventoryMovementType {
+  STOCK_IN
+  SALE
+  WASTE
+  ADJUSTMENT
+  RETURN
+  STOCK_OUT
+  PURCHASE
+  CONSUMPTION
+  PRODUCTION
+  TRANSFER
 }
 
 enum OrderStatus {
@@ -123,66 +415,6 @@ enum OrderStatus {
   CANCELLED
   IN_PROGRESS
   READY
-}
-
-model SalesOrder {
-  id String @id @default(cuid())
-
-  orderNumber String @db.VarChar(50)
-
-  status OrderStatus @default(PENDING)
-
-  totalAmount Int
-
-  tenantId String
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-
-  outletId String?
-  outlet Outlet? @relation(fields: [outletId], references: [id])
-
-  items SalesOrderItem[]
-
-  payments Payment[]
-
-  createdAt DateTime @default(now())
-
-  @@unique([tenantId, orderNumber])
-}
-
-model SalesOrderItem {
-  id         String @id @default(cuid())
-
-  orderId    String
-  order SalesOrder @relation(fields: [orderId], references: [id])
-
-  productId  String
-  product    Product @relation(fields: [productId], references: [id])
-
-  quantity   Int
-
-  price      Int
-  subtotal   Int
-}
-
-model Permission {
-  id          String @id @default(cuid())
-
-  code        String @unique
-  name        String
-
-  rolePermissions RolePermission[]
-}
-
-model RolePermission {
-  id            String @id @default(cuid())
-
-  roleId        String
-  role          Role @relation(fields: [roleId], references: [id])
-
-  permissionId  String
-  permission    Permission @relation(fields: [permissionId], references: [id])
-
-  @@unique([roleId, permissionId])
 }
 
 enum PaymentMethod {
@@ -198,201 +430,6 @@ enum PaymentStatus {
   REFUNDED
 }
 
-model Payment {
-  id String @id @default(cuid())
-
-  orderId String
-  order SalesOrder @relation(fields: [orderId], references: [id])
-
-  tenantId String
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-
-  method PaymentMethod
-
-  status PaymentStatus @default(PENDING)
-
-  amount Int
-
-  referenceNumber String?
-
-  paidAt DateTime?
-
-  createdById String?
-  createdBy User? @relation("PaymentCreatedBy", fields: [createdById], references: [id])
-
-  createdAt DateTime @default(now())
-}
-
-model Ingredient {
-  id          String @id @default(cuid())
-
-  name        String
-
-  unit        String
-
-  tenantId    String
-  tenant      Tenant @relation(fields: [tenantId], references: [id])
-
-  inventoryItemId String @unique
-  inventoryItem InventoryItem @relation(fields:[inventoryItemId], references:[id])
-
-  createdAt   DateTime @default(now())
-
-  recipeItems RecipeItem[]
-}
-
-model Recipe {
-  id          String @id @default(cuid())
-
-  tenantId    String
-  tenant      Tenant @relation(fields: [tenantId], references: [id])
-
-  productId   String @unique
-  product     Product @relation(fields: [productId], references: [id])
-
-  items       RecipeItem[]
-
-  createdAt   DateTime @default(now())
-}
-
-model RecipeItem {
-  id            String @id @default(cuid())
-
-  recipeId      String
-  recipe        Recipe @relation(fields: [recipeId], references: [id])
-
-  ingredientId  String
-  ingredient    Ingredient @relation(fields: [ingredientId], references: [id])
-
-  quantity      Float
-}
-
-model Warehouse {
-  id String @id @default(cuid())
-
-  purchaseOrders PurchaseOrder[]
-
-  code String
-
-  name String
-
-  tenantId String
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-
-  outletId String?
-  outlet Outlet? @relation(fields: [outletId], references: [id])
-
-  createdAt DateTime @default(now())
-
-  stocks InventoryStock[]
-
-  movements InventoryMovement[]
-
-  @@unique([tenantId, code])
-
-  @@unique([tenantId, name])
-}
-
-model Supplier {
-  id String @id @default(cuid())
-
-  name String
-
-  contactPerson String?
-
-  phone String?
-
-  email String?
-
-  address String?
-
-  taxNumber String?
-
-  isActive Boolean @default(true)
-
-  tenantId String
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-
-  createdAt DateTime @default(now())
-
-  purchaseOrders PurchaseOrder[]
-
-  @@unique([tenantId, name])
-}
-
-enum InventoryItemType {
-  PRODUCT
-  INGREDIENT
-  MATERIAL
-  ASSET
-  SUPPLY
-  SERVICE
-}
-
-model InventoryItem {
-  id String @id @default(cuid())
-
-  name String
-
-  purchaseOrderItems PurchaseOrderItem[] @relation("PurchaseOrderItemInventory")
-
-  code String
-
-  description String?
-
-  unit String?
-
-  type InventoryItemType
-
-  isActive Boolean @default(true)
-
-  tenantId String
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-
-  createdAt DateTime @default(now())
-
-  stocks InventoryStock[]
-  movements InventoryMovement[]
-
-  product Product?
-  ingredient Ingredient?
-
-  @@unique([tenantId, code])
-}
-
-model InventoryStock {
-  id String @id @default(cuid())
-
-  warehouseId String?
-  warehouse Warehouse? @relation(fields: [warehouseId], references: [id])
-
-  inventoryItemId String
-  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
-
-  quantity Float @default(0)
-
-  createdAt DateTime @default(now())
-
-  updatedAt DateTime @updatedAt
-
-  @@unique([warehouseId, inventoryItemId])
-  @@index([inventoryItemId])
-  @@index([warehouseId])
-}
-
-enum InventoryMovementType {
-  STOCK_IN
-  STOCK_OUT
-  SALE
-  PURCHASE
-  CONSUMPTION
-  PRODUCTION
-  TRANSFER
-  ADJUSTMENT
-  RETURN
-  WASTE
-}
-
 enum PurchaseOrderStatus {
   DRAFT
   PENDING
@@ -404,94 +441,265 @@ enum PurchaseOrderStatus {
   CANCELLED
 }
 
-model PurchaseOrder {
+enum OutboxEventStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
+model OutboxEvent {
   id String @id @default(cuid())
 
-  poNumber String @db.VarChar(50)
+  tenantId String?
+  outletId String?
 
-  status PurchaseOrderStatus @default(DRAFT)
+  type String
+  payload Json
+  status OutboxEventStatus @default(PENDING)
 
-  supplierId String
-  supplier Supplier @relation(fields: [supplierId], references: [id])
-
-  tenantId String
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-
-  warehouseId String?
-  warehouse Warehouse? @relation(fields: [warehouseId], references: [id])
-
-  expectedDeliveryDate DateTime?
-
-  totalAmount Int
-
-  notes String?
-
-  items PurchaseOrderItem[]
-
-  receivedAt DateTime?
-  completedAt DateTime?
+  error String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  processedAt DateTime?
+  deletedAt DateTime?
 
-  @@unique([tenantId, poNumber])
-  @@index([tenantId])
-  @@index([supplierId])
   @@index([status])
+  @@index([createdAt])
 }
 
-model PurchaseOrderItem {
-  id String @id @default(cuid())
-
-  purchaseOrderId String
-  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-
-  inventoryItemId String
-  inventoryItem InventoryItem @relation("PurchaseOrderItemInventory", fields: [inventoryItemId], references: [id])
-
-  quantity Float
-
-  unitPrice Int
-
-  subtotal Int
-
-  receivedQuantity Float @default(0)
-
-  @@index([purchaseOrderId])
-  @@index([inventoryItemId])
+enum DeadLetterJobStatus {
+  FAILED
+  RETRYING
+  RESOLVED
 }
 
-model InventoryMovement {
+model DeadLetterJob {
+  id           String @id @default(cuid())
+
+  queueName    String
+  jobId        String
+  tenantId     String?
+  outletId     String?
+  payload      Json
+
+  errorMessage String
+  stackTrace   String?
+
+  attemptsMade Int     @default(0)
+
+  failedAt   DateTime @default(now())
+  retriedAt  DateTime?
+  resolvedAt DateTime?
+
+  status     DeadLetterJobStatus @default(FAILED)
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([queueName])
+  @@index([status])
+  @@index([failedAt])
+  @@unique([queueName, jobId])
+}
+
+model Session {
   id String @id @default(cuid())
 
-  inventoryItemId String
-  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  sessionId String @unique
 
-  warehouseId String?
-  warehouse Warehouse? @relation(fields: [warehouseId], references: [id])
-
+  userId   String
   tenantId String
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-
-  type InventoryMovementType
-
-  referenceType String?
-  referenceId String?
-
-  quantity Float
-
-  beforeQuantity Float?
-  afterQuantity Float?
-
-  note String?
-
-  createdById String?
-  createdBy User? @relation("InventoryMovementCreatedBy", fields: [createdById], references: [id])
+  outletId String?
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  outlet Outlet? @relation(fields: [outletId], references: [id])
+}
+
+model AuditLog {
+  id String @id @default(cuid())
+
+  userId   String?
+  tenantId String
+  outletId String?
+
+  entity   String
+  entityId String
+  action   String
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User?  @relation(fields: [userId], references: [id])
+  outlet Outlet? @relation(fields: [outletId], references: [id])
 
   @@index([tenantId])
-  @@index([inventoryItemId])
-  @@index([warehouseId])
-  @@index([referenceType, referenceId])
+  @@index([entity, entityId])
+  @@index([action])
 }
+
+model Notification {
+  id String @id @default(cuid())
+
+  tenantId String
+  outletId String?
+  userId   String?
+
+  type    String
+  title   String?
+  message String?
+  payload Json?
+
+  readAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  outlet Outlet? @relation(fields: [outletId], references: [id])
+  user   User? @relation(fields: [userId], references: [id])
+
+  @@index([tenantId])
+  @@index([type])
+}
+
+model FeatureFlag {
+  id String @id @default(cuid())
+
+  tenantId String
+  key String
+  enabled Boolean @default(false)
+  payload Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+}
+
+enum PlanType {
+  FREE
+  STARTER
+  BUSINESS
+  ENTERPRISE
+}
+
+model Plan {
+  id String @id @default(cuid())
+
+  type PlanType @unique
+  name String
+
+  priceCents Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  // Phase-2 core entities
+  Subscriptions Subscription[]
+}
+
+
+enum SubscriptionStatus {
+  ACTIVE
+  INACTIVE
+  CANCELLED
+  EXPIRED
+}
+
+model Subscription {
+  id String @id @default(cuid())
+
+  tenantId String @unique
+  planId String
+
+  status SubscriptionStatus @default(ACTIVE)
+  startedAt DateTime @default(now())
+  endedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  plan   Plan @relation(fields: [planId], references: [id])
+}
+
+model Invoice {
+  id String @id @default(cuid())
+
+  tenantId String
+  subscriptionId String?
+
+  invoiceNumber String @unique
+  amountCents Int
+  currency String @default("IDR")
+
+  status String @default("PENDING")
+  dueAt DateTime?
+  paidAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+}
+
+model UserRole {
+  id String @id @default(cuid())
+
+  userId String
+  roleId String
+  tenantId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([userId, roleId])
+  @@index([tenantId])
+}
+
+model UserOutlet {
+  id String @id @default(cuid())
+
+  userId String
+  outletId String
+  tenantId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outlet Outlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([userId, outletId])
+  @@index([tenantId])
+}
+
+
+

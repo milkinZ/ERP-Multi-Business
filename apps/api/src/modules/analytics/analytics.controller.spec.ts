@@ -1,12 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AnalyticsController } from './analytics.controller';
+import { AnalyticsService } from './analytics.service';
+import { PrismaMockModule } from '../../test/prisma-mock.module';
 
 describe('AnalyticsController', () => {
   let controller: AnalyticsController;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
+      imports: [PrismaMockModule],
       controllers: [AnalyticsController],
+      providers: [AnalyticsService],
     }).compile();
 
     controller = module.get<AnalyticsController>(AnalyticsController);

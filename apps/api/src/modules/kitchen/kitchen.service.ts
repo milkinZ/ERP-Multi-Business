@@ -30,9 +30,9 @@ export class KitchenService {
       },
 
       include: {
-        items: {
+        SalesOrderItem: {
           include: {
-            product: true,
+            Product: true,
           },
         },
       },

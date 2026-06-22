@@ -95,6 +95,6 @@ export class PurchaseOrderController {
   @Delete(':id')
   @Permissions(PERMISSIONS.PURCHASE_ORDER_DELETE)
   delete(@Param('id') id: string, @CurrentUser() user: JwtUser) {
-    return this.purchaseOrderService.delete(user.tenantId, id, user.userId);
+    return this.purchaseOrderService.delete(user.tenantId, id);
   }
 }

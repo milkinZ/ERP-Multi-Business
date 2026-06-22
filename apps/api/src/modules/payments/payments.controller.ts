@@ -11,6 +11,7 @@ import { Permissions } from '../../common/decorator/permissions.decorator';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 
 import { PERMISSIONS } from '../rbac/permissions';
+import type { JwtUser } from '../../common/interfaces/jwt-user.interface';
 
 @UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller('payments')
@@ -24,7 +25,7 @@ export class PaymentsController {
     dto: CreatePaymentDto,
 
     @CurrentUser()
-    user: any,
+    user: JwtUser,
   ) {
     return this.paymentsService.pay(user.tenantId, dto);
   }
@@ -33,7 +34,7 @@ export class PaymentsController {
   @Permissions(PERMISSIONS.PAYMENT_READ)
   findAll(
     @CurrentUser()
-    user: any,
+    user: JwtUser,
   ) {
     return this.paymentsService.findAll(user.tenantId);
   }
@@ -45,7 +46,7 @@ export class PaymentsController {
     id: string,
 
     @CurrentUser()
-    user: any,
+    user: JwtUser,
   ) {
     return this.paymentsService.findOne(id, user.tenantId);
   }

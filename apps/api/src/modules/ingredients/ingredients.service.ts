@@ -43,7 +43,7 @@ export class IngredientsService {
           inventoryItemId: inventoryItem.id,
         },
         include: {
-          inventoryItem: true,
+          InventoryItem: true,
         },
       });
 
@@ -58,7 +58,7 @@ export class IngredientsService {
       },
 
       include: {
-        inventoryItem: true,
+        InventoryItem: true,
       },
 
       orderBy: {
@@ -75,7 +75,7 @@ export class IngredientsService {
       },
 
       include: {
-        inventoryItem: true,
+        InventoryItem: true,
       },
     });
   }

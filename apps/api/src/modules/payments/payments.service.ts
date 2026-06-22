@@ -22,7 +22,7 @@ export class PaymentsService {
       },
 
       include: {
-        items: true,
+        SalesOrderItem: true,
       },
     });
 
@@ -80,7 +80,7 @@ export class PaymentsService {
       },
 
       include: {
-        order: true,
+        SalesOrder: true,
       },
 
       orderBy: {
@@ -97,7 +97,7 @@ export class PaymentsService {
       },
 
       include: {
-        order: true,
+        SalesOrder: true,
       },
     });
 

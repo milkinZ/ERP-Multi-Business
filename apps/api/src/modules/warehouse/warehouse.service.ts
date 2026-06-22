@@ -43,7 +43,7 @@ export class WarehouseService {
       },
 
       include: {
-        outlet: true,
+        Outlet: true,
       },
 
       orderBy: {
@@ -60,7 +60,7 @@ export class WarehouseService {
       },
 
       include: {
-        outlet: true,
+        Outlet: true,
       },
     });
 

@@ -1,42 +1,27 @@
-# ERP Multi Business - Frontend Implementation Progress
+# TODO (ERP Multi Business - Backend Roadmap)
 
-## Completed
+## Phase 1 — Foundation Architecture
+- [ ] Verify existing env/config/request-context/correlation id/logging/security/versioning/swagger/health infrastructure matches Phase 1.
 
-- Inventory module pages:
-  - apps/web/app/(app)/inventory/page.tsx
-  - apps/web/app/(app)/inventory/history/page.tsx
-  - apps/web/app/(app)/inventory/stock-in/page.tsx
-  - apps/web/app/(app)/inventory/adjustment/page.tsx
-  - apps/web/app/(app)/inventory/waste/page.tsx
-- Payments module pages:
-  - apps/web/app/(app)/payments/page.tsx
-  - apps/web/app/(app)/payments/pay/page.tsx
-  - apps/web/app/(app)/payments/[id]/page.tsx
-- Kitchen module pages:
-  - apps/web/app/(app)/kitchen/page.tsx
-  - apps/web/app/(app)/kitchen/orders/[id]/page.tsx
-- Analytics module page:
-  - apps/web/app/(app)/analytics/page.tsx
-- Recipes/Ingredients MVP:
-  - apps/web/app/(app)/recipes/new/page.tsx
-  - apps/web/app/(app)/ingredients/page.tsx
-- Suppliers/Warehouses basic (list only):
-  - apps/web/app/(app)/suppliers/page.tsx
-  - apps/web/app/(app)/warehouses/page.tsx
+## Phase 2 — Database Foundation
+- [ ] Update Prisma schema: BaseEntity (`id`, `createdAt`, `updatedAt`, `deletedAt`) + soft delete on core entities.
+- [ ] Add missing models: Session, AuditLog, Notification, FeatureFlag, Plan, Subscription, Invoice.
+- [ ] Add join models or refactor RBAC relations to match Phase 2 requirements.
+- [ ] Add tenant/outlet scoping enforcement layer (Prisma middleware or equivalent).
+- [ ] Create and apply Prisma migration(s).
+- [ ] Seed support (no breaking changes).
 
-## In Progress (next)
 
-- Implement missing CRUD/detail pages untuk:
-  - Suppliers (create/update/delete + detail)
-  - Warehouses (create/update/delete + detail)
-  - Recipes (list/detail + update/delete)
-  - Ingredients (create/update/delete + detail)
-- Fix/standardize TypeScript errors:
-  - pastikan semua import path konsisten (cek route depth)
-  - hilangkan implicit any dengan typing
-  - pastikan permission constants dipakai benar
+## Phase 3 — Redis Foundation
+- [ ] Validate RedisModule/RedisService/health check integration.
 
-## Next (after that)
+## Phase 4 — Event Driven Foundation
+- [ ] Validate outbox pattern end-to-end + OutboxEvent entity mapping.
+- [ ] Domain event types align with business workflow.
 
-- Re-check module coverage terhadap backend controllers:
-  - auth, users, rbac, fulfillment (jika ada controller), purchase-orders actions, kitchen status endpoints
+## Phase 5 — BullMQ Foundation
+- [ ] Validate queue constants/producers + retries/backoff/DLQ/monitoring.
+
+## Phase 7+ — Auth/RBAC/Tenant/etc.
+- [ ] Proceed phase-by-phase after Phase 2 passes (migrations + build).
+

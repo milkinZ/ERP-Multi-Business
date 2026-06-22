@@ -22,13 +22,21 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: any): Promise<JwtUser> {
+  validate(payload: unknown): JwtUser {
+    const p = payload as {
+      sub: string;
+      tenantId: string;
+      roleId: string;
+      outletId?: string | null;
+      permissions: string[];
+    };
+
     return {
-      userId: payload.sub,
-      tenantId: payload.tenantId,
-      roleId: payload.roleId,
-      outletId: payload.outletId,
-      permissions: payload.permissions,
+      userId: p.sub,
+      tenantId: p.tenantId,
+      roleId: p.roleId,
+      outletId: p.outletId ?? null,
+      permissions: p.permissions,
     };
   }
 }

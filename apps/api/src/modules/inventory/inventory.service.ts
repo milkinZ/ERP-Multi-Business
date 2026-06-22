@@ -6,14 +6,17 @@ import { StockInDto } from './dto/stock-in.dto';
 import { StockAdjustmentDto } from './dto/stock-adjustment.dto';
 import { WasteDto } from './dto/waste.dto';
 
-import { InventoryMovementType } from '@prisma/client';
+import { InventoryMovementType, InventoryItemType } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class InventoryService {
   constructor(private prisma: PrismaService) {}
 
-  async listInventoryItems(tenantId: string, type?: string) {
-    const where: any = { tenantId };
+  async listInventoryItems(tenantId: string, type?: InventoryItemType) {
+    const where: Prisma.InventoryItemWhereInput = {
+      tenantId,
+    };
 
     if (type) {
       // type comes from query string; map to InventoryItemType enum at runtime.
@@ -55,6 +58,7 @@ export class InventoryService {
             warehouseId: dto.warehouseId,
             inventoryItemId: dto.inventoryItemId,
             quantity: dto.quantity,
+            updatedAt: new Date(),
           },
         });
       }
@@ -198,9 +202,9 @@ export class InventoryService {
       },
 
       include: {
-        inventoryItem: true,
-        warehouse: true,
-        createdBy: true,
+        InventoryItem: true,
+        Warehouse: true,
+        User: true,
       },
 
       orderBy: {
@@ -217,8 +221,8 @@ export class InventoryService {
       },
 
       include: {
-        inventoryItem: true,
-        warehouse: true,
+        InventoryItem: true,
+        Warehouse: true,
       },
 
       orderBy: {

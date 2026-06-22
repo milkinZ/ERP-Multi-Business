@@ -6,11 +6,36 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY } from '../../common/decorator/permissions.decorator';
-import type { JwtUser } from '../../common/interfaces/jwt-user.interface';
+
+type UserWithPermissions = {
+  permissions: string[];
+};
+
+function isUserWithPermissions(value: unknown): value is UserWithPermissions {
+  if (!value || typeof value !== 'object') return false;
+
+  const obj = value as Record<string, unknown>;
+  const perms = obj['permissions'];
+
+  if (!Array.isArray(perms)) return false;
+  for (const p of perms) {
+    if (typeof p !== 'string') return false;
+  }
+
+  return true;
+}
+
+function extractUserFromContext(context: ExecutionContext): unknown {
+  const requestUnknown: unknown = context.switchToHttp().getRequest();
+  if (!requestUnknown || typeof requestUnknown !== 'object') return undefined;
+
+  const req = requestUnknown as Record<string, unknown>;
+  return req['user'];
+}
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
-  constructor(private reflector: Reflector) {}
+  constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
     const requiredPermissions = this.reflector.getAllAndOverride<string[]>(
@@ -18,29 +43,18 @@ export class PermissionsGuard implements CanActivate {
       [context.getHandler(), context.getClass()],
     );
 
-    // ERP/Odoo-like: endpoint should require ALL permissions listed on decorator.
-    // If no permissions metadata is present => public endpoint.
     if (!requiredPermissions || requiredPermissions.length === 0) {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest();
-    const user = request.user as JwtUser;
+    const userUnknown = extractUserFromContext(context);
 
-    if (!user || !user.permissions) {
+    if (!isUserWithPermissions(userUnknown)) {
       throw new ForbiddenException('No permissions found');
     }
 
-    const hasAllPermissions = requiredPermissions.every((permission) =>
-      user.permissions.includes(permission),
+    return requiredPermissions.every((permission) =>
+      userUnknown.permissions.includes(permission),
     );
-
-    if (!hasAllPermissions) {
-      throw new ForbiddenException(
-        `Missing required permissions: ${requiredPermissions.join(', ')}`,
-      );
-    }
-
-    return true;
   }
 }

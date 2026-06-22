@@ -71,7 +71,7 @@ export class RecipesService {
 
         productId: dto.productId,
 
-        items: {
+        RecipeItem: {
           create: dto.items.map((item) => ({
             ingredientId: item.ingredientId,
 
@@ -81,13 +81,13 @@ export class RecipesService {
       },
 
       include: {
-        items: {
+        Product: true,
+
+        RecipeItem: {
           include: {
-            ingredient: true,
+            Ingredient: true,
           },
         },
-
-        product: true,
       },
     });
   }
@@ -100,11 +100,11 @@ export class RecipesService {
       },
 
       include: {
-        product: true,
+        Product: true,
 
-        items: {
+        RecipeItem: {
           include: {
-            ingredient: true,
+            Ingredient: true,
           },
         },
       },

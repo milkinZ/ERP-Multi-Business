@@ -63,7 +63,7 @@ export class ProductsService {
           inventoryItemId: inventoryItemId ?? undefined,
         },
         include: {
-          inventoryItem: true,
+          InventoryItem: true,
         },
       });
 
@@ -77,15 +77,7 @@ export class ProductsService {
         tenantId,
       },
       include: {
-        inventoryItem: {
-          include: {
-            stocks: {
-              include: {
-                warehouse: true,
-              },
-            },
-          },
-        },
+        InventoryItem: true,
       },
       orderBy: {
         createdAt: 'desc',
@@ -100,11 +92,11 @@ export class ProductsService {
         tenantId,
       },
       include: {
-        inventoryItem: {
+        InventoryItem: {
           include: {
-            stocks: {
+            InventoryStock: {
               include: {
-                warehouse: true,
+                Warehouse: true,
               },
             },
           },

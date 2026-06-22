@@ -5,7 +5,6 @@ import { PrismaModule } from './core/database/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ProductsModule } from './modules/products/products.module';
-import { ConfigModule } from '@nestjs/config';
 import { OrdersModule } from './modules/orders/orders.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { PaymentsModule } from './modules/payments/payments.module';
@@ -16,9 +15,18 @@ import { RecipesModule } from './modules/recipes/recipes.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { SupplierModule } from './modules/supplier/supplier.module';
 import { PurchaseOrderModule } from './modules/purchase-orders/purchase-order.module';
+import { AppConfigModule } from './infrastructure/config/config.module';
+import { OutboxModule } from './infrastructure/events/outbox.module';
+import { HealthModule } from './infrastructure/health/health.module';
+import { RequestContextMiddlewareModule } from './infrastructure/request/middleware.module';
+import { QueueModule } from './infrastructure/queue/queue.module';
+import { SecurityModule } from './infrastructure/security/security.module';
+import { LoggerModule } from './infrastructure/logger/pino-logger.module';
 
 @Module({
   imports: [
+    AppConfigModule,
+    LoggerModule,
     PrismaModule,
     AuthModule,
     UsersModule,
@@ -33,9 +41,11 @@ import { PurchaseOrderModule } from './modules/purchase-orders/purchase-order.mo
     WarehouseModule,
     SupplierModule,
     PurchaseOrderModule,
-    ConfigModule.forRoot({
-      isGlobal: true,
-    }),
+    OutboxModule,
+    HealthModule,
+    RequestContextMiddlewareModule,
+    QueueModule,
+    SecurityModule,
   ],
   controllers: [AppController],
   providers: [AppService],

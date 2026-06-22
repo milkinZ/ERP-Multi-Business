@@ -51,4 +51,7 @@ export const PERMISSIONS = {
   PURCHASE_ORDER_DELETE: 'purchase_order.delete',
   PURCHASE_ORDER_APPROVE: 'purchase_order.approve',
   PURCHASE_ORDER_RECEIVE: 'purchase_order.receive',
+
+  // Admin
+  QUEUE_VIEW: 'queue.view',
 } as const;

@@ -50,7 +50,16 @@ export class SupplierService {
     return supplier;
   }
 
-  async update(id: string, tenantId: string, data: any) {
+  async update(
+    id: string,
+    tenantId: string,
+    data: {
+      name?: string;
+      phone?: string;
+      email?: string;
+      address?: string;
+    },
+  ) {
     const supplier = await this.prisma.supplier.findFirst({
       where: {
         id,
@@ -66,7 +75,6 @@ export class SupplierService {
       where: {
         id,
       },
-
       data,
     });
   }

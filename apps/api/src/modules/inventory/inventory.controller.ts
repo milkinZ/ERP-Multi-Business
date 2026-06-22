@@ -18,6 +18,7 @@ import { PERMISSIONS } from '../rbac/permissions';
 import { Permissions } from '../../common/decorator/permissions.decorator';
 import { WasteDto } from './dto/waste.dto';
 import { InventoryItemListQueryDto } from './dto/inventory-item-list.dto';
+import { InventoryItemType } from '@prisma/client';
 
 @Controller('inventory')
 @UseGuards(JwtAuthGuard, PermissionGuard)
@@ -65,7 +66,10 @@ export class InventoryController {
     @CurrentUser() user: JwtUser,
     @Query() query: InventoryItemListQueryDto,
   ) {
-    return this.inventoryService.listInventoryItems(user.tenantId, query.type);
+    return this.inventoryService.listInventoryItems(
+      user.tenantId,
+      query.type as InventoryItemType,
+    );
   }
 
   @Get('history/:inventoryItemId')

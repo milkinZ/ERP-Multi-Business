@@ -54,6 +54,8 @@ const permissions = [
   'purchase_order.delete',
   'purchase_order.approve',
   'purchase_order.receive',
+
+  'queue.view',
 ];
 
 async function main() {
@@ -62,9 +64,7 @@ async function main() {
       where: {
         code,
       },
-
       update: {},
-
       create: {
         code,
         name: code,
