@@ -1,6 +1,10 @@
-import { ThrottlerOptions } from '@nestjs/throttler';
+import { ThrottlerModuleOptions } from '@nestjs/throttler';
 
-export const throttlerOptions: ThrottlerOptions = {
-  ttl: 60,
-  limit: 120,
+export const throttlerOptions: ThrottlerModuleOptions = {
+  throttlers: [
+    {
+      ttl: 60000,
+      limit: 120,
+    },
+  ],
 };

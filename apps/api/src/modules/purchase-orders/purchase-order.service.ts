@@ -8,10 +8,18 @@ import { InventoryMovementType, PurchaseOrderStatus } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { BaseService } from '../../core/services/base.service';
 import { CreatePurchaseOrderDto, UpdatePurchaseOrderDto } from './dto';
+import { PurchaseOrderItemProps } from './domain/purchase-order.aggregate';
+import { DomainEventBus } from '../../core/events/domain-event-bus.service';
+import { DOMAIN_EVENTS } from '../../core/events/domain-events';
+import { PurchaseOrderRepository } from './purchase-order.repository';
 
 @Injectable()
 export class PurchaseOrderService extends BaseService {
-  constructor(protected prisma: PrismaService) {
+  constructor(
+    protected prisma: PrismaService,
+    private readonly eventBus: DomainEventBus,
+    private readonly purchaseOrderRepository: PurchaseOrderRepository,
+  ) {
     super(prisma);
   }
 
@@ -37,40 +45,44 @@ export class PurchaseOrderService extends BaseService {
       throw new BadRequestException('Some inventory items not found');
     }
 
-    const totalAmount = items.reduce((sum, item) => {
-      return sum + item.quantity * item.unitPrice;
-    }, 0);
-
     const poNumber = await this.generatePoNumber(tenantId);
 
-    return this.prisma.purchaseOrder.create({
-      data: {
-        poNumber,
-        status: PurchaseOrderStatus.DRAFT,
-        supplierId,
+    // Normalize items and expected delivery date to explicit types
+    const normalizedItems: PurchaseOrderItemProps[] = items.map((item) => ({
+      inventoryItemId: item.inventoryItemId,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      subtotal: item.quantity * item.unitPrice,
+    }));
+
+    const normalizedExpectedDeliveryDate: Date | null = expectedDeliveryDate
+      ? new Date(expectedDeliveryDate)
+      : null;
+
+    const purchaseOrder =
+      await this.purchaseOrderRepository.createPurchaseOrder({
         tenantId,
+        poNumber,
+        supplierId,
         warehouseId: warehouseId ?? null,
-        expectedDeliveryDate: expectedDeliveryDate
-          ? new Date(expectedDeliveryDate)
-          : null,
-        totalAmount,
+        expectedDeliveryDate: normalizedExpectedDeliveryDate,
         notes: notes ?? null,
-        updatedAt: new Date(),
-        PurchaseOrderItem: {
-          create: items.map((item) => ({
-            inventoryItemId: item.inventoryItemId,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            subtotal: item.quantity * item.unitPrice,
-          })),
-        },
-      },
-      include: {
-        PurchaseOrderItem: true,
-        Supplier: true,
-        Warehouse: true,
+        items: normalizedItems.map((it) => ({
+          inventoryItemId: it.inventoryItemId,
+          quantity: it.quantity,
+          unitPrice: it.unitPrice,
+        })),
+      });
+
+    await this.eventBus.publish({
+      type: DOMAIN_EVENTS.PURCHASE_ORDER_CREATED,
+      payload: {
+        purchaseOrderId: purchaseOrder.id,
+        tenantId,
       },
     });
+
+    return purchaseOrder;
   }
 
   async findAll(
@@ -86,44 +98,26 @@ export class PurchaseOrderService extends BaseService {
     const { skip: paginationSkip, take: paginationTake } =
       this.getPaginationParams(skip, take);
 
-    const where = {
-      tenantId,
-      ...(status ? { status } : {}),
-      ...(supplierId ? { supplierId } : {}),
-    };
-
-    const [data, total] = await Promise.all([
-      this.prisma.purchaseOrder.findMany({
-        where,
-        include: {
-          PurchaseOrderItem: true,
-          Supplier: true,
-          Warehouse: true,
-        },
-        skip: paginationSkip,
-        take: paginationTake,
-        orderBy: { createdAt: 'desc' },
-      }),
-      this.prisma.purchaseOrder.count({ where }),
-    ]);
+    const result = await this.purchaseOrderRepository.findAll(tenantId, {
+      status,
+      supplierId,
+      skip: paginationSkip,
+      take: paginationTake,
+    });
 
     return this.formatPaginatedResponse(
-      data,
-      total,
+      result.data,
+      result.total,
       paginationSkip,
       paginationTake,
     );
   }
 
   async findOne(tenantId: string, id: string) {
-    const purchaseOrder = await this.prisma.purchaseOrder.findUnique({
-      where: { id },
-      include: {
-        PurchaseOrderItem: { include: { InventoryItem: true } },
-        Supplier: true,
-        Warehouse: true,
-      },
-    });
+    const purchaseOrder = await this.purchaseOrderRepository.findOne(
+      id,
+      tenantId,
+    );
 
     if (!purchaseOrder || purchaseOrder.tenantId !== tenantId) {
       throw new NotFoundException('Purchase Order not found');
@@ -154,53 +148,63 @@ export class PurchaseOrderService extends BaseService {
     const { supplierId, items, ...updateData } = dto;
 
     let totalAmount = po.totalAmount;
+    let parsedItems: PurchaseOrderItemProps[] | undefined;
 
     if (items && items.length > 0) {
-      await this.prisma.purchaseOrderItem.deleteMany({
-        where: { purchaseOrderId: id },
-      });
+      parsedItems = [];
 
-      totalAmount = items.reduce((sum: number, item) => {
+      for (const item of items) {
+        const inventoryItemId = item.inventoryItemId ?? '';
         const quantity = item.quantity ?? 0;
         const unitPrice = item.unitPrice ?? 0;
-        return sum + quantity * unitPrice;
-      }, 0);
+
+        if (!inventoryItemId || quantity <= 0 || unitPrice < 0) {
+          throw new BadRequestException('Invalid purchase order item');
+        }
+
+        parsedItems.push({
+          inventoryItemId,
+          quantity,
+          unitPrice,
+          subtotal: quantity * unitPrice,
+        });
+      }
+
+      totalAmount = parsedItems.reduce(
+        (sum: number, item) => sum + item.subtotal,
+        0,
+      );
     }
 
-    return this.prisma.purchaseOrder.update({
-      where: { id },
-      data: {
-        ...updateData,
-        supplierId: supplierId ?? undefined,
-        totalAmount,
-        updatedAt: new Date(),
-        PurchaseOrderItem: items
-          ? {
-              create: items.map((item) => {
-                const inventoryItemId = item.inventoryItemId;
-                const quantity = item.quantity;
-                const unitPrice = item.unitPrice;
+    let expectedDeliveryDate: Date | null = null;
 
-                if (!inventoryItemId || quantity == null || unitPrice == null) {
-                  throw new BadRequestException('Invalid purchase order item');
-                }
+    if (updateData.expectedDeliveryDate !== undefined) {
+      expectedDeliveryDate = updateData.expectedDeliveryDate
+        ? new Date(updateData.expectedDeliveryDate)
+        : null;
+    } else {
+      const persisted = po.expectedDeliveryDate as
+        | Date
+        | string
+        | null
+        | undefined;
+      expectedDeliveryDate = persisted ? new Date(persisted) : null;
+    }
 
-                return {
-                  inventoryItemId,
-                  quantity,
-                  unitPrice,
-                  subtotal: quantity * unitPrice,
-                };
-              }),
-            }
-          : undefined,
-      },
-      include: {
-        PurchaseOrderItem: true,
-        Supplier: true,
-        Warehouse: true,
-      },
+    const updated = await this.purchaseOrderRepository.update(id, tenantId, {
+      supplierId: supplierId ?? po.supplierId,
+      warehouseId: updateData.warehouseId ?? po.warehouseId,
+      expectedDeliveryDate,
+      notes: updateData.notes === undefined ? po.notes : updateData.notes,
+      totalAmount,
+      items: parsedItems,
     });
+
+    if (!updated) {
+      throw new BadRequestException('Purchase Order not found');
+    }
+
+    return updated;
   }
 
   async updateStatus(
@@ -224,9 +228,11 @@ export class PurchaseOrderService extends BaseService {
         [PurchaseOrderStatus.APPROVED]: [
           PurchaseOrderStatus.PARTIALLY_RECEIVED,
           PurchaseOrderStatus.RECEIVED,
+          PurchaseOrderStatus.CANCELLED,
         ],
         [PurchaseOrderStatus.PARTIALLY_RECEIVED]: [
           PurchaseOrderStatus.RECEIVED,
+          PurchaseOrderStatus.CANCELLED,
         ],
         [PurchaseOrderStatus.RECEIVED]: [PurchaseOrderStatus.COMPLETED],
         [PurchaseOrderStatus.REJECTED]: [PurchaseOrderStatus.CANCELLED],
@@ -240,24 +246,17 @@ export class PurchaseOrderService extends BaseService {
       );
     }
 
-    const updateData: {
-      status: PurchaseOrderStatus;
-      updatedAt: Date;
-      receivedAt?: Date;
-      completedAt?: Date;
-    } = { status, updatedAt: new Date() };
-
-    if (status === PurchaseOrderStatus.RECEIVED) {
-      updateData.receivedAt = new Date();
-    }
-    if (status === PurchaseOrderStatus.COMPLETED) {
-      updateData.completedAt = new Date();
-    }
-
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.purchaseOrder.updateMany({
         where: { id, tenantId },
-        data: updateData,
+        data: {
+          status,
+          updatedAt: new Date(),
+          receivedAt:
+            status === PurchaseOrderStatus.RECEIVED ? new Date() : undefined,
+          completedAt:
+            status === PurchaseOrderStatus.COMPLETED ? new Date() : undefined,
+        },
       });
 
       if (updated.count !== 1) {
@@ -331,6 +330,16 @@ export class PurchaseOrderService extends BaseService {
             },
           });
         }
+      }
+
+      if (status === PurchaseOrderStatus.RECEIVED) {
+        await this.eventBus.publish({
+          type: DOMAIN_EVENTS.PURCHASE_ORDER_RECEIVED,
+          payload: {
+            purchaseOrderId: id,
+            tenantId,
+          },
+        });
       }
 
       return tx.purchaseOrder.findFirst({

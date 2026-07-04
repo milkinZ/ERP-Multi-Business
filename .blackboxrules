@@ -1,0 +1,168 @@
+# BLACKBOX EXECUTION RULES (MANDATORY)
+
+Environment:
+
+* Operating System: Windows 11
+* Shell: PowerShell (pwsh / powershell.exe)
+* Package Manager: npm
+* Workspace: Monorepo (Turbo + NestJS + Prisma)
+
+## CRITICAL SHELL RULES
+
+NEVER USE:
+
+* &&
+* ||
+* bash
+* sh
+* zsh
+* source
+* export
+* chmod
+* ./script.sh
+* sudo
+
+ALWAYS USE:
+
+* PowerShell syntax only
+* One command per execution step
+* Separate commands into multiple terminal executions
+
+BAD:
+npm run build && npm run lint
+
+GOOD:
+npm run build
+
+(wait for output)
+
+npm run lint
+
+(wait for output)
+
+npm run check-types
+
+## FILE SEARCH RULES
+
+Environment already has ripgrep installed.
+
+Use:
+rg "keyword" .
+rg "findUnique" apps/api/src
+rg "prisma." apps/api/src
+
+Never claim:
+
+* "ripgrep is missing"
+* "search tool unavailable"
+* "cannot audit repository"
+
+Without first attempting:
+rg --version
+
+## VALIDATION RULES
+
+Before declaring any phase FAIL because evidence is missing:
+
+You MUST execute:
+
+rg "findUnique" apps/api/src
+rg "updateMany" apps/api/src
+rg "upsert" apps/api/src
+rg "connectOrCreate" apps/api/src
+rg "deleteMany" apps/api/src
+
+Then provide evidence.
+
+Do NOT assume evidence is unavailable.
+
+## BUILD VALIDATION RULES
+
+Never claim build status is unknown.
+
+Run in sequence:
+
+npm run build
+
+(wait for completion)
+
+npm run lint
+
+(wait for completion)
+
+npm run check-types
+
+(wait for completion)
+
+Report actual output.
+
+Do not stop because of assumptions.
+
+## PHASE REVIEW RULES
+
+When reviewing a phase:
+
+1. Audit existing code.
+2. Produce exact file paths.
+3. Produce exact code snippets.
+4. Produce exact bypass examples.
+5. Produce exact fix recommendations.
+6. Only then determine PASS or FAIL.
+
+Never fail a phase because:
+
+* search was not attempted
+* build was not attempted
+* lint was not attempted
+* typecheck was not attempted
+
+## PRISMA RULES
+
+When reviewing Prisma middleware:
+
+Must verify:
+
+* findUnique
+* findFirst
+* findMany
+* create
+* update
+* delete
+* updateMany
+* deleteMany
+* upsert
+* nested writes
+* relation ownership
+
+Do not assume.
+
+Provide repository evidence.
+
+## RESPONSE RULES
+
+Never say:
+
+* "cannot verify"
+* "tool unavailable"
+* "ripgrep missing"
+
+Unless you have first executed:
+rg --version
+
+and included the actual output.
+
+Always use PowerShell-compatible commands.
+
+Phase status may only be marked COMPLETE when:
+
+- Build PASS
+- Lint PASS
+- Typecheck PASS
+- No known security bypass remains
+- Evidence table provided
+- Exact file paths provided
+
+Otherwise status must be:
+IN PROGRESS
+or
+FAIL

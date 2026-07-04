@@ -1,10 +1,14 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { InventoryItemType } from '@prisma/client';
+import { IngredientsRepository } from './ingredients.repository';
 
 @Injectable()
 export class IngredientsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly ingredientsRepository: IngredientsRepository,
+  ) {}
 
   async create(
     tenantId: string,
@@ -35,16 +39,12 @@ export class IngredientsService {
         throw new BadRequestException('Ingredient already exists');
       }
 
-      const ingredient = await tx.ingredient.create({
-        data: {
-          name: data.name,
-          unit: data.unit,
-          tenantId,
-          inventoryItemId: inventoryItem.id,
-        },
-        include: {
-          InventoryItem: true,
-        },
+      // Delegate persistence to repository to keep service thin
+      const ingredient = await this.ingredientsRepository.createIngredient({
+        tenantId,
+        name: data.name,
+        unit: data.unit,
+        inventoryItemId: inventoryItem.id,
       });
 
       return ingredient;
@@ -52,31 +52,10 @@ export class IngredientsService {
   }
 
   findAll(tenantId: string) {
-    return this.prisma.ingredient.findMany({
-      where: {
-        tenantId,
-      },
-
-      include: {
-        InventoryItem: true,
-      },
-
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+    return this.ingredientsRepository.findAll(tenantId);
   }
 
   findOne(id: string, tenantId: string) {
-    return this.prisma.ingredient.findFirst({
-      where: {
-        id,
-        tenantId,
-      },
-
-      include: {
-        InventoryItem: true,
-      },
-    });
+    return this.ingredientsRepository.findOne(id, tenantId);
   }
 }

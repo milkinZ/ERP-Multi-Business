@@ -7,6 +7,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
+import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -17,6 +18,9 @@ async function bootstrap() {
 
   //Pino-Logger
   app.useLogger(app.get(Logger));
+
+  //Cookie parser
+  app.use(cookieParser());
 
   // Security
   app.enableCors({
@@ -32,7 +36,22 @@ async function bootstrap() {
     }),
   );
 
-  await app.init();
+  // Swagger
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('ERP Multi-Business API')
+    .setDescription('Production-grade ERP SaaS backend')
+    .setVersion(config.get<string>('APP_VERSION') ?? '1')
+    .addBearerAuth({ type: 'http', scheme: 'bearer' })
+    .build();
+
+  console.log('Registering Swagger...');
+
+  const document = SwaggerModule.createDocument(app, swaggerConfig);
+  SwaggerModule.setup('docs', app, document);
+
+  console.log('Swagger registered at /docs');
+
+  // await app.init();
 
   // Global response wrapper
   app.useGlobalInterceptors(new ResponseInterceptor());
@@ -53,17 +72,6 @@ async function bootstrap() {
     type: 1,
     header: 'x-api-version',
   });
-
-  // Swagger
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('ERP Multi-Business API')
-    .setDescription('Production-grade ERP SaaS backend')
-    .setVersion(config.get<string>('APP_VERSION') ?? '1')
-    .addBearerAuth({ type: 'http', scheme: 'bearer' })
-    .build();
-
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('docs', app, document);
 
   // const port = config.get<number>('PORT') ?? 3000;
   const port = 3000;

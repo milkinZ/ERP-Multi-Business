@@ -30,7 +30,6 @@ export class DomainEventBus {
 
   async publish(event: DomainEvent) {
     const handlers = [...(this.handlers.get(event.type) ?? [])];
-
     for (const handler of handlers) {
       await handler({
         ...event,

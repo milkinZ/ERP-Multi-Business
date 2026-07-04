@@ -1,20 +1,21 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
-import { ThrottlerModule } from '@nestjs/throttler';
-
 import { CsrfRefreshGuard } from './csrf-refresh.guard';
-import { throttlerOptions } from './throttler-setup';
+import { ThrottlerAppModule } from './throttler.module';
+import { ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 
 @Module({
-  imports: [
-    ConfigModule,
-    ThrottlerModule.forRoot(
-      throttlerOptions as unknown as import('@nestjs/throttler').ThrottlerModuleOptions,
-    ),
-  ],
+  imports: [ConfigModule, ThrottlerAppModule],
 
-  providers: [CsrfRefreshGuard],
+  providers: [
+    CsrfRefreshGuard,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
   exports: [CsrfRefreshGuard],
 })
 export class SecurityModule {}

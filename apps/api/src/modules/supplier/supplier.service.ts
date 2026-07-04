@@ -1,10 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
-import { PrismaService } from '../../core/database/prisma.service';
+import { SupplierRepository } from './supplier.repository';
 
 @Injectable()
 export class SupplierService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly supplierRepository: SupplierRepository) {}
 
   create(
     tenantId: string,
@@ -15,33 +15,21 @@ export class SupplierService {
       address?: string;
     },
   ) {
-    return this.prisma.supplier.create({
-      data: {
-        ...data,
-        tenantId,
-      },
+    return this.supplierRepository.create({
+      tenantId,
+      name: data.name,
+      phone: data.phone ?? null,
+      email: data.email ?? null,
+      address: data.address ?? null,
     });
   }
 
   findAll(tenantId: string) {
-    return this.prisma.supplier.findMany({
-      where: {
-        tenantId,
-      },
-
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+    return this.supplierRepository.findAll(tenantId);
   }
 
   async findOne(id: string, tenantId: string) {
-    const supplier = await this.prisma.supplier.findFirst({
-      where: {
-        id,
-        tenantId,
-      },
-    });
+    const supplier = await this.supplierRepository.findOne(id, tenantId);
 
     if (!supplier) {
       throw new BadRequestException('Supplier not found');
@@ -60,42 +48,26 @@ export class SupplierService {
       address?: string;
     },
   ) {
-    const supplier = await this.prisma.supplier.findFirst({
-      where: {
-        id,
-        tenantId,
-      },
+    const supplier = await this.supplierRepository.update(id, tenantId, {
+      name: data.name,
+      phone: data.phone ?? undefined,
+      email: data.email ?? undefined,
+      address: data.address ?? undefined,
     });
 
     if (!supplier) {
       throw new BadRequestException('Supplier not found');
     }
 
-    return this.prisma.supplier.update({
-      where: {
-        id,
-      },
-      data,
-    });
+    return supplier;
   }
 
   async remove(id: string, tenantId: string) {
-    const supplier = await this.prisma.supplier.findFirst({
-      where: {
-        id,
-        tenantId,
-      },
-    });
+    const deleted = await this.supplierRepository.delete(id, tenantId);
 
-    if (!supplier) {
+    if (!deleted) {
       throw new BadRequestException('Supplier not found');
     }
-
-    await this.prisma.supplier.delete({
-      where: {
-        id,
-      },
-    });
 
     return {
       success: true,

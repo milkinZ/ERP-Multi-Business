@@ -1,7 +1,7 @@
-import { Module } from '@nestjs/common';
+import { Module } from "@nestjs/common";
 
-import { RedisModule } from '../shared/redis.module';
-import { QueueService } from './queue.service';
+import { RedisModule } from "../shared/redis.module";
+import { QueueService } from "./queue.service";
 
 @Module({
   imports: [RedisModule],
@@ -9,4 +9,3 @@ import { QueueService } from './queue.service';
   exports: [QueueService],
 })
 export class QueueModule {}
-

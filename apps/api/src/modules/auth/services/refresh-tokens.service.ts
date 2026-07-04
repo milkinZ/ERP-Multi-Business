@@ -14,6 +14,12 @@ export class RefreshTokensService {
     });
   }
 
+  getBySelector(selector: string) {
+    return this.prisma.refreshToken.findUnique({
+      where: { tokenSelector: selector },
+    });
+  }
+
   async create(data: Prisma.RefreshTokenUncheckedCreateInput) {
     return this.prisma.refreshToken.create({ data });
   }

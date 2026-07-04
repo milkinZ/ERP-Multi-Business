@@ -1,10 +1,13 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
-import { InventoryItemType } from '@prisma/client';
+import { ProductsRepository } from './products.repository';
 
 @Injectable()
 export class ProductsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly productsRepository: ProductsRepository,
+  ) {}
 
   async create(data: {
     name: string;
@@ -13,95 +16,26 @@ export class ProductsService {
     price: number;
     tenantId: string;
   }) {
-    return this.prisma.$transaction(async (tx) => {
-      const tenant = await tx.tenant.findUnique({
-        where: { id: data.tenantId },
-        select: { businessType: true },
+    try {
+      return await this.productsRepository.createFromDto({
+        tenantId: data.tenantId,
+        name: data.name,
+        description: data.description ?? null,
+        sku: data.sku ?? null,
+        price: data.price,
       });
-
-      if (data.sku) {
-        const existing = await tx.product.findFirst({
-          where: {
-            tenantId: data.tenantId,
-            sku: data.sku,
-          },
-        });
-
-        if (existing) {
-          throw new BadRequestException('SKU already exists');
-        }
-      }
-
-      // Business rules:
-      // - CAFE: Product is a finished menu item; inventoryItem is created from ingredients/recipe, not from product.
-      // - RETAIL: Product is sellable inventory item; inventoryItem is created from product.
-      let inventoryItemId: string | null = null;
-
-      if (tenant?.businessType === 'RETAIL') {
-        const inventoryItem = await tx.inventoryItem.create({
-          data: {
-            code:
-              data.sku ??
-              `PRD-${new Date().getTime()}-${Math.floor(Math.random() * 1000)}`,
-            name: data.name,
-            description: data.description,
-            type: InventoryItemType.PRODUCT,
-            tenantId: data.tenantId,
-          },
-        });
-
-        inventoryItemId = inventoryItem.id;
-      }
-
-      const product = await tx.product.create({
-        data: {
-          name: data.name,
-          description: data.description,
-          sku: data.sku,
-          price: data.price,
-          tenantId: data.tenantId,
-          inventoryItemId: inventoryItemId ?? undefined,
-        },
-        include: {
-          InventoryItem: true,
-        },
-      });
-
-      return product;
-    });
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to create product';
+      throw new BadRequestException(message);
+    }
   }
 
   findAll(tenantId: string) {
-    return this.prisma.product.findMany({
-      where: {
-        tenantId,
-      },
-      include: {
-        InventoryItem: true,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+    return this.productsRepository.findAll(tenantId);
   }
 
   findOne(id: string, tenantId: string) {
-    return this.prisma.product.findFirst({
-      where: {
-        id,
-        tenantId,
-      },
-      include: {
-        InventoryItem: {
-          include: {
-            InventoryStock: {
-              include: {
-                Warehouse: true,
-              },
-            },
-          },
-        },
-      },
-    });
+    return this.productsRepository.findOne(id, tenantId);
   }
 }

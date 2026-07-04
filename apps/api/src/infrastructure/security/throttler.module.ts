@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
-
-// Throttling foundation will be enabled once Nest Throttler options are aligned
-// with the installed @nestjs/throttler version.
+import { ThrottlerModule } from '@nestjs/throttler';
+import { throttlerOptions } from './throttler-setup';
+import { ConfigModule } from '@nestjs/config';
 @Module({
-  imports: [],
+  imports: [ConfigModule, ThrottlerModule.forRoot(throttlerOptions)],
+
+  exports: [ThrottlerModule],
 })
 export class ThrottlerAppModule {}

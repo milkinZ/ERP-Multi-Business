@@ -1,68 +1,28 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
-import { PrismaService } from '../../core/database/prisma.service';
+import { WarehouseRepository } from './warehouse.repository';
 
 @Injectable()
 export class WarehouseService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly warehouseRepository: WarehouseRepository) {}
 
-  async create(
-    tenantId: string,
-    data: {
-      name: string;
-      outletId?: string;
-    },
-  ) {
-    if (data.outletId) {
-      const outlet = await this.prisma.outlet.findFirst({
-        where: {
-          id: data.outletId,
-          tenantId,
-        },
-      });
-
-      if (!outlet) {
-        throw new BadRequestException('Outlet not found');
-      }
-    }
-
-    return this.prisma.warehouse.create({
-      data: {
-        code: `WH-${new Date().getTime()}-${Math.floor(Math.random() * 1000)}`,
-        name: data.name,
-        tenantId,
-        outletId: data.outletId,
-      },
+  async create(tenantId: string, data: { name: string; outletId?: string }) {
+    return this.warehouseRepository.create({
+      id: `WH-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      tenantId,
+      name: data.name,
+      code: `WH-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      outletId: data.outletId ?? null,
+      createdAt: new Date(),
     });
   }
 
   findAll(tenantId: string) {
-    return this.prisma.warehouse.findMany({
-      where: {
-        tenantId,
-      },
-
-      include: {
-        Outlet: true,
-      },
-
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+    return this.warehouseRepository.findAll(tenantId);
   }
 
   async findOne(id: string, tenantId: string) {
-    const warehouse = await this.prisma.warehouse.findFirst({
-      where: {
-        id,
-        tenantId,
-      },
-
-      include: {
-        Outlet: true,
-      },
-    });
+    const warehouse = await this.warehouseRepository.findOne(id, tenantId);
 
     if (!warehouse) {
       throw new BadRequestException('Warehouse not found');

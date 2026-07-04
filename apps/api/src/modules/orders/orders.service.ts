@@ -1,17 +1,16 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
-import { PrismaService } from '../../core/database/prisma.service';
+import { OrdersRepository } from './orders.repository';
 import { OrderStatus } from '@prisma/client';
 import { JwtUser } from '../../common/interfaces/jwt-user.interface';
-import { buildOutletFilter } from '../../common/filter/outlet-filter';
 import { DomainEventBus } from '../../core/events/domain-event-bus.service';
 import { DOMAIN_EVENTS } from '../../core/events/domain-events';
 
 @Injectable()
 export class OrdersService {
   constructor(
-    private prisma: PrismaService,
-    private events: DomainEventBus,
+    private readonly ordersRepository: OrdersRepository,
+    private readonly events: DomainEventBus,
   ) {}
 
   async create(
@@ -22,70 +21,43 @@ export class OrdersService {
       quantity: number;
     }[],
   ) {
-    const order = await this.prisma.$transaction(async (tx) => {
-      const productIds = items.map((item) => item.productId);
+    const productIds = items.map((item) => item.productId);
 
-      const products = await tx.product.findMany({
-        where: {
-          id: { in: productIds },
-          tenantId,
-        },
-      });
+    const products = await this.ordersRepository.findProductsByIds(
+      productIds,
+      tenantId,
+    );
 
-      if (products.length !== items.length) {
-        throw new BadRequestException('Some products not found');
+    if (products.length !== items.length) {
+      throw new BadRequestException('Some products not found');
+    }
+
+    let totalAmount = 0;
+
+    const orderItems = items.map((item) => {
+      const product = products.find((p) => p.id === item.productId);
+      if (!product) {
+        throw new BadRequestException('Product not found');
       }
 
-      let totalAmount = 0;
+      const subtotal = product.price * item.quantity;
+      totalAmount += subtotal;
 
-      const orderItemsData = items.map((item) => {
-        const product = products.find((p) => p.id === item.productId);
-        if (!product) {
-          throw new BadRequestException('Product not found');
-        }
-
-        const subtotal = product.price * item.quantity;
-        totalAmount += subtotal;
-
-        return {
-          productId: product.id,
-          quantity: item.quantity,
-          price: product.price,
-          subtotal,
-        };
-      });
-
-      const createdOrder = await tx.salesOrder.create({
-        data: {
-          orderNumber: `ORD-${Date.now()}`,
-          tenantId,
-          outletId,
-          totalAmount,
-        },
-      });
-
-      await tx.salesOrderItem.createMany({
-        data: orderItemsData.map((item) => ({
-          ...item,
-          orderId: createdOrder.id,
-        })),
-      });
-
-      return tx.salesOrder.findUnique({
-        where: { id: createdOrder.id },
-        include: {
-          SalesOrderItem: {
-            include: {
-              Product: true,
-            },
-          },
-        },
-      });
+      return {
+        productId: product.id,
+        quantity: item.quantity,
+        price: product.price,
+        subtotal,
+      };
     });
 
-    if (!order) {
-      throw new BadRequestException('Order not found');
-    }
+    const order = await this.ordersRepository.createOrder(
+      tenantId,
+      outletId,
+      `ORD-${Date.now()}`,
+      totalAmount,
+      orderItems,
+    );
 
     await this.events.publish({
       type: DOMAIN_EVENTS.ORDER_CREATED,
@@ -100,221 +72,136 @@ export class OrdersService {
   }
 
   findAll(user: JwtUser) {
-    return this.prisma.salesOrder.findMany({
-      where: {
-        tenantId: user.tenantId,
-        ...buildOutletFilter(user),
-      },
-      include: {
-        SalesOrderItem: true,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+    return this.ordersRepository.findAll(user.tenantId, user.outletId || null);
   }
 
   findOne(id: string, user: JwtUser) {
-    return this.prisma.salesOrder.findFirst({
-      where: {
-        id,
-        tenantId: user.tenantId,
-        ...buildOutletFilter(user),
-      },
-      include: {
-        SalesOrderItem: {
-          include: {
-            Product: true,
-          },
-        },
-      },
-    });
+    return this.ordersRepository.findOne(
+      id,
+      user.tenantId,
+      user.outletId || null,
+    );
   }
 
   async updateStatus(id: string, user: JwtUser, status: OrderStatus) {
-    return this.prisma.$transaction(async (tx) => {
-      const tenant = await tx.tenant.findUnique({
-        where: { id: user.tenantId },
-        select: { businessType: true },
-      });
+    const tenant = await this.ordersRepository.findTenantById(user.tenantId);
 
-      // Workflow kitchen (IN_PROGRESS/READY/COMPLETED) only for CAFE business type
-      const kitchenWorkflowStatuses = new Set<OrderStatus>([
-        OrderStatus.IN_PROGRESS,
-        OrderStatus.READY,
-        OrderStatus.COMPLETED,
-      ]);
+    const kitchenWorkflowStatuses = new Set<OrderStatus>([
+      OrderStatus.IN_PROGRESS,
+      OrderStatus.READY,
+      OrderStatus.COMPLETED,
+    ]);
 
-      const isKitchenWorkflowStatus = kitchenWorkflowStatuses.has(status);
+    const isKitchenWorkflowStatus = kitchenWorkflowStatuses.has(status);
 
-      if (
-        !tenant ||
-        (tenant.businessType !== 'CAFE' && isKitchenWorkflowStatus)
-      ) {
-        throw new BadRequestException(
-          'Kitchen workflow status transition is only available for CAFE business type',
-        );
-      }
+    if (
+      !tenant ||
+      (tenant.businessType !== 'CAFE' && isKitchenWorkflowStatus)
+    ) {
+      throw new BadRequestException(
+        'Kitchen workflow status transition is only available for CAFE business type',
+      );
+    }
 
-      const order = await tx.salesOrder.findFirst({
-        where: {
-          id,
-          tenantId: user.tenantId,
-          ...buildOutletFilter(user),
-        },
-        include: {
-          SalesOrderItem: {
-            include: {
-              Product: true,
-            },
-          },
-        },
-      });
+    const aggregate = await this.ordersRepository.findOneAggregate(
+      id,
+      user.tenantId,
+      user.outletId || null,
+    );
 
-      if (!order) {
-        throw new BadRequestException('Order not found');
-      }
+    if (!aggregate) {
+      throw new BadRequestException('Order not found');
+    }
 
-      if (status === OrderStatus.PAID) {
-        throw new BadRequestException(
-          'Use payment endpoint to mark order as paid',
-        );
-      }
+    if (status === OrderStatus.PAID) {
+      throw new BadRequestException(
+        'Use payment endpoint to mark order as paid',
+      );
+    }
 
-      const updated = await tx.salesOrder.updateMany({
-        where: {
-          id,
-          tenantId: user.tenantId,
-          ...buildOutletFilter(user),
-        },
-        data: {
-          status,
-        },
-      });
+    if (status === OrderStatus.COMPLETED) {
+      aggregate.complete();
+    } else if (status === OrderStatus.CANCELLED) {
+      aggregate.cancel();
+    }
 
-      if (updated.count !== 1) {
-        throw new BadRequestException('Order not found');
-      }
+    const updated = await this.ordersRepository.updateStatus(
+      id,
+      user.tenantId,
+      aggregate.status,
+    );
 
-      return tx.salesOrder.findFirst({
-        where: {
-          id,
-          tenantId: user.tenantId,
-        },
-      });
-    });
+    if (!updated) {
+      throw new BadRequestException('Order not found');
+    }
+
+    return updated;
   }
 
   async markPaid(id: string, tenantId: string) {
-    const order = await this.prisma.salesOrder.findFirst({
-      where: {
-        id,
-        tenantId,
-      },
-    });
+    const aggregate = await this.ordersRepository.findOneAggregate(
+      id,
+      tenantId,
+    );
 
-    if (!order) {
+    if (!aggregate) {
       throw new BadRequestException('Order not found');
     }
 
-    if (order.status === OrderStatus.CANCELLED) {
-      throw new BadRequestException('Cannot pay cancelled order');
-    }
+    aggregate.markPaid();
 
-    const updated = await this.prisma.salesOrder.updateMany({
-      where: {
-        id,
-        tenantId,
-      },
-      data: {
-        status: OrderStatus.PAID,
-      },
-    });
+    const updated = await this.ordersRepository.markPaid(id, tenantId);
 
-    if (updated.count !== 1) {
+    if (!updated) {
       throw new BadRequestException('Order not found');
     }
 
-    return this.prisma.salesOrder.findFirst({
-      where: {
-        id,
-        tenantId,
-      },
-    });
+    return updated;
   }
 
   async cancelOrder(id: string, tenantId: string) {
-    const order = await this.prisma.salesOrder.findFirst({
-      where: {
-        id,
-        tenantId,
-      },
-    });
+    const aggregate = await this.ordersRepository.findOneAggregate(
+      id,
+      tenantId,
+    );
 
-    if (!order) {
+    if (!aggregate) {
       return null;
     }
 
-    if (
-      order.status === OrderStatus.COMPLETED ||
-      order.status === OrderStatus.CANCELLED
-    ) {
-      return order;
+    try {
+      aggregate.cancel();
+    } catch {
+      return this.ordersRepository.findOne(id, tenantId);
     }
 
-    const updated = await this.prisma.salesOrder.updateMany({
-      where: {
-        id,
-        tenantId,
-      },
-      data: {
-        status: OrderStatus.CANCELLED,
-      },
-    });
+    const updated = await this.ordersRepository.cancelOrder(id, tenantId);
 
-    if (updated.count !== 1) {
+    if (!updated) {
       throw new BadRequestException('Order not found');
     }
 
-    return this.prisma.salesOrder.findFirst({
-      where: {
-        id,
-        tenantId,
-      },
-    });
+    return updated;
   }
 
   async markCompleted(id: string, tenantId: string) {
-    const order = await this.prisma.salesOrder.findFirst({
-      where: {
-        id,
-        tenantId,
-      },
-    });
+    const aggregate = await this.ordersRepository.findOneAggregate(
+      id,
+      tenantId,
+    );
 
-    if (!order) {
+    if (!aggregate) {
       throw new BadRequestException('Order not found');
     }
 
-    const updated = await this.prisma.salesOrder.updateMany({
-      where: {
-        id,
-        tenantId,
-      },
-      data: {
-        status: OrderStatus.COMPLETED,
-      },
-    });
+    aggregate.complete();
 
-    if (updated.count !== 1) {
+    const updated = await this.ordersRepository.markCompleted(id, tenantId);
+
+    if (!updated) {
       throw new BadRequestException('Order not found');
     }
 
-    return this.prisma.salesOrder.findFirst({
-      where: {
-        id,
-        tenantId,
-      },
-    });
+    return updated;
   }
 }

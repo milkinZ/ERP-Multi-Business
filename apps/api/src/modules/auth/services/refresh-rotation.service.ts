@@ -72,6 +72,7 @@ export class RefreshRotationService {
 
     return {
       newTokenPlain,
+      newTokenSelector: newSelector,
       newTokenId: newToken.id,
     };
   }

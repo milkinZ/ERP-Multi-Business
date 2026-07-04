@@ -1,30 +1,44 @@
-import { Worker } from 'bullmq';
+import { Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
+import { Worker, type Job } from "bullmq";
 
-import { QUEUE_NAMES, type QueueName } from '../queue/queue.constants';
-import type { NotificationDispatchJobPayload } from '../queue/queue.types';
-
-import type { Job } from 'bullmq';
+import { QUEUE_NAMES, type QueueName } from "../queue/queue.constants";
+import type { NotificationDispatchJobPayload } from "../queue/queue.types";
 
 const QUEUE_NAME: QueueName = QUEUE_NAMES.NOTIFICATION_QUEUE;
 
 type TypedJob = Job<NotificationDispatchJobPayload>;
 
-export class NotificationDispatchProcessor {
-  private worker: Worker;
+@Injectable()
+export class NotificationDispatchProcessor implements OnModuleDestroy {
+  private readonly logger = new Logger(NotificationDispatchProcessor.name);
+  private readonly worker: Worker;
 
-  constructor(processor: (job: TypedJob) => Promise<void>) {
-    this.worker = new Worker(
-      QUEUE_NAME,
-      async (job) => processor(job as TypedJob),
-    );
+  constructor() {
+    this.worker = new Worker(QUEUE_NAME, async (job: TypedJob) => {
+      const payload = job.data;
+      await Promise.resolve();
+
+      this.logger.log(
+        `Processing notification dispatch for tenant=${payload.tenantId} channels=${payload.notification.channels.join(", ")}`,
+      );
+
+      // Worker contract: push notification payload to downstream delivery services.
+      // This is a scaffold for later transport implementations.
+      if (payload.notification.channels.includes("EMAIL")) {
+        this.logger.log(
+          `Email notification queued for dispatch: ${payload.notification.type}`,
+        );
+      }
+
+      if (payload.notification.channels.includes("IN_APP")) {
+        this.logger.log(
+          `In-app notification available for recipient=${payload.recipientId ?? "none"}`,
+        );
+      }
+    });
   }
 
-
-  async start() {}
-
-  async shutdown() {
+  async onModuleDestroy() {
     await this.worker.close();
   }
 }
-
-

@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { Queue } from 'bullmq';
+import { Queue, JobsOptions } from 'bullmq';
 
 import { QueueName } from './queue.constants';
 
@@ -95,5 +95,13 @@ export class QueueService implements OnModuleDestroy {
       }
     }
     this.queues.clear();
+  }
+
+  async add(
+    name: QueueName,
+    payload: Record<string, unknown>,
+    opts?: JobsOptions,
+  ) {
+    return this.getQueue(name).add('job', payload, opts);
   }
 }

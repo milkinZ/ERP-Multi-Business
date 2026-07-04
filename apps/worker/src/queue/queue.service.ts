@@ -1,8 +1,8 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { Queue, Worker, JobsOptions } from 'bullmq';
+import { Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
+import { Queue, JobsOptions } from "bullmq";
 
-import { RedisService } from '../shared/redis.service';
-import { QUEUE_NAMES, type QueueName } from './queue.constants';
+import { RedisService } from "../shared/redis.service";
+import { type QueueName } from "./queue.constants";
 
 @Injectable()
 export class QueueService implements OnModuleDestroy {
@@ -20,7 +20,7 @@ export class QueueService implements OnModuleDestroy {
       defaultJobOptions: {
         attempts: 5,
         backoff: {
-          type: 'exponential',
+          type: "exponential",
           delay: 2000,
         },
         removeOnComplete: 1000,
@@ -39,8 +39,11 @@ export class QueueService implements OnModuleDestroy {
     this.queues.clear();
   }
 
-  async add(name: QueueName, payload: Record<string, unknown>, opts?: JobsOptions) {
-    return this.getQueue(name).add('job', payload, opts);
+  async add(
+    name: QueueName,
+    payload: Record<string, unknown>,
+    opts?: JobsOptions,
+  ) {
+    return this.getQueue(name).add("job", payload, opts);
   }
 }
-

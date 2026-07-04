@@ -1,6 +1,4 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
 import { PrismaModule } from './core/database/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -15,6 +13,7 @@ import { RecipesModule } from './modules/recipes/recipes.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { SupplierModule } from './modules/supplier/supplier.module';
 import { PurchaseOrderModule } from './modules/purchase-orders/purchase-order.module';
+import { AuditLogModule } from './modules/audit-logs/audit-log.module';
 import { AppConfigModule } from './infrastructure/config/config.module';
 import { OutboxModule } from './infrastructure/events/outbox.module';
 import { HealthModule } from './infrastructure/health/health.module';
@@ -22,12 +21,18 @@ import { RequestContextMiddlewareModule } from './infrastructure/request/middlew
 import { QueueModule } from './infrastructure/queue/queue.module';
 import { SecurityModule } from './infrastructure/security/security.module';
 import { LoggerModule } from './infrastructure/logger/pino-logger.module';
+import { DomainEventsModule } from './core/events/domain-events.module';
+import { StorageModule } from './infrastructure/storage/storage.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
     AppConfigModule,
     LoggerModule,
     PrismaModule,
+    DomainEventsModule,
+    StorageModule,
+    NotificationsModule,
     AuthModule,
     UsersModule,
     ProductsModule,
@@ -41,13 +46,12 @@ import { LoggerModule } from './infrastructure/logger/pino-logger.module';
     WarehouseModule,
     SupplierModule,
     PurchaseOrderModule,
+    AuditLogModule,
     OutboxModule,
     HealthModule,
     RequestContextMiddlewareModule,
     QueueModule,
     SecurityModule,
   ],
-  controllers: [AppController],
-  providers: [AppService],
 })
 export class AppModule {}

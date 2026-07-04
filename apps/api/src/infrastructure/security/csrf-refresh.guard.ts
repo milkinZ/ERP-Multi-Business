@@ -24,6 +24,9 @@ export class CsrfRefreshGuard implements CanActivate {
     const cookieToken = req.cookies?.[CSRF_COOKIE_NAME];
     const headerToken = req.headers?.[CSRF_HEADER_NAME];
 
+    console.log('cookies', req.cookies);
+    console.log('headers', req.headers);
+
     if (typeof cookieToken !== 'string') {
       throw new UnauthorizedException('CSRF validation failed');
     }

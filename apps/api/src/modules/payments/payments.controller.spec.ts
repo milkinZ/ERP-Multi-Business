@@ -3,6 +3,7 @@ import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { PrismaMockModule } from '../../test/prisma-mock.module';
 import { FulfillmentService } from '../fulfillment/fulfillment.service';
+import { DomainEventBus } from '../../core/events/domain-event-bus.service';
 
 describe('PaymentsController', () => {
   let controller: PaymentsController;
@@ -11,7 +12,14 @@ describe('PaymentsController', () => {
     const module: TestingModule = await Test.createTestingModule({
       imports: [PrismaMockModule],
       controllers: [PaymentsController],
-      providers: [PaymentsService, FulfillmentService],
+      providers: [
+        PaymentsService,
+        FulfillmentService,
+        {
+          provide: DomainEventBus,
+          useValue: { publish: async () => {} },
+        },
+      ],
     }).compile();
 
     controller = module.get<PaymentsController>(PaymentsController);

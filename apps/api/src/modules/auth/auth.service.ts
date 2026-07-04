@@ -43,11 +43,37 @@ export class AuthService {
   }) {
     const hashedPassword = await bcrypt.hash(data.password, 10);
 
-    // NOTE: this project’s Prisma schema creates Role/Outlet assignment via join tables.
-    // Existing UsersService.create currently expects roleId; keep as-is for now.
+    // Follow the same security conventions as login:
+    // - password is hashed
+    // - user lookup/creation is tenant-scoped via provided tenantId
+    // - outlet assignment is optional
+    // NOTE: UsersService currently creates only the User row.
     const user = await this.usersService.create({
-      ...data,
+      email: data.email,
       password: hashedPassword,
+      tenantId: data.tenantId,
+      // roleId: data.roleId,
+    });
+
+    // If outletId is provided, the join table assignment is expected to be handled here.
+    // Currently Prisma schema includes UserOutlet and UserRole join tables.
+    if (data.outletId) {
+      await this.prisma.userOutlet.create({
+        data: {
+          userId: user.id,
+          outletId: data.outletId,
+          tenantId: data.tenantId,
+        },
+      });
+    }
+
+    // Ensure role assignment exists via join table.
+    await this.prisma.userRole.create({
+      data: {
+        userId: user.id,
+        roleId: data.roleId,
+        tenantId: data.tenantId,
+      },
     });
 
     return user;
@@ -115,7 +141,7 @@ export class AuthService {
       outletId,
     });
 
-    res.cookie(REFRESH_COOKIE_NAME, refreshTokenPlain, {
+    res.cookie(REFRESH_COOKIE_NAME, `${tokenSelector}.${refreshTokenPlain}`, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
@@ -135,12 +161,21 @@ export class AuthService {
   }
 
   async logout(refreshTokenPlain: string, res: Response) {
-    const tokenHash = await this.authTokens.hashRefreshToken(refreshTokenPlain);
-    const tokenRow = await this.refreshTokens.getByHash(tokenHash);
+    // refreshTokenPlain is expected in the same format used by /auth/refresh: {selector}.{secret}
+    const parsed = refreshTokenPlain.includes('.')
+      ? (() => {
+          const [selector, rest] = refreshTokenPlain.split('.', 2);
+          return { selector, rest };
+        })()
+      : null;
 
-    if (tokenRow?.id) {
-      const revokedAt = new Date();
-      await this.refreshTokens.revokeById(tokenRow.id, revokedAt);
+    if (parsed?.selector) {
+      const tokenRow = await this.refreshTokens.getBySelector(parsed.selector);
+
+      if (tokenRow?.id) {
+        const revokedAt = new Date();
+        await this.refreshTokens.revokeById(tokenRow.id, revokedAt);
+      }
     }
 
     res.clearCookie(REFRESH_COOKIE_NAME, { path: '/auth' });
@@ -154,13 +189,33 @@ export class AuthService {
       throw new BadRequestException('refreshToken is required');
     }
 
-    // CSRF is validated by CsrfRefreshGuard; keep defensive no-op.
-    void csrfToken;
+    // CSRF validation is done by CsrfRefreshGuard; keep defensive checks too.
+    if (!csrfToken) {
+      throw new UnauthorizedException('Invalid CSRF token');
+    }
 
-    const tokenHash = await this.authTokens.hashRefreshToken(refreshTokenPlain);
-    const tokenRow = await this.refreshTokens.getByHash(tokenHash);
+    // Refresh token lookup strategy:
+    // - bcrypt hash is salted, so we cannot query by deterministic hash.
+    // - Therefore we require selector prefix in the cookie payload: {selector}.{secret}.
+    const parsed = refreshTokenPlain.includes('.')
+      ? (() => {
+          const [selector, rest] = refreshTokenPlain.split('.', 2);
+          return { selector, rest };
+        })()
+      : null;
+
+    if (!parsed?.selector || !parsed.rest) {
+      throw new UnauthorizedException('Invalid refresh token format');
+    }
+
+    const tokenRow = await this.refreshTokens.getBySelector(parsed.selector);
 
     if (!tokenRow || tokenRow.revokedAt) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    // Ensure selector matches provided selector (replay protection scope)
+    if (tokenRow.tokenSelector !== parsed.selector) {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
@@ -173,22 +228,29 @@ export class AuthService {
     const accessToken = await this.authTokens.issueAccessToken(accessPayload);
 
     const newPlain = this.authTokens.createRefreshTokenPlain();
+    const newExpiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30);
+
     const rotated = await this.refreshRotation.rotate({
       userId: tokenRow.userId,
       tenantId: tokenRow.tenantId,
       oldTokenSelector: tokenRow.tokenSelector,
-      oldTokenSecret: refreshTokenPlain,
+      oldTokenSecret: parsed.rest,
       newTokenPlain: newPlain,
-      newExpiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),
+      newExpiresAt,
     });
 
-    res.cookie(REFRESH_COOKIE_NAME, rotated.newTokenPlain, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/auth',
-      maxAge: 1000 * 60 * 60 * 24 * 30,
-    });
+    // Rotation should also update CSRF token; current design keeps CSRF cookie stable for 30 days.
+    res.cookie(
+      REFRESH_COOKIE_NAME,
+      `${rotated.newTokenSelector}.${rotated.newTokenPlain}`,
+      {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/auth',
+        maxAge: 1000 * 60 * 60 * 24 * 30,
+      },
+    );
 
     return { accessToken };
   }

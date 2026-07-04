@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
+import { OrdersRepository } from './orders.repository';
 import { PrismaMockModule } from '../../test/prisma-mock.module';
 import { DomainEventBus } from '../../core/events/domain-event-bus.service';
 
@@ -11,7 +12,7 @@ describe('OrdersController', () => {
     const module: TestingModule = await Test.createTestingModule({
       imports: [PrismaMockModule],
       controllers: [OrdersController],
-      providers: [OrdersService, DomainEventBus],
+      providers: [OrdersService, OrdersRepository, DomainEventBus],
     }).compile();
 
     controller = module.get<OrdersController>(OrdersController);

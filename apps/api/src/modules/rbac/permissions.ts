@@ -54,4 +54,14 @@ export const PERMISSIONS = {
 
   // Admin
   QUEUE_VIEW: 'queue.view',
+
+  // RBAC management permissions (Phase 8)
+  PERMISSION_READ: 'rbac.permission.read',
+  ROLE_READ: 'rbac.role.read',
+  ROLE_CREATE: 'rbac.role.create',
+  ROLE_UPDATE: 'rbac.role.update',
+  ROLE_DELETE: 'rbac.role.delete',
+  ROLE_PERMISSION_MANAGE: 'rbac.role.permission.manage',
+  USER_ROLE_MANAGE: 'rbac.user.role.manage',
+  USER_OUTLET_MANAGE: 'rbac.user.outlet.manage',
 } as const;

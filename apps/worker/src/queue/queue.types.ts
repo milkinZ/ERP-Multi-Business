@@ -17,7 +17,14 @@ export type AnalyticsAggregationJobPayload = {
 
 export type NotificationDispatchJobPayload = {
   tenantId: string;
-  type: string;
+  recipientId?: string;
+  notification: {
+    type: string;
+    title?: string;
+    message?: string;
+    channels: string[];
+    data?: Record<string, unknown>;
+  };
 };
 
 export type JobPayloadByQueue = {
@@ -26,5 +33,3 @@ export type JobPayloadByQueue = {
   ANALYTICS_QUEUE: AnalyticsAggregationJobPayload;
   NOTIFICATION_QUEUE: NotificationDispatchJobPayload;
 };
-
-

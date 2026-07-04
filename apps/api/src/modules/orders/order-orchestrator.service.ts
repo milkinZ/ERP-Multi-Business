@@ -81,7 +81,7 @@ export class OrderOrchestratorService implements OnModuleInit {
       await this.ordersService.markCompleted(orderId, tenantId);
 
       await this.events.publish({
-        type: DOMAIN_EVENTS.ORDER_COMPLETED,
+        type: DOMAIN_EVENTS.SALES_ORDER_COMPLETED,
         payload: {
           orderId,
           tenantId,

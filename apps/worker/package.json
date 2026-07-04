@@ -10,7 +10,7 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main",
-    "lint": "eslint "
+    "lint": "eslint src --fix"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

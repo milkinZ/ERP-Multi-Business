@@ -1,105 +1,86 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
-import { OrderStatus, PaymentStatus } from '@prisma/client';
-
-import { PrismaService } from '../../core/database/prisma.service';
-
 import { CreatePaymentDto } from './dto/create-payment.dto';
-import { FulfillmentService } from '../fulfillment/fulfillment.service';
+import { PaymentsRepository } from './payments.repository';
+import { DomainEventBus } from '../../core/events/domain-event-bus.service';
+import { DOMAIN_EVENTS } from '../../core/events/domain-events';
 
 @Injectable()
 export class PaymentsService {
   constructor(
-    private prisma: PrismaService,
-    private fulfillmentService: FulfillmentService,
+    private readonly paymentsRepository: PaymentsRepository,
+    private readonly events: DomainEventBus,
   ) {}
 
   async pay(tenantId: string, dto: CreatePaymentDto) {
-    const order = await this.prisma.salesOrder.findFirst({
-      where: {
-        id: dto.orderId,
-        tenantId,
-      },
-
-      include: {
-        SalesOrderItem: true,
-      },
-    });
+    const order = await this.paymentsRepository.findOrderForPayment(
+      dto.orderId,
+      tenantId,
+    );
 
     if (!order) {
+      await this.events.publish({
+        type: DOMAIN_EVENTS.ORDER_PAYMENT_FAILED,
+        payload: {
+          orderId: dto.orderId,
+          tenantId,
+          reason: 'Order not found',
+        },
+      });
       throw new BadRequestException('Order not found');
     }
 
-    if (order.status === OrderStatus.PAID) {
+    if (order.status === 'PAID') {
+      await this.events.publish({
+        type: DOMAIN_EVENTS.ORDER_PAYMENT_FAILED,
+        payload: {
+          orderId: order.id,
+          tenantId,
+          paymentId: undefined,
+          reason: 'Order already paid',
+        },
+      });
       throw new BadRequestException('Order already paid');
     }
 
     if (dto.amount < order.totalAmount) {
+      await this.events.publish({
+        type: DOMAIN_EVENTS.ORDER_PAYMENT_FAILED,
+        payload: {
+          orderId: order.id,
+          tenantId,
+          paymentId: undefined,
+          reason: 'Insufficient payment amount',
+        },
+      });
       throw new BadRequestException('Insufficient payment amount');
     }
 
-    const payment = await this.prisma.$transaction(async (tx) => {
-      const payment = await tx.payment.create({
-        data: {
-          tenantId,
+    const payment = await this.paymentsRepository.createPayment(
+      order.id,
+      tenantId,
+      dto.amount,
+      dto.method,
+    );
 
-          orderId: order.id,
-
-          method: dto.method,
-
-          amount: dto.amount,
-
-          status: PaymentStatus.PAID,
-
-          paidAt: new Date(),
-        },
-      });
-
-      await tx.salesOrder.update({
-        where: {
-          id: order.id,
-        },
-
-        data: {
-          status: OrderStatus.PAID,
-        },
-      });
-
-      return payment;
+    await this.events.publish({
+      type: DOMAIN_EVENTS.ORDER_PAYMENT_SUCCESS,
+      payload: {
+        orderId: order.id,
+        tenantId,
+        paymentId: payment.id,
+      },
     });
-
-    await this.fulfillmentService.processOrder(order.id, tenantId);
 
     return payment;
   }
 
   async findAll(tenantId: string) {
-    return this.prisma.payment.findMany({
-      where: {
-        tenantId,
-      },
-
-      include: {
-        SalesOrder: true,
-      },
-
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+    return this.paymentsRepository.findAll(tenantId);
   }
 
   async findOne(id: string, tenantId: string) {
-    const payment = await this.prisma.payment.findFirst({
-      where: {
-        id,
-        tenantId,
-      },
-
-      include: {
-        SalesOrder: true,
-      },
-    });
+    const payment = await this.paymentsRepository.findOne(id, tenantId);
 
     if (!payment) {
       throw new BadRequestException('Payment not found');
