@@ -1,0 +1,1264 @@
+You are a Principal Backend Architect, Senior NestJS Engineer, Senior Prisma Architect, and ERP SaaS System Designer.
+
+# PROJECT
+
+ERP Multi Business SaaS
+
+Current Stack:
+
+* NestJS
+* Prisma ORM
+* PostgreSQL
+* JWT
+* RBAC
+* Multi Tenant
+* Multi Outlet
+
+Frontend architecture has already been designed using:
+
+* Next.js App Router
+* TanStack Query
+* Zustand
+* Shadcn UI
+* React Hook Form
+* Zod
+
+Your task is NOT to build frontend.
+
+Your task is to audit, redesign, refactor and complete the backend so it fully supports a production-grade ERP SaaS frontend.
+
+---
+
+# CURRENT MODULES
+
+Auth
+Users
+Products
+Ingredients
+Recipes
+Orders
+Payments
+Inventory
+Warehouse
+Supplier
+Purchase Orders
+Kitchen
+Analytics
+Fulfillment
+
+---
+
+# TARGET BUSINESS TYPES
+
+* Cafe
+* Retail
+* Laundry
+* Gym
+* Hotel
+* Manufacturing
+
+Architecture must support future business modules without breaking existing modules.
+
+---
+
+# BACKEND ARCHITECTURE RULES
+
+Use Clean Architecture principles.
+
+apps/api/src/
+
+common/
+core/
+
+modules/
+├── auth
+├── users
+├── tenants
+├── outlets
+├── roles
+├── permissions
+├── products
+├── ingredients
+├── recipes
+├── inventory
+├── warehouse
+├── suppliers
+├── purchase-orders
+├── orders
+├── payments
+├── fulfillment
+├── analytics
+├── kitchen
+
+infrastructure/
+
+
+apps/workers/src
+
+---
+
+# REQUIRED CROSS-CUTTING FEATURES
+
+Implement:
+
+1. Pagination
+2. Search
+3. Sorting
+4. Filtering
+5. Audit Logs
+6. Soft Delete
+7. Event Driven Architecture
+8. Background Jobs
+9. Realtime Events
+10. API Versioning
+11. DTO Validation
+12. Rate Limiting
+13. Structured Logging
+14. Error Handling Standardization
+15. OpenAPI Documentation
+
+---
+
+# AUTH MODULE
+
+Current JWT implementation is incomplete.
+
+Implement:
+
+* Login
+* Logout
+* Refresh Token
+* Token Rotation
+* Revoke Refresh Token
+* Session Management
+
+Security Rules:
+
+* Refresh token must be hashed in database
+* Refresh token stored in HttpOnly Cookie
+* Access token short-lived
+* Refresh token long-lived
+
+Create:
+
+RefreshToken entity
+Session entity
+
+Endpoints:
+
+POST /auth/login
+POST /auth/logout
+POST /auth/refresh
+GET /auth/me
+
+---
+
+# RBAC MODULE
+
+Current RBAC implementation must be completed.
+
+Implement:
+
+Role
+Permission
+RolePermission
+
+Endpoints:
+
+GET permissions
+GET roles
+POST roles
+PUT roles
+DELETE roles
+
+Add permission middleware.
+
+Add permission seeding.
+
+---
+
+# TENANT MODULE
+
+Create dedicated module:
+
+tenants
+
+Implement:
+
+Tenant CRUD
+Tenant Settings
+
+Endpoints:
+
+GET /tenants
+GET /tenants/:id
+POST /tenants
+PUT /tenants/:id
+
+---
+
+# OUTLET MODULE
+
+Create dedicated module.
+
+Implement:
+
+Outlet CRUD
+
+Endpoints:
+
+GET /outlets
+POST /outlets
+PUT /outlets/:id
+DELETE /outlets/:id
+
+---
+
+# USERS MODULE
+
+Implement:
+
+* pagination
+* filtering
+* search
+* role assignment
+* outlet assignment
+
+Endpoints:
+
+GET users
+GET user
+POST user
+PUT user
+DELETE user
+
+---
+
+# PRODUCT MODULE
+
+Implement:
+
+* pagination
+* filtering
+* search
+* active/inactive
+
+Endpoints:
+
+GET products
+GET product
+POST product
+PUT product
+DELETE product
+
+Support:
+
+inventoryItemId
+sku
+barcode
+
+---
+
+# INVENTORY MODULE
+
+Current implementation must be audited.
+
+Implement:
+
+Inventory Item
+Inventory Stock
+Inventory Movement
+
+Required endpoints:
+
+GET inventory/items
+GET inventory/stocks
+GET inventory/movements
+
+POST inventory/stock-in
+POST inventory/adjustment
+POST inventory/waste
+
+Support:
+
+pagination
+search
+date filters
+
+---
+
+# INVENTORY RESERVATION
+
+Create dedicated reservation service.
+
+Implement:
+
+Reserve stock
+Release stock
+Commit stock
+
+Used by:
+
+Orders
+Fulfillment
+
+Do not deduct stock directly during order creation.
+
+---
+
+# ORDER MODULE
+
+Refactor current implementation.
+
+Current issue:
+
+Stock handling is mixed with order creation.
+
+Required flow:
+
+Create Order
+↓
+Reserve Inventory
+↓
+Payment
+↓
+Fulfillment
+↓
+Commit Inventory
+
+Order must NOT reduce stock directly.
+
+Implement:
+
+Order Status Workflow
+
+PENDING
+PAID
+IN_PROGRESS
+READY
+COMPLETED
+CANCELLED
+
+Add Order Events.
+
+---
+
+# PAYMENT MODULE
+
+Current implementation must be audited.
+
+Implement:
+
+Payment Creation
+Refund
+Payment History
+
+Payment Events:
+
+PAYMENT_CREATED
+PAYMENT_PAID
+PAYMENT_FAILED
+PAYMENT_REFUNDED
+
+Integrate with Fulfillment.
+
+---
+
+# PURCHASE ORDER MODULE
+
+Current module incomplete.
+
+Implement:
+
+PO
+PO Item
+
+Statuses:
+
+DRAFT
+SUBMITTED
+APPROVED
+RECEIVED
+CANCELLED
+
+Receiving PO automatically creates STOCK_IN movements.
+
+---
+
+# SUPPLIER MODULE
+
+Implement:
+
+Supplier CRUD
+
+Pagination
+Search
+Soft Delete
+
+---
+
+# FULFILLMENT MODULE
+
+Current fulfillment service is placeholder.
+
+Implement:
+
+Business Strategy Pattern
+
+FulfillmentStrategy
+
+CafeFulfillmentStrategy
+RetailFulfillmentStrategy
+LaundryFulfillmentStrategy
+GymFulfillmentStrategy
+HotelFulfillmentStrategy
+ManufacturingFulfillmentStrategy
+
+Factory:
+
+FulfillmentFactory
+
+FulfillmentService should use strategy pattern.
+
+---
+
+# KITCHEN MODULE
+
+Current implementation incomplete.
+
+Implement:
+
+Kitchen Queue
+
+Statuses:
+
+IN_PROGRESS
+READY
+
+Events:
+
+ORDER_READY
+
+Prepare Socket.IO integration.
+
+Do not implement polling.
+
+---
+
+# ANALYTICS MODULE
+
+Implement:
+
+Revenue
+Orders
+Top Products
+Inventory Usage
+
+Create aggregation services.
+
+Avoid raw controller queries.
+
+---
+
+# SOCKET.IO
+
+Create infrastructure for:
+
+Order Updates
+Kitchen Updates
+Inventory Updates
+
+Do not fully implement UI.
+
+Only backend infrastructure.
+
+---
+
+# BACKGROUND JOBS
+
+Create worker architecture.
+
+Use:
+
+BullMQ
+Redis
+
+Jobs:
+
+Order Processing
+Inventory Sync
+Analytics Aggregation
+Notification Dispatch
+
+Folder:
+
+workers/
+
+---
+
+# AUDIT LOG MODULE
+
+Create:
+
+AuditLog
+
+Track:
+
+Create
+Update
+Delete
+Status Changes
+
+Store:
+
+userId
+tenantId
+entity
+entityId
+action
+
+---
+
+# STANDARD RESPONSE FORMAT
+
+All endpoints must return:
+
+{
+success: true,
+message: string,
+data: {}
+}
+
+---
+
+# DELIVERABLE
+
+For every module:
+
+1. Problems found
+2. Missing features
+3. Required schema changes
+4. Prisma changes
+5. Folder structure changes
+6. DTOs
+7. Services
+8. Controllers
+9. Events
+10. Workers
+11. Refactored code
+
+# REDIS ARCHITECTURE
+
+Implement Redis as a core infrastructure component.
+
+Redis must be used for:
+
+1. BullMQ queues
+2. Socket.IO adapter
+3. Cache layer
+4. Session cache
+5. Rate limiting storage
+6. Temporary inventory reservations
+7. Analytics caching
+
+Create:
+
+infrastructure/
+├── redis
+│   ├── redis.module.ts
+│   ├── redis.service.ts
+│   └── redis.constants.ts
+
+Requirements:
+
+* Singleton Redis connection
+* Environment-based configuration
+* Health check endpoint
+* Graceful shutdown support
+
+---
+
+# BULLMQ ARCHITECTURE
+
+Implement BullMQ.
+
+Queue infrastructure must be reusable.
+
+Create:
+
+infrastructure/
+├── queue
+│   ├── queue.module.ts
+│   ├── queue.service.ts
+│   ├── queue.constants.ts
+│   └── producers
+
+Use Redis.
+
+Requirements:
+
+* Queue registration
+* Retry strategy
+* Backoff strategy
+* Dead Letter Queue
+* Queue monitoring
+* Job progress tracking
+
+Standard queues:
+
+ORDER_QUEUE
+INVENTORY_QUEUE
+ANALYTICS_QUEUE
+NOTIFICATION_QUEUE
+EMAIL_QUEUE
+PDF_QUEUE
+
+---
+
+# WORKER APPLICATION
+
+Project already contains:
+
+apps/worker
+
+Worker must be a standalone NestJS application.
+
+Responsibilities:
+
+* Process BullMQ jobs
+* Generate PDFs
+* Send emails
+* Run analytics aggregation
+* Inventory synchronization
+* Notification dispatching
+
+Folder:
+
+apps/worker/src
+
+├── email
+├── pdf
+├── analytics
+├── inventory
+├── notification
+├── order
+└── shared
+
+Workers must NEVER expose HTTP endpoints.
+
+Workers only consume BullMQ jobs.
+
+---
+
+# ORDER PROCESSING JOBS
+
+Order completion should be asynchronous.
+
+Flow:
+
+Order Created
+↓
+Reserve Inventory
+↓
+Payment Success
+↓
+Push OrderProcessingJob
+↓
+Fulfillment
+↓
+Commit Inventory
+↓
+Emit Events
+
+Create:
+
+OrderProcessingProcessor
+
+Queue:
+
+ORDER_QUEUE
+
+---
+
+# INVENTORY JOBS
+
+Create:
+
+InventorySyncProcessor
+
+Responsibilities:
+
+* Stock recalculation
+* Stock reconciliation
+* Inventory reservation cleanup
+
+Queue:
+
+INVENTORY_QUEUE
+
+---
+
+# ANALYTICS JOBS
+
+Analytics must not query huge datasets in controllers.
+
+Create:
+
+AnalyticsAggregationProcessor
+
+Responsibilities:
+
+* Daily revenue aggregation
+* Monthly revenue aggregation
+* Product ranking aggregation
+* Inventory usage aggregation
+
+Queue:
+
+ANALYTICS_QUEUE
+
+Store aggregated results in database.
+
+---
+
+# EMAIL SYSTEM
+
+Create dedicated notification architecture.
+
+Support:
+
+* Welcome Email
+* Password Reset
+* Order Confirmation
+* Purchase Order Approval
+* Supplier Notification
+
+Use:
+
+Nodemailer
+
+Provider abstraction:
+
+EmailProvider
+
+Implement:
+
+SMTPProvider
+
+Folder:
+
+modules/notifications/email
+
+Requirements:
+
+* Queue-based sending
+* Retry mechanism
+* Template support
+
+---
+
+# PDF GENERATION
+
+Implement PDF service.
+
+Use:
+
+PDFKit or Puppeteer
+
+Generate:
+
+* Invoice
+* Receipt
+* Purchase Order
+* Inventory Report
+* Revenue Report
+
+PDF generation must run in workers.
+
+Queue:
+
+PDF_QUEUE
+
+Never generate PDF inside controllers.
+
+---
+
+# SOCKET.IO ARCHITECTURE
+
+Implement Socket.IO infrastructure.
+
+Create:
+
+infrastructure/
+├── websocket
+│   ├── websocket.module.ts
+│   ├── websocket.gateway.ts
+│   ├── websocket.service.ts
+│   └── socket-auth.guard.ts
+
+Requirements:
+
+* JWT Authentication
+* Tenant isolation
+* Outlet isolation
+* Redis adapter ready
+
+Events:
+
+ORDER_CREATED
+ORDER_PAID
+ORDER_READY
+ORDER_COMPLETED
+
+PAYMENT_CREATED
+PAYMENT_PAID
+
+INVENTORY_UPDATED
+
+KITCHEN_UPDATED
+
+---
+
+# SOCKET.IO + REDIS
+
+Prepare horizontal scaling.
+
+Use:
+
+@socket.io/redis-adapter
+
+Requirements:
+
+* Multiple API instances support
+* Shared events through Redis
+* Distributed websocket architecture
+
+---
+
+# REALTIME MODULES
+
+Orders
+
+Emit:
+
+ORDER_CREATED
+ORDER_PAID
+ORDER_STATUS_CHANGED
+
+Kitchen
+
+Emit:
+
+ORDER_IN_PROGRESS
+ORDER_READY
+
+Inventory
+
+Emit:
+
+STOCK_UPDATED
+
+Analytics
+
+Emit:
+
+DASHBOARD_UPDATED
+
+---
+
+# CACHE LAYER
+
+Implement cache service.
+
+Use Redis.
+
+Cache:
+
+Revenue Dashboard
+Top Products
+Analytics Reports
+Product Lists
+
+Requirements:
+
+Cache Aside Pattern
+
+Create:
+
+CacheService
+
+Support:
+
+get
+set
+delete
+invalidate
+
+TTL configurable.
+
+---
+
+# CRON JOBS
+
+Use:
+
+@nestjs/schedule
+
+Create:
+
+DailyRevenueAggregationJob
+InventoryReconciliationJob
+ExpiredReservationCleanupJob
+
+Folder:
+
+infrastructure/scheduler
+
+---
+
+# INVENTORY RESERVATION CACHE
+
+Reservation must be stored in Redis.
+
+Flow:
+
+Reserve Stock
+↓
+Store Reservation in Redis
+↓
+Payment Success
+↓
+Commit Reservation
+↓
+Remove Reservation
+
+If payment expires:
+
+Release Reservation
+
+Automatically cleanup expired reservations.
+
+---
+
+# OBSERVABILITY
+
+Implement:
+
+Structured Logging
+
+Use:
+
+Pino
+
+Create:
+
+LoggerModule
+
+Requirements:
+
+Request ID
+User ID
+Tenant ID
+Execution Time
+
+---
+
+# MONITORING
+
+Implement:
+
+BullMQ Dashboard
+
+Use:
+
+bull-board
+
+Endpoints:
+
+/admin/queues
+
+Only SUPER_ADMIN can access.
+
+---
+
+# EVENT DRIVEN ARCHITECTURE
+
+Create domain events.
+
+Folder:
+
+core/events
+
+Events:
+
+OrderCreatedEvent
+OrderPaidEvent
+OrderCompletedEvent
+
+PaymentCreatedEvent
+PaymentPaidEvent
+
+InventoryReservedEvent
+InventoryCommittedEvent
+
+InventoryReleasedEvent
+
+PurchaseOrderApprovedEvent
+
+KitchenOrderReadyEvent
+
+Events must be publishable to:
+
+* BullMQ
+* Socket.IO
+* Audit Logs
+
+---
+
+# DATABASE MIGRATION STRATEGY
+
+Use Prisma Migrations.
+
+Requirements:
+
+* Migration history
+* Seed support
+* Rollback strategy
+* Environment-specific migrations
+
+Create:
+
+prisma/
+├── migrations
+├── seed.ts
+├── seeds
+
+---
+
+# FILE STORAGE
+
+Create Storage Module
+
+Support:
+
+* Product Images
+* Tenant Logo
+* Supplier Documents
+* Purchase Order Attachments
+* Generated PDFs
+
+Provider abstraction:
+
+StorageProvider
+
+Implement:
+
+LocalStorageProvider
+S3StorageProvider
+
+Future-ready for:
+
+AWS S3
+Cloudflare R2
+MinIO
+
+---
+
+# NOTIFICATION CENTER
+
+Support:
+
+* In App Notification
+* Email Notification
+* Future WhatsApp Notification
+* Future Push Notification
+
+Notification Types:
+
+ORDER_CREATED
+ORDER_PAID
+ORDER_READY
+LOW_STOCK
+PO_APPROVED
+PAYMENT_FAILED
+
+---
+
+# SAAS ADMIN MODULE
+
+Create:
+
+super-admin
+
+Responsibilities:
+
+* Manage Tenants
+* Manage Subscription
+* Manage Plans
+* View Global Analytics
+* Suspend Tenant
+* Activate Tenant
+
+---
+
+# SUBSCRIPTION MODULE
+
+Plan
+Subscription
+Invoice
+
+Plans:
+
+FREE
+STARTER
+BUSINESS
+ENTERPRISE
+
+Track:
+
+* Active Users
+* Active Outlets
+* Storage Usage
+* Subscription Expiry
+
+---
+
+# FEATURE FLAGS
+
+Create:
+
+FeatureFlag
+
+Examples:
+
+KITCHEN_MODULE
+MANUFACTURING_MODULE
+HOTEL_MODULE
+
+Tenant can enable or disable modules.
+
+---
+
+# BUSINESS MODULE REGISTRY
+
+Create:
+
+BusinessModuleRegistry
+
+Responsibilities:
+
+Register:
+
+CAFE
+RETAIL
+LAUNDRY
+GYM
+HOTEL
+MANUFACTURING
+
+Each business type can provide:
+
+* Fulfillment Strategy
+* Inventory Rules
+* Analytics Rules
+* Dashboard Widgets
+
+---
+
+# API SECURITY
+
+Implement:
+
+Helmet
+CORS
+CSRF Protection
+Rate Limiting
+Request Validation
+Response Sanitization
+Security Headers
+
+Use:
+
+helmet
+@nestjs/throttler
+
+---
+
+# HEALTH CHECK
+
+Create:
+
+GET /health
+
+Checks:
+
+* Database
+* Redis
+* BullMQ
+* Storage
+* Worker Status
+
+---
+
+# ERROR TRACKING
+
+Integrate:
+
+Sentry
+
+Track:
+
+* API Errors
+* Worker Errors
+* Queue Failures
+* Socket Failures
+
+---
+
+# TESTING
+
+Implement:
+
+Unit Test
+Integration Test
+E2E Test
+
+Use:
+
+Jest
+Supertest
+
+Coverage Target:
+
+>= 80%
+
+---
+
+# PRISMA REVIEW
+
+Before implementing any module:
+
+1. Audit current schema
+2. Detect missing entities
+3. Detect wrong relationships
+4. Propose migration
+5. Then generate code
+
+# AUDIT LOG INTEGRATION
+
+Every domain event must create AuditLog records.
+
+Track:
+
+User
+Tenant
+Outlet
+Entity
+Action
+Timestamp
+
+Never write audit logs directly inside controllers.
+
+Use event subscribers.
+
+Do not wait for approval to continuing.

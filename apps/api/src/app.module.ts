@@ -24,6 +24,12 @@ import { LoggerModule } from './infrastructure/logger/pino-logger.module';
 import { DomainEventsModule } from './core/events/domain-events.module';
 import { StorageModule } from './infrastructure/storage/storage.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { WebsocketModule } from './infrastructure/websocket/websocket.module';
+import { FeatureFlagsModule } from './modules/feature-flags/feature-flag.module';
+import { SubscriptionModule } from './modules/subscription/subscription.module';
+import { BillingModule } from './modules/billing/billing.module';
+import { BusinessRegistryModule } from './modules/business-registry/business-registry.module';
+import { SuperAdminModule } from './modules/super-admin/super-admin.module';
 
 @Module({
   imports: [
@@ -52,6 +58,12 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     RequestContextMiddlewareModule,
     QueueModule,
     SecurityModule,
+    WebsocketModule,
+    FeatureFlagsModule,
+    SubscriptionModule,
+    BillingModule,
+    BusinessRegistryModule,
+    SuperAdminModule,
   ],
 })
 export class AppModule {}

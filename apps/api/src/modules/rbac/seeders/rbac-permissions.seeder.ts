@@ -8,24 +8,30 @@ export class RBACPermissionsSeeder implements OnModuleInit {
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit() {
-    // Permission table is global in schema (no tenantId on Permission model).
-    // Seeder inserts missing permission codes.
     const entries = Object.entries(PERMISSIONS)
       .map(([, code]) => code)
       .filter((v) => typeof v === 'string');
 
-    // Only seed RBAC-related permissions (keys start with 'rbac.')
-    const rbacCodes = entries.filter((c) => c.startsWith('rbac.'));
+    const targetCodes = entries.filter(
+      (c) =>
+        c.startsWith('rbac.') ||
+        c.startsWith('subscription.') ||
+        c.startsWith('plan.') ||
+        c.startsWith('invoice.') ||
+        c.startsWith('billing.') ||
+        c.startsWith('feature-flag.') ||
+        c.startsWith('super-admin.'),
+    );
 
-    if (!rbacCodes.length) return;
+    if (!targetCodes.length) return;
 
     const existing = await this.prisma.permission.findMany({
-      where: { code: { in: rbacCodes } },
+      where: { code: { in: targetCodes } },
       select: { code: true },
     });
     const existingSet = new Set(existing.map((e) => e.code));
 
-    const toCreate = rbacCodes
+    const toCreate = targetCodes
       .filter((code) => !existingSet.has(code))
       .map((code) => ({
         code,

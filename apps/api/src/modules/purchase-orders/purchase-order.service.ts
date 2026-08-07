@@ -53,6 +53,7 @@ export class PurchaseOrderService extends BaseService {
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       subtotal: item.quantity * item.unitPrice,
+      receivedQuantity: 0,
     }));
 
     const normalizedExpectedDeliveryDate: Date | null = expectedDeliveryDate
@@ -167,6 +168,7 @@ export class PurchaseOrderService extends BaseService {
           quantity,
           unitPrice,
           subtotal: quantity * unitPrice,
+          receivedQuantity: 0,
         });
       }
 
@@ -214,6 +216,11 @@ export class PurchaseOrderService extends BaseService {
   ) {
     const po = await this.findOne(tenantId, id);
 
+    // Idempotent status transitions: if already in target status, return.
+    if (po.status === status) {
+      return po;
+    }
+
     const validTransitions: Record<PurchaseOrderStatus, PurchaseOrderStatus[]> =
       {
         [PurchaseOrderStatus.DRAFT]: [
@@ -246,9 +253,77 @@ export class PurchaseOrderService extends BaseService {
       );
     }
 
+    // Receiving transitions must include receivedQuantity increments.
+    // Controller currently only passes status; minimal approach: require received quantities
+    // to be present in DTO for receiving endpoints by calling updateStatus with body.
     return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.purchaseOrder.updateMany({
+      // Re-load with items including receivedQuantity
+      const freshPo = await tx.purchaseOrder.findFirst({
         where: { id, tenantId },
+        include: { PurchaseOrderItem: true, Warehouse: true },
+      });
+
+      if (!freshPo) {
+        throw new NotFoundException('Purchase Order not found');
+      }
+
+      // Apply stock delta only on receiving status transitions.
+      // Determine nextReceivedQuantities using PurchaseOrderItem.receivedQuantity already persisted.
+      // Since current API doesn’t pass receiving quantities, we treat status RECEIVED/COMPLETED as:
+      // - receivedQuantity becomes full quantity
+      // This keeps backward compatibility while enabling idempotent inventory movements.
+      // Future partial receiving can pass explicit receivedQuantity via repository/DTO.
+
+      const warehouseId = freshPo.warehouseId;
+
+      if (
+        (status === PurchaseOrderStatus.PARTIALLY_RECEIVED ||
+          status === PurchaseOrderStatus.RECEIVED ||
+          status === PurchaseOrderStatus.COMPLETED) &&
+        !warehouseId
+      ) {
+        throw new BadRequestException(
+          'Warehouse is required for receiving/receipting',
+        );
+      }
+
+      // Idempotency: compute delta and apply inventory updates only for newly received.
+      const movementsToCreate: Array<{
+        inventoryItemId: string;
+        delta: number;
+      }> = [];
+
+      if (
+        status === PurchaseOrderStatus.PARTIALLY_RECEIVED ||
+        status === PurchaseOrderStatus.RECEIVED ||
+        status === PurchaseOrderStatus.COMPLETED
+      ) {
+        for (const item of freshPo.PurchaseOrderItem) {
+          const prevReceived = item.receivedQuantity ?? 0;
+          const nextReceived =
+            status === PurchaseOrderStatus.PARTIALLY_RECEIVED
+              ? prevReceived // keep as-is until explicit partial quantities are supported
+              : item.quantity; // on RECEIVED/COMPLETED treat as fully received
+
+          if (nextReceived < prevReceived) {
+            throw new BadRequestException(
+              'Cannot decrease received quantity on receiving',
+            );
+          }
+
+          const delta = nextReceived - prevReceived;
+          if (delta > 0) {
+            movementsToCreate.push({
+              inventoryItemId: item.inventoryItemId,
+              delta,
+            });
+          }
+        }
+      }
+
+      // Persist status with expected-current guard
+      const updated = await tx.purchaseOrder.updateMany({
+        where: { id, tenantId, status: freshPo.status },
         data: {
           status,
           updatedAt: new Date(),
@@ -263,45 +338,25 @@ export class PurchaseOrderService extends BaseService {
         throw new NotFoundException('Purchase Order not found');
       }
 
-      const freshPo = await tx.purchaseOrder.findFirst({
-        where: { id, tenantId },
-        include: {
-          PurchaseOrderItem: true,
-          Warehouse: true,
-        },
-      });
-
-      if (!freshPo) {
-        throw new NotFoundException('Purchase Order not found');
-      }
-
-      // When PO is completed, create STOCK_IN movements.
-      if (status === PurchaseOrderStatus.COMPLETED) {
-        const warehouseId = freshPo.warehouseId;
-
-        if (!warehouseId) {
-          throw new BadRequestException('Warehouse is required for receiving');
-        }
-
-        for (const item of freshPo.PurchaseOrderItem) {
-          const { inventoryItemId, quantity } = item;
-
+      // Apply inventory stock + inventory movements for newly received deltas
+      if (movementsToCreate.length > 0) {
+        for (const m of movementsToCreate) {
           const beforeQty =
             (
               await tx.inventoryStock.findFirst({
-                where: { warehouseId, inventoryItemId },
+                where: { warehouseId, inventoryItemId: m.inventoryItemId },
               })
             )?.quantity ?? 0;
 
           const stock = await tx.inventoryStock.findFirst({
-            where: { warehouseId, inventoryItemId },
+            where: { warehouseId, inventoryItemId: m.inventoryItemId },
           });
 
           if (stock) {
             await tx.inventoryStock.update({
               where: { id: stock.id },
               data: {
-                quantity: { increment: quantity },
+                quantity: { increment: m.delta },
                 updatedAt: new Date(),
               },
             });
@@ -309,8 +364,8 @@ export class PurchaseOrderService extends BaseService {
             await tx.inventoryStock.create({
               data: {
                 warehouseId,
-                inventoryItemId,
-                quantity,
+                inventoryItemId: m.inventoryItemId,
+                quantity: m.delta,
                 updatedAt: new Date(),
               },
             });
@@ -320,25 +375,98 @@ export class PurchaseOrderService extends BaseService {
             data: {
               tenantId,
               warehouseId,
-              inventoryItemId,
+              inventoryItemId: m.inventoryItemId,
               type: InventoryMovementType.STOCK_IN,
-              quantity,
+              quantity: m.delta,
               beforeQuantity: beforeQty,
-              afterQuantity: beforeQty + quantity,
+              afterQuantity: beforeQty + m.delta,
               note: `PO ${freshPo.poNumber} ${status}`,
               createdById: null,
+              referenceType: 'PURCHASE_ORDER',
+              referenceId: freshPo.id,
             },
           });
         }
       }
 
+      // Update receivedQuantity fields when we move to fully received/completed.
+      if (
+        status === PurchaseOrderStatus.RECEIVED ||
+        status === PurchaseOrderStatus.COMPLETED
+      ) {
+        await tx.purchaseOrderItem
+          .updateMany({
+            where: {
+              purchaseOrderId: id,
+              receivedQuantity: {
+                lt: tx.purchaseOrderItem.fields.quantity,
+              },
+            },
+            data: {
+              receivedQuantity: tx.purchaseOrderItem.fields
+                .quantity as unknown as number,
+            },
+          })
+          .catch(() => {
+            // Fallback: update per item to avoid Prisma field limitations in this skeleton.
+          });
+
+        for (const item of freshPo.PurchaseOrderItem) {
+          const prevReceived = item.receivedQuantity ?? 0;
+          if (prevReceived === item.quantity) continue;
+          await tx.purchaseOrderItem.update({
+            where: { id: item.id },
+            data: { receivedQuantity: item.quantity },
+          });
+        }
+      }
+
+      // Publish required domain events for lifecycle transitions
+      const publishBasePayload = {
+        purchaseOrderId: id,
+        tenantId,
+      };
+
+      if (status === PurchaseOrderStatus.PENDING) {
+        await this.eventBus.publish({
+          type: DOMAIN_EVENTS.PURCHASE_ORDER_PENDING_APPROVAL,
+          payload: publishBasePayload,
+        });
+      }
+      if (status === PurchaseOrderStatus.APPROVED) {
+        await this.eventBus.publish({
+          type: DOMAIN_EVENTS.PURCHASE_ORDER_APPROVED,
+          payload: publishBasePayload,
+        });
+      }
+      if (status === PurchaseOrderStatus.REJECTED) {
+        await this.eventBus.publish({
+          type: DOMAIN_EVENTS.PURCHASE_ORDER_REJECTED,
+          payload: publishBasePayload,
+        });
+      }
+      if (status === PurchaseOrderStatus.PARTIALLY_RECEIVED) {
+        await this.eventBus.publish({
+          type: DOMAIN_EVENTS.PURCHASE_ORDER_PARTIALLY_RECEIVED,
+          payload: publishBasePayload,
+        });
+      }
       if (status === PurchaseOrderStatus.RECEIVED) {
         await this.eventBus.publish({
           type: DOMAIN_EVENTS.PURCHASE_ORDER_RECEIVED,
-          payload: {
-            purchaseOrderId: id,
-            tenantId,
-          },
+          payload: publishBasePayload,
+        });
+      }
+      if (status === PurchaseOrderStatus.COMPLETED) {
+        await this.eventBus.publish({
+          type: DOMAIN_EVENTS.PURCHASE_ORDER_COMPLETED,
+          payload: publishBasePayload,
+        });
+      }
+      if (status === PurchaseOrderStatus.CANCELLED) {
+        await this.eventBus.publish({
+          type: DOMAIN_EVENTS.PURCHASE_ORDER_CANCELLED,
+          payload: publishBasePayload,
         });
       }
 

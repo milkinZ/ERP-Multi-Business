@@ -56,6 +56,35 @@ export class AuditLogService {
     this.eventBus.subscribe(DOMAIN_EVENTS.PURCHASE_ORDER_RECEIVED, (event) =>
       this.handlePurchaseOrderReceivedEvent(event),
     );
+
+    // Business Registry Events
+    this.eventBus.subscribe(DOMAIN_EVENTS.BUSINESS_CREATED, (event) =>
+      this.handleBusinessCreatedEvent(event),
+    );
+
+    this.eventBus.subscribe(DOMAIN_EVENTS.BUSINESS_UPDATED, (event) =>
+      this.handleBusinessUpdatedEvent(event),
+    );
+
+    this.eventBus.subscribe(DOMAIN_EVENTS.BUSINESS_ACTIVATED, (event) =>
+      this.handleBusinessActivatedEvent(event),
+    );
+
+    this.eventBus.subscribe(DOMAIN_EVENTS.BUSINESS_SUSPENDED, (event) =>
+      this.handleBusinessSuspendedEvent(event),
+    );
+
+    this.eventBus.subscribe(DOMAIN_EVENTS.BUSINESS_ARCHIVED, (event) =>
+      this.handleBusinessArchivedEvent(event),
+    );
+
+    this.eventBus.subscribe(DOMAIN_EVENTS.BUSINESS_RESTORED, (event) =>
+      this.handleBusinessRestoredEvent(event),
+    );
+
+    this.eventBus.subscribe(DOMAIN_EVENTS.BUSINESS_TYPE_CHANGED, (event) =>
+      this.handleBusinessTypeChangedEvent(event),
+    );
   }
 
   /**
@@ -325,6 +354,157 @@ export class AuditLogService {
       action: 'RECEIVE',
       metadata: {
         eventType: 'PURCHASE_ORDER_RECEIVED',
+      },
+    });
+  }
+
+  // Business Registry Event Handlers
+  private async handleBusinessCreatedEvent(event: DomainEvent) {
+    if (event.type !== DOMAIN_EVENTS.BUSINESS_CREATED) return;
+
+    const payload = event.payload as {
+      tenantId: string;
+      outletId?: string | null;
+      businessId?: string;
+      name?: string;
+    };
+
+    await this.createAuditLog(payload.tenantId, {
+      outletId: payload.outletId,
+      entity: 'Business',
+      entityId: payload.businessId ?? payload.tenantId,
+      action: 'CREATE',
+      metadata: {
+        eventType: 'BUSINESS_CREATED',
+        name: payload.name,
+      },
+    });
+  }
+
+  private async handleBusinessUpdatedEvent(event: DomainEvent) {
+    if (event.type !== DOMAIN_EVENTS.BUSINESS_UPDATED) return;
+
+    const payload = event.payload as {
+      tenantId: string;
+      outletId?: string | null;
+      businessId?: string;
+      name?: string;
+    };
+
+    await this.createAuditLog(payload.tenantId, {
+      outletId: payload.outletId,
+      entity: 'Business',
+      entityId: payload.businessId ?? payload.tenantId,
+      action: 'UPDATE',
+      metadata: {
+        eventType: 'BUSINESS_UPDATED',
+        name: payload.name,
+      },
+    });
+  }
+
+  private async handleBusinessActivatedEvent(event: DomainEvent) {
+    if (event.type !== DOMAIN_EVENTS.BUSINESS_ACTIVATED) return;
+
+    const payload = event.payload as {
+      tenantId: string;
+      outletId?: string | null;
+      businessId?: string;
+    };
+
+    await this.createAuditLog(payload.tenantId, {
+      outletId: payload.outletId,
+      entity: 'Business',
+      entityId: payload.businessId ?? payload.tenantId,
+      action: 'ACTIVATE',
+      metadata: {
+        eventType: 'BUSINESS_ACTIVATED',
+      },
+    });
+  }
+
+  private async handleBusinessSuspendedEvent(event: DomainEvent) {
+    if (event.type !== DOMAIN_EVENTS.BUSINESS_SUSPENDED) return;
+
+    const payload = event.payload as {
+      tenantId: string;
+      outletId?: string | null;
+      businessId?: string;
+      reason?: string;
+    };
+
+    await this.createAuditLog(payload.tenantId, {
+      outletId: payload.outletId,
+      entity: 'Business',
+      entityId: payload.businessId ?? payload.tenantId,
+      action: 'SUSPEND',
+      metadata: {
+        eventType: 'BUSINESS_SUSPENDED',
+        reason: payload.reason,
+      },
+    });
+  }
+
+  private async handleBusinessArchivedEvent(event: DomainEvent) {
+    if (event.type !== DOMAIN_EVENTS.BUSINESS_ARCHIVED) return;
+
+    const payload = event.payload as {
+      tenantId: string;
+      outletId?: string | null;
+      businessId?: string;
+    };
+
+    await this.createAuditLog(payload.tenantId, {
+      outletId: payload.outletId,
+      entity: 'Business',
+      entityId: payload.businessId ?? payload.tenantId,
+      action: 'ARCHIVE',
+      metadata: {
+        eventType: 'BUSINESS_ARCHIVED',
+      },
+    });
+  }
+
+  private async handleBusinessRestoredEvent(event: DomainEvent) {
+    if (event.type !== DOMAIN_EVENTS.BUSINESS_RESTORED) return;
+
+    const payload = event.payload as {
+      tenantId: string;
+      outletId?: string | null;
+      businessId?: string;
+    };
+
+    await this.createAuditLog(payload.tenantId, {
+      outletId: payload.outletId,
+      entity: 'Business',
+      entityId: payload.businessId ?? payload.tenantId,
+      action: 'RESTORE',
+      metadata: {
+        eventType: 'BUSINESS_RESTORED',
+      },
+    });
+  }
+
+  private async handleBusinessTypeChangedEvent(event: DomainEvent) {
+    if (event.type !== DOMAIN_EVENTS.BUSINESS_TYPE_CHANGED) return;
+
+    const payload = event.payload as {
+      tenantId: string;
+      outletId?: string | null;
+      businessId?: string;
+      previousType?: string;
+      businessType?: string;
+    };
+
+    await this.createAuditLog(payload.tenantId, {
+      outletId: payload.outletId,
+      entity: 'Business',
+      entityId: payload.businessId ?? payload.tenantId,
+      action: 'CHANGE_BUSINESS_TYPE',
+      metadata: {
+        eventType: 'BUSINESS_TYPE_CHANGED',
+        previousType: payload.previousType,
+        businessType: payload.businessType,
       },
     });
   }

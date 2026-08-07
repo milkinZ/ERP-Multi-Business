@@ -3,13 +3,13 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "..",
-    "module": "commonjs",
+    "module": "nodenext",
     "target": "ES2021",
     "incremental": true,
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
     "sourceMap": true,
-    "moduleResolution": "node"
+    "moduleResolution": "nodenext",
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

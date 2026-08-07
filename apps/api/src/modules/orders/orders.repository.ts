@@ -155,6 +155,9 @@ export class OrdersRepository extends BaseRepository {
       where: {
         id,
         tenantId,
+        status: {
+          in: [OrderStatus.PENDING, OrderStatus.IN_PROGRESS, OrderStatus.READY],
+        },
       },
       data: {
         status: OrderStatus.PAID,
@@ -197,6 +200,7 @@ export class OrdersRepository extends BaseRepository {
       where: {
         id,
         tenantId,
+        status: OrderStatus.PAID,
       },
       data: {
         status: OrderStatus.COMPLETED,

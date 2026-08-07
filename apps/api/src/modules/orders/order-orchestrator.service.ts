@@ -50,6 +50,15 @@ export class OrderOrchestratorService implements OnModuleInit {
           tenantId,
         },
       });
+
+      // Production-grade alias event
+      await this.events.publish({
+        type: DOMAIN_EVENTS.SALES_ORDER_CONFIRMED,
+        payload: {
+          orderId,
+          tenantId,
+        },
+      });
     } catch (error) {
       await this.ordersService.cancelOrder(orderId, tenantId);
 
@@ -82,6 +91,15 @@ export class OrderOrchestratorService implements OnModuleInit {
 
       await this.events.publish({
         type: DOMAIN_EVENTS.SALES_ORDER_COMPLETED,
+        payload: {
+          orderId,
+          tenantId,
+        },
+      });
+
+      // Production-grade alias event
+      await this.events.publish({
+        type: DOMAIN_EVENTS.SALES_ORDER_COMPLETED_V2,
         payload: {
           orderId,
           tenantId,

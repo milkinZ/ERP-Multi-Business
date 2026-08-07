@@ -45,7 +45,10 @@ export class PurchaseOrderRepository extends BaseRepository {
       notes: data.notes ?? null,
       receivedAt: null,
       completedAt: null,
-      items,
+      items: items.map((i) => ({
+        ...i,
+        receivedQuantity: 0,
+      })),
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -125,6 +128,71 @@ export class PurchaseOrderRepository extends BaseRepository {
     });
 
     return purchaseOrder;
+  }
+
+  async updateReceivedQuantitiesAndStatus(params: {
+    id: string;
+    tenantId: string;
+    nextStatus: PurchaseOrderStatus;
+    receivedAt?: Date | null;
+    receivedQuantityByItem: Record<string, number>; // inventoryItemId -> cumulative receivedQuantity
+    // applies only deltas; idempotency enforced by receivedQuantity values
+  }) {
+    const { id, tenantId, nextStatus, receivedAt, receivedQuantityByItem } =
+      params;
+
+    return this.prisma.$transaction(async (tx) => {
+      const po = await tx.purchaseOrder.findFirst({
+        where: { id, tenantId },
+        include: { PurchaseOrderItem: true },
+      });
+
+      if (!po) return null;
+
+      // Apply updates per item in a deterministic order.
+      for (const poi of po.PurchaseOrderItem) {
+        const inventoryItemId = poi.inventoryItemId;
+        const nextReceived = receivedQuantityByItem[inventoryItemId];
+
+        if (nextReceived === undefined) {
+          continue;
+        }
+
+        if (nextReceived < poi.receivedQuantity) {
+          throw new Error('Cannot decrease already received quantity');
+        }
+
+        // Idempotent update: if same value, no-op
+        if (nextReceived === poi.receivedQuantity) continue;
+
+        await tx.purchaseOrderItem.update({
+          where: { id: poi.id },
+          data: { receivedQuantity: nextReceived },
+        });
+      }
+
+      const updated = await tx.purchaseOrder.updateMany({
+        where: { id, tenantId },
+        data: {
+          status: nextStatus,
+          receivedAt: receivedAt ?? undefined,
+          updatedAt: new Date(),
+        },
+      });
+
+      if (updated.count !== 1) {
+        return null;
+      }
+
+      return tx.purchaseOrder.findFirst({
+        where: { id, tenantId },
+        include: {
+          PurchaseOrderItem: true,
+          Supplier: true,
+          Warehouse: true,
+        },
+      });
+    });
   }
 
   async update(

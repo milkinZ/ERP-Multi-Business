@@ -1,0 +1,17 @@
+ΓÇó turbo 2.9.16
+
+   ΓÇó Packages in scope: api
+   ΓÇó Running build in 1 packages
+   ΓÇó Remote caching disabled
+
+api:build: cache bypass, force executing 404772f7ae37ccd7
+api:build: 
+api:build: > api@0.0.1 build
+api:build: > nest build
+api:build: 
+
+ Tasks:    1 successful, 1 total
+Cached:    0 cached, 1 total
+  Time:    25.751s 
+
+ WARNING  no output files found for task api#build. Please check your `outputs` key in `turbo.json`

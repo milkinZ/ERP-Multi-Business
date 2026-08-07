@@ -3,7 +3,8 @@ import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { PrismaMockModule } from '../../test/prisma-mock.module';
 import { FulfillmentService } from '../fulfillment/fulfillment.service';
-import { DomainEventBus } from '../../core/events/domain-event-bus.service';
+
+import { OutboxPublisher } from '../../infrastructure/events/outbox.publisher';
 
 describe('PaymentsController', () => {
   let controller: PaymentsController;
@@ -16,7 +17,7 @@ describe('PaymentsController', () => {
         PaymentsService,
         FulfillmentService,
         {
-          provide: DomainEventBus,
+          provide: OutboxPublisher,
           useValue: { publish: async () => {} },
         },
       ],

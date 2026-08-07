@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PaymentsService } from './payments.service';
 import { PrismaMockModule } from '../../test/prisma-mock.module';
 import { FulfillmentService } from '../fulfillment/fulfillment.service';
-import { DomainEventBus } from '../../core/events/domain-event-bus.service';
+import { OutboxPublisher } from '../../infrastructure/events/outbox.publisher';
 
 describe('PaymentsService', () => {
   let service: PaymentsService;
@@ -14,7 +14,7 @@ describe('PaymentsService', () => {
         PaymentsService,
         FulfillmentService,
         {
-          provide: DomainEventBus,
+          provide: OutboxPublisher,
           useValue: { publish: async () => {} },
         },
       ],

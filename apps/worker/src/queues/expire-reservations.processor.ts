@@ -23,7 +23,7 @@ export class ExpireReservationsProcessor implements OnModuleDestroy {
 
       // Dynamically import the compiled ReservationRepository from apps/api dist
       const imported =
-        (await import("../../../api/dist/src/modules/inventory/reservation.repository")) as unknown as {
+        (await import("../../../api/dist/src/modules/inventory/reservation.repository.js")) as unknown as {
           ReservationRepository: new (prisma: any) => {
             expireReservations: (d: Date) => Promise<number>;
           };

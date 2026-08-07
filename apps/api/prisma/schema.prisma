@@ -302,6 +302,9 @@ model Supplier {
 model Tenant {
   id                String              @id @default(cuid())
   name              String
+  contactEmail      String?
+  contactPhone      String?
+  address           String?
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
   deletedAt         DateTime?
@@ -320,7 +323,6 @@ model Tenant {
   User              User[]
   Warehouse         Warehouse[]
 
-  // Phase-2 core entities
   Session         Session[]
   AuditLog        AuditLog[]
   Notification    Notification[]
@@ -610,7 +612,6 @@ model Plan {
   updatedAt DateTime @updatedAt
   deletedAt DateTime?
 
-  // Phase-2 core entities
   Subscriptions Subscription[]
 }
 

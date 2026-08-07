@@ -68,6 +68,16 @@ export class OrdersService {
       },
     });
 
+    // Production-grade alias event
+    await this.events.publish({
+      type: DOMAIN_EVENTS.SALES_ORDER_CREATED,
+      payload: {
+        orderId: order.id,
+        tenantId,
+        outletId,
+      },
+    });
+
     return order;
   }
 

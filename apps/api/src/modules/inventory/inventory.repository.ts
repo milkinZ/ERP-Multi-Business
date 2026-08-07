@@ -5,6 +5,7 @@ import {
   InventoryItemAggregate,
   InventoryItemProps,
 } from './domain/inventory-item.aggregate';
+import { BusinessType, InventoryMovementType } from '@prisma/client';
 import { StockInDto } from './dto/stock-in.dto';
 import { StockAdjustmentDto } from './dto/stock-adjustment.dto';
 import { WasteDto } from './dto/waste.dto';
@@ -14,6 +15,189 @@ import { InventoryItemType, Prisma } from '@prisma/client';
 export class InventoryRepository extends BaseRepository {
   constructor(protected readonly prisma: PrismaService) {
     super(prisma);
+  }
+
+  async resolveTenantBusinessType(tenantId: string): Promise<BusinessType> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        businessType: true,
+      },
+    });
+
+    if (!tenant) {
+      throw new BadRequestException('Tenant not found');
+    }
+
+    return tenant.businessType;
+  }
+
+  // --- Fulfillment persistence (owned by InventoryRepository) ---
+  // Idempotent by SalesOrder.status === COMPLETED and only executes for PAID orders.
+  async fulfillRetail(orderId: string, tenantId: string): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.salesOrder.findFirst({
+        where: { id: orderId, tenantId },
+        include: {
+          SalesOrderItem: {
+            include: {
+              Product: {
+                include: {
+                  InventoryItem: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!order) {
+        throw new BadRequestException('Order not found');
+      }
+
+      if (order.status === 'COMPLETED') {
+        return false;
+      }
+
+      if (order.status !== 'PAID') {
+        throw new BadRequestException('Order must be PAID before fulfillment');
+      }
+
+      for (const item of order.SalesOrderItem) {
+        const inventoryItemId =
+          item.Product.InventoryItem?.id ?? item.Product.inventoryItemId;
+
+        if (!inventoryItemId) continue;
+
+        const stock = await tx.inventoryStock.findFirst({
+          where: { inventoryItemId },
+        });
+
+        if (!stock) {
+          throw new BadRequestException(
+            `Stock not found for ${item.Product.name}`,
+          );
+        }
+
+        if (stock.quantity < item.quantity) {
+          throw new BadRequestException(
+            `Insufficient stock for ${item.Product.name}`,
+          );
+        }
+
+        await tx.inventoryStock.update({
+          where: { id: stock.id },
+          data: { quantity: stock.quantity - item.quantity },
+        });
+
+        await tx.inventoryMovement.create({
+          data: {
+            tenantId,
+            inventoryItemId,
+            warehouseId: stock.warehouseId,
+            type: InventoryMovementType.SALE,
+            quantity: item.quantity,
+            beforeQuantity: stock.quantity,
+            afterQuantity: stock.quantity - item.quantity,
+            referenceType: 'ORDER',
+            referenceId: order.id,
+          },
+        });
+      }
+
+      return true;
+    });
+  }
+
+  async fulfillCafe(orderId: string, tenantId: string): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.salesOrder.findFirst({
+        where: { id: orderId, tenantId },
+        include: {
+          SalesOrderItem: {
+            include: {
+              Product: {
+                include: {
+                  Recipe: {
+                    include: {
+                      RecipeItem: {
+                        include: {
+                          Ingredient: {
+                            include: {
+                              InventoryItem: true,
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!order) {
+        throw new BadRequestException('Order not found');
+      }
+
+      if (order.status === 'COMPLETED') {
+        return false;
+      }
+
+      if (order.status !== 'PAID') {
+        throw new BadRequestException('Order must be PAID before fulfillment');
+      }
+
+      for (const orderItem of order.SalesOrderItem) {
+        const recipe = orderItem.Product.Recipe;
+        if (!recipe) continue;
+
+        for (const recipeItem of recipe.RecipeItem) {
+          const usage = recipeItem.quantity * orderItem.quantity;
+
+          const inventoryItemId = recipeItem.Ingredient.inventoryItemId;
+
+          const stock = await tx.inventoryStock.findFirst({
+            where: { inventoryItemId },
+          });
+
+          if (!stock) {
+            throw new BadRequestException(
+              `Stock not found for ingredient ${recipeItem.Ingredient.name}`,
+            );
+          }
+
+          if (stock.quantity < usage) {
+            throw new BadRequestException(
+              `Insufficient stock for ingredient ${recipeItem.Ingredient.name}`,
+            );
+          }
+
+          await tx.inventoryStock.update({
+            where: { id: stock.id },
+            data: { quantity: stock.quantity - usage },
+          });
+
+          await tx.inventoryMovement.create({
+            data: {
+              tenantId,
+              inventoryItemId,
+              warehouseId: stock.warehouseId,
+              type: InventoryMovementType.CONSUMPTION,
+              quantity: usage,
+              beforeQuantity: stock.quantity,
+              afterQuantity: stock.quantity - usage,
+              referenceType: 'ORDER',
+              referenceId: order.id,
+            },
+          });
+        }
+      }
+
+      return true;
+    });
   }
 
   async findAll(tenantId: string) {

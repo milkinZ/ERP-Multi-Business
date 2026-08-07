@@ -1,98 +1,63 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
-import { PrismaService } from '../../core/database/prisma.service';
+import { AnalyticsRepository } from './analytics.repository';
+import type { AnalyticsQueryDto } from './dto/analytics-query.dto';
+import type { AnalyticsSummaryResponseDto } from './dto/analytics-summary-response.dto';
+import type { TopProductsResponseDto } from './dto/top-products-response.dto';
 
 @Injectable()
 export class AnalyticsService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(AnalyticsService.name);
 
-  async getSummary(tenantId: string) {
-    const [totalProducts, totalOrders, totalPayments, revenue] =
-      await Promise.all([
-        this.prisma.product.count({
-          where: {
-            tenantId,
-          },
-        }),
+  constructor(private readonly analyticsRepository: AnalyticsRepository) {}
 
-        this.prisma.salesOrder.count({
-          where: {
-            tenantId,
-          },
-        }),
-
-        this.prisma.payment.count({
-          where: {
-            tenantId,
-          },
-        }),
-
-        this.prisma.payment.aggregate({
-          where: {
-            tenantId,
-            status: 'PAID',
-          },
-
-          _sum: {
-            amount: true,
-          },
-        }),
+  async getSummary(
+    tenantId: string,
+    query?: AnalyticsQueryDto,
+  ): Promise<AnalyticsSummaryResponseDto> {
+    try {
+      const [revenue, totalProducts] = await Promise.all([
+        this.analyticsRepository.aggregateRevenue(tenantId, query),
+        this.analyticsRepository.getProductCount(tenantId, query),
       ]);
 
-    return {
-      totalProducts,
-      totalOrders,
-      totalPayments,
-
-      totalRevenue: revenue._sum.amount ?? 0,
-    };
+      return {
+        totalProducts,
+        totalOrders: revenue.totalOrderCount,
+        paidOrders: revenue.paidOrderCount,
+        completedOrders: revenue.completedOrderCount,
+        cancelledOrders: revenue.cancelledOrderCount,
+        totalPayments: revenue.totalPaymentCount,
+        totalRevenue: revenue.totalRevenue,
+        averageOrderValue: revenue.averageOrderValue,
+        pendingOrders: revenue.pendingOrderCount,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to get analytics summary for tenant ${tenantId}: ${(error as Error).message}`,
+      );
+      throw error;
+    }
   }
 
-  async getTopProducts(tenantId: string) {
-    const orders = await this.prisma.salesOrder.findMany({
-      where: {
+  async getTopProducts(
+    tenantId: string,
+    query?: AnalyticsQueryDto,
+    limit = 10,
+  ): Promise<TopProductsResponseDto> {
+    try {
+      const items = await this.analyticsRepository.getTopProducts(
         tenantId,
-        status: 'COMPLETED',
-      },
+        query,
+        limit,
+      );
 
-      include: {
-        SalesOrderItem: {
-          include: {
-            Product: true,
-          },
-        },
-      },
-    });
-
-    const map = new Map<
-      string,
-      {
-        productId: string;
-        name: string;
-        qtySold: number;
-      }
-    >();
-
-    for (const order of orders) {
-      for (const item of order.SalesOrderItem) {
-        const existing = map.get(item.productId);
-
-        if (existing) {
-          existing.qtySold += item.quantity;
-        } else {
-          map.set(item.productId, {
-            productId: item.productId,
-
-            name: item.Product.name,
-
-            qtySold: item.quantity,
-          });
-        }
-      }
+      return { items };
+    } catch (error) {
+      this.logger.error(
+        `Failed to get top products for tenant ${tenantId}: ${(error as Error).message}`,
+      );
+      throw error;
     }
-
-    return Array.from(map.values())
-      .sort((a, b) => b.qtySold - a.qtySold)
-      .slice(0, 10);
   }
 }

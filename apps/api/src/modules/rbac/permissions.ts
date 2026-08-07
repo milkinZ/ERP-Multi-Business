@@ -64,4 +64,43 @@ export const PERMISSIONS = {
   ROLE_PERMISSION_MANAGE: 'rbac.role.permission.manage',
   USER_ROLE_MANAGE: 'rbac.user.role.manage',
   USER_OUTLET_MANAGE: 'rbac.user.outlet.manage',
+
+  // Feature Flags
+  FEATURE_FLAG_READ: 'feature-flag.read',
+  FEATURE_FLAG_CREATE: 'feature-flag.create',
+  FEATURE_FLAG_UPDATE: 'feature-flag.update',
+  FEATURE_FLAG_DELETE: 'feature-flag.delete',
+  FEATURE_FLAG_EVALUATE: 'feature-flag.evaluate',
+  FEATURE_FLAG_MANAGE_GLOBAL: 'feature-flag.manage.global',
+
+  // Business Registry
+  BUSINESS_READ: 'business.read',
+  BUSINESS_CREATE: 'business.create',
+  BUSINESS_UPDATE: 'business.update',
+  BUSINESS_DELETE: 'business.delete',
+  BUSINESS_MANAGE: 'business.manage',
+  BUSINESS_RESTORE: 'business.restore',
+
+  // Subscription & Billing
+  SUBSCRIPTION_READ: 'subscription.read',
+  SUBSCRIPTION_CREATE: 'subscription.create',
+  SUBSCRIPTION_UPDATE: 'subscription.update',
+  SUBSCRIPTION_CANCEL: 'subscription.cancel',
+  PLAN_READ: 'plan.read',
+  PLAN_CREATE: 'plan.create',
+  PLAN_UPDATE: 'plan.update',
+  PLAN_DELETE: 'plan.delete',
+  INVOICE_READ: 'invoice.read',
+  INVOICE_CREATE: 'invoice.create',
+  BILLING_READ: 'billing.read',
+  BILLING_EXECUTE: 'billing.execute',
+
+  // Super Admin (global, highest privilege)
+  SUPER_ADMIN_READ: 'super-admin.read',
+  SUPER_ADMIN_MANAGE_TENANTS: 'super-admin.manage.tenants',
+  SUPER_ADMIN_MANAGE_PLANS: 'super-admin.manage.plans',
+  SUPER_ADMIN_MANAGE_SUBSCRIPTIONS: 'super-admin.manage.subscriptions',
+  SUPER_ADMIN_MANAGE_BILLING: 'super-admin.manage.billing',
+  SUPER_ADMIN_MANAGE_FEATURE_FLAGS: 'super-admin.manage.feature-flags',
+  SUPER_ADMIN_MANAGE_SYSTEM: 'super-admin.manage.system',
 } as const;

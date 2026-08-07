@@ -2,14 +2,14 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { PaymentsRepository } from './payments.repository';
-import { DomainEventBus } from '../../core/events/domain-event-bus.service';
+import { OutboxPublisher } from '../../infrastructure/events/outbox.publisher';
 import { DOMAIN_EVENTS } from '../../core/events/domain-events';
 
 @Injectable()
 export class PaymentsService {
   constructor(
     private readonly paymentsRepository: PaymentsRepository,
-    private readonly events: DomainEventBus,
+    private readonly outbox: OutboxPublisher,
   ) {}
 
   async pay(tenantId: string, dto: CreatePaymentDto) {
@@ -19,7 +19,7 @@ export class PaymentsService {
     );
 
     if (!order) {
-      await this.events.publish({
+      await this.outbox.publish({
         type: DOMAIN_EVENTS.ORDER_PAYMENT_FAILED,
         payload: {
           orderId: dto.orderId,
@@ -31,7 +31,7 @@ export class PaymentsService {
     }
 
     if (order.status === 'PAID') {
-      await this.events.publish({
+      await this.outbox.publish({
         type: DOMAIN_EVENTS.ORDER_PAYMENT_FAILED,
         payload: {
           orderId: order.id,
@@ -44,7 +44,7 @@ export class PaymentsService {
     }
 
     if (dto.amount < order.totalAmount) {
-      await this.events.publish({
+      await this.outbox.publish({
         type: DOMAIN_EVENTS.ORDER_PAYMENT_FAILED,
         payload: {
           orderId: order.id,
@@ -63,8 +63,18 @@ export class PaymentsService {
       dto.method,
     );
 
-    await this.events.publish({
+    await this.outbox.publish({
       type: DOMAIN_EVENTS.ORDER_PAYMENT_SUCCESS,
+      payload: {
+        orderId: order.id,
+        tenantId,
+        paymentId: payment.id,
+      },
+    });
+
+    // Production-grade alias event
+    await this.outbox.publish({
+      type: DOMAIN_EVENTS.SALES_ORDER_PAID,
       payload: {
         orderId: order.id,
         tenantId,
