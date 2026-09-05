@@ -3,10 +3,6 @@ import { RealtimeDomainEventsSubscription } from './realtime-domain-events-subsc
 import { DOMAIN_EVENTS } from '../../../core/events/domain-events';
 
 describe('RealtimeDomainEventsSubscription', () => {
-  it('should be defined', () => {
-    expect(RealtimeDomainEventsSubscription).toBeDefined();
-  });
-
   it('should subscribe to all meaningful domain events', () => {
     const subscribed: string[] = [];
     const bus = {

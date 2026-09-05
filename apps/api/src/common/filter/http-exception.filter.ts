@@ -6,8 +6,13 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 
+import { requestContext } from '../../core/request-context/request-context';
+import { ErrorTrackingService } from '../../infrastructure/observability/error-tracking/error-tracking.service';
+
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
+  constructor(private readonly errorTracking?: ErrorTrackingService) {}
+
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
 
@@ -39,12 +44,33 @@ export class HttpExceptionFilter implements ExceptionFilter {
       message = exception.message;
     }
 
+    const reqCtx = requestContext.get();
+
+    // Report unexpected errors to error-tracking (non-blocking)
+    if (!(exception instanceof HttpException) && exception instanceof Error) {
+      try {
+        this.errorTracking?.captureException(exception, {
+          tags: {
+            requestId: reqCtx.requestId,
+            correlationId: reqCtx.correlationId,
+            tenantId: reqCtx.tenantId,
+            userId: reqCtx.userId,
+            outletId: reqCtx.outletId,
+          },
+        });
+      } catch {
+        // Ignore - observability must not break business flows.
+      }
+    }
+
     response.status(status).json({
       success: false,
       message,
       data: {},
       statusCode: status,
       path: request.url,
+      requestId: reqCtx.requestId,
+      correlationId: reqCtx.correlationId,
       timestamp: new Date().toISOString(),
     });
   }

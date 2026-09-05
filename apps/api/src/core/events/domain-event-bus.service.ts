@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { DomainEvent, DomainEventName } from './domain-events';
+import { requestContext } from '../request-context/request-context';
 
 type DomainEventHandler<TEvent extends DomainEvent = DomainEvent> = (
   event: TEvent,
@@ -30,11 +31,21 @@ export class DomainEventBus {
 
   async publish(event: DomainEvent) {
     const handlers = [...(this.handlers.get(event.type) ?? [])];
+    const ctx = requestContext.get();
+
+    const observabilityContext =
+      Object.keys(ctx).length > 0
+        ? ctx
+        : (event as { _observability?: unknown })._observability;
+
     for (const handler of handlers) {
-      await handler({
+      const enriched = {
         ...event,
         occurredAt: event.occurredAt ?? new Date(),
-      });
+        _observability: observabilityContext,
+      } as unknown as DomainEvent;
+
+      await handler(enriched);
     }
   }
 }

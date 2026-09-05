@@ -6,10 +6,11 @@ import { TerminusModule } from '@nestjs/terminus';
 import { REDIS_PROVIDER } from './redis.constants';
 import { RedisService } from './redis.service';
 import { HealthCheck } from './redis.health-indicator';
+import { MetricsModule } from '../observability/metrics/metrics.module';
 
 @Global()
 @Module({
-  imports: [TerminusModule],
+  imports: [TerminusModule, MetricsModule],
   providers: [
     {
       provide: REDIS_PROVIDER,

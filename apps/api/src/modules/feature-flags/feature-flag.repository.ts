@@ -21,6 +21,17 @@ export class FeatureFlagRepository extends BaseRepository {
     return this.toAggregate(record);
   }
 
+  async findByIdIncludingArchived(
+    id: string,
+    tenantId: string,
+  ): Promise<FeatureFlagAggregate | null> {
+    const record = await this.prisma.featureFlag.findFirst({
+      where: { id, tenantId },
+    });
+    if (!record) return null;
+    return this.toAggregate(record);
+  }
+
   async findByKey(
     key: string,
     tenantId: string,
@@ -120,13 +131,13 @@ export class FeatureFlagRepository extends BaseRepository {
     payload: unknown;
     deletedAt: Date | null;
   }): FeatureFlagAggregate {
-    const aggregate = FeatureFlagAggregate.create(
-      record.id,
-      record.key,
-      record.tenantId,
-      record.enabled,
-      (record.payload as Record<string, unknown>) ?? undefined,
-    );
-    return aggregate;
+    return FeatureFlagAggregate.reconstitute({
+      id: record.id,
+      key: record.key,
+      tenantId: record.tenantId,
+      enabled: record.enabled,
+      payload: (record.payload as Record<string, unknown>) ?? undefined,
+      deletedAt: record.deletedAt,
+    });
   }
 }

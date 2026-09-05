@@ -1,0 +1,15 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": "..",
+  "testEnvironment": "node",
+  "testRegex": ".int-spec.ts$",
+  "setupFiles": [
+    "<rootDir>/test/load-test-env.ts",
+    "<rootDir>/test/setup-e2e.ts"
+  ],
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "maxWorkers": 1,
+  "detectOpenHandles": true
+}

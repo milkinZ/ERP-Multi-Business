@@ -5,9 +5,10 @@ import { OutboxDispatcherService } from '../../core/events/outbox-dispatcher.ser
 import { OutboxPublisher } from './outbox.publisher';
 
 import { PrismaModule } from '../../core/database/prisma.module';
+import { MetricsModule } from '../../infrastructure/observability/metrics/metrics.module';
 
 @Module({
-  imports: [DomainEventsModule, PrismaModule],
+  imports: [DomainEventsModule, PrismaModule, MetricsModule],
   providers: [OutboxDispatcherService, OutboxPublisher],
   exports: [OutboxDispatcherService, OutboxPublisher],
 })

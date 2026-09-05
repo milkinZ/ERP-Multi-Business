@@ -162,7 +162,7 @@ export class StorageController {
     return results;
   }
 
-  @Get('signed-url/:id(*)')
+  @Get('signed-url/*id')
   async signedUrl(@Param('id') id: string) {
     const { tenantId, outletId } = requestContext.get();
     if (!tenantId) {
@@ -176,7 +176,7 @@ export class StorageController {
     return { url };
   }
 
-  @Get(':id(*)')
+  @Get('*id')
   async getFile(@Param('id') id: string, @Res() res: Response) {
     const { tenantId, outletId } = requestContext.get();
     if (!tenantId) {
@@ -193,7 +193,7 @@ export class StorageController {
     return res.send(download.buffer);
   }
 
-  @Delete(':id(*)')
+  @Delete('*id')
   async deleteFile(@Param('id') id: string) {
     const { tenantId, outletId } = requestContext.get();
     if (!tenantId) {

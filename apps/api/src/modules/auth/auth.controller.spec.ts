@@ -1,42 +1,67 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { PrismaMockModule } from '../../test/prisma-mock.module';
-import { UsersService } from '../users/users.service';
-import { JwtService } from '@nestjs/jwt';
-import { AuthTokensService } from './services/auth-tokens.service';
-import { RefreshTokensService } from './services/refresh-tokens.service';
-import { SessionsService } from './services/sessions.service';
-import { RefreshRotationService } from './services/refresh-rotation.service';
-import { RefreshTokenSelectorsService } from './services/refresh-token-selectors.service';
-import { RefreshSecretHashService } from './services/refresh-secret-hash.service';
 
 describe('AuthController', () => {
+  const register = jest.fn();
+  const login = jest.fn();
+  const logout = jest.fn();
+  const refresh = jest.fn();
+  const service = {
+    register,
+    login,
+    logout,
+    refresh,
+  } as unknown as AuthService;
   let controller: AuthController;
 
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      imports: [PrismaMockModule],
-      controllers: [AuthController],
-      providers: [
-        AuthService,
-        UsersService,
-        { provide: JwtService, useValue: {} },
-        { provide: AuthTokensService, useValue: {} },
-        { provide: RefreshTokensService, useValue: {} },
-        { provide: SessionsService, useValue: {} },
-        { provide: RefreshRotationService, useValue: {} },
-        { provide: RefreshTokenSelectorsService, useValue: {} },
-        { provide: RefreshSecretHashService, useValue: {} },
-        { provide: ConfigService, useValue: {} },
-      ],
-    }).compile();
-
-    controller = module.get<AuthController>(AuthController);
+  beforeEach(() => {
+    jest.clearAllMocks();
+    controller = new AuthController(service);
   });
 
-  it('should be defined', () => {
-    expect(controller).toBeDefined();
+  it('passes registration DTO to the auth service unchanged', async () => {
+    const dto = {
+      email: 'user-a@example.test',
+      password: 'test-password',
+      tenantId: 'tenant-a',
+      roleId: 'role-a',
+    } as never;
+    register.mockResolvedValue({ id: 'user-a' });
+
+    await controller.register(dto);
+
+    expect(register).toHaveBeenCalledWith(dto);
+  });
+
+  it('passes login credentials and response object to authentication', async () => {
+    const response = { cookie: jest.fn() } as never;
+    login.mockResolvedValue({ accessToken: 'access-token' });
+
+    await controller.login(
+      { email: 'user-a@example.test', password: 'test-password' },
+      response,
+    );
+
+    expect(login).toHaveBeenCalledWith(
+      'user-a@example.test',
+      'test-password',
+      response,
+    );
+  });
+
+  it('passes refresh and logout inputs to their service operations', async () => {
+    const response = {} as never;
+    await controller.refresh(
+      { refreshToken: 'selector.secret', csrfToken: 'csrf-token' },
+      response,
+    );
+    await controller.logout({ refreshToken: 'selector.secret' }, response);
+
+    expect(refresh).toHaveBeenCalledWith(
+      'selector.secret',
+      'csrf-token',
+      response,
+    );
+    expect(logout).toHaveBeenCalledWith('selector.secret', response);
   });
 });

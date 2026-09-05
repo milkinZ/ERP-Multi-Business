@@ -26,14 +26,24 @@ export class RequestContextMiddleware implements NestMiddleware {
 
     const resolvedCorrelationId = incomingCorrelationId ?? resolvedRequestId;
 
+    const incomingTraceparent =
+      typeof req.headers['traceparent'] === 'string'
+        ? req.headers['traceparent']
+        : Array.isArray(req.headers['traceparent'])
+          ? req.headers['traceparent'][0]
+          : undefined;
+
     requestContext.run(
       {
         requestId: resolvedRequestId,
         correlationId: resolvedCorrelationId,
+        traceparent: incomingTraceparent,
       },
       () => {
         res.setHeader('x-request-id', resolvedRequestId);
         res.setHeader('x-correlation-id', resolvedCorrelationId);
+        if (incomingTraceparent)
+          res.setHeader('traceparent', incomingTraceparent);
         next();
       },
     );

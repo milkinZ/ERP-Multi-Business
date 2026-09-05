@@ -16,7 +16,9 @@ export class ExpireReservationsProcessor implements OnModuleDestroy {
     private readonly prismaService: PrismaService,
   ) {
     // Worker will fetch the job from the INVENTORY_QUEUE and run the processor
-    this.worker = new Worker(QUEUE_NAME, async (job: Job) => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { wrapProcessor } = require('../observability/worker-instrumentation');
+    this.worker = new Worker(QUEUE_NAME, wrapProcessor('expire-reservations', async (job: Job) => {
       this.logger.log(`Expire reservations job started id=${job.id}`);
 
       const cutoffDate = new Date(Date.now() - 1000 * 60 * 60 * 24);
@@ -40,7 +42,7 @@ export class ExpireReservationsProcessor implements OnModuleDestroy {
         this.logger.error("Expire reservations job failed", err as any);
         throw err;
       }
-    });
+    }));
   }
 
   async onModuleDestroy() {

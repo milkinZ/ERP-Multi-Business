@@ -60,10 +60,6 @@ describe('SuperAdminService', () => {
     service = new SuperAdminService(repository, outbox, eventBus, prisma);
   });
 
-  it('should be defined', () => {
-    expect(service).toBeDefined();
-  });
-
   describe('listTenants', () => {
     it('should delegate to repository', async () => {
       findAllTenantsMock.mockResolvedValue({ data: [], total: 0 });

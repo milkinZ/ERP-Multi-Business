@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filter/http-exception.filter';
+import { ErrorTrackingService } from './infrastructure/observability/error-tracking/error-tracking.service';
 import { ConfigService } from '@nestjs/config';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { ValidationPipe } from '@nestjs/common';
@@ -8,11 +9,20 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 import cookieParser from 'cookie-parser';
+import { MetricsService } from './infrastructure/observability/metrics/metrics.service';
+import { PerformanceMonitorInterceptor } from './infrastructure/observability/performance/performance-monitor.interceptor';
+import type { Request, Response, NextFunction } from 'express';
+import { RedisIoAdapter } from './infrastructure/websocket/redis/redis-io.adapter';
+import { SocketRedisAdapterProvider } from './infrastructure/websocket/redis/socket-redis-adapter.provider';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     bufferLogs: true,
   });
+
+  const redisAdapterProvider = app.get(SocketRedisAdapterProvider);
+
+  app.useWebSocketAdapter(new RedisIoAdapter(app, redisAdapterProvider));
 
   const config = app.get(ConfigService);
 
@@ -44,17 +54,38 @@ async function bootstrap() {
     .addBearerAuth({ type: 'http', scheme: 'bearer' })
     .build();
 
-  console.log('Registering Swagger...');
-
+  app.get(Logger).log('Registering Swagger...');
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('docs', app, document);
 
-  console.log('Swagger registered at /docs');
+  app.get(Logger).log('Swagger registered at /docs');
 
   // await app.init();
 
-  // Global response wrapper
-  app.useGlobalInterceptors(new ResponseInterceptor());
+  // Global response wrapper and monitoring
+  app.useGlobalInterceptors(
+    app.get(PerformanceMonitorInterceptor),
+    new ResponseInterceptor(),
+  );
+
+  // Expose metrics on configured path for compatibility and dynamic configuration.
+  const metricsService = app.get(MetricsService);
+  const metricsPath =
+    config.get<string>('observability.metrics.path') ?? '/metrics';
+  if (metricsService.isEnabled()) {
+    app.use(
+      metricsPath,
+      async (req: Request, res: Response, next: NextFunction) => {
+        try {
+          const body = await metricsService.getMetrics();
+          res.setHeader('Content-Type', metricsService.getContentType());
+          res.send(body);
+        } catch (err) {
+          next(err);
+        }
+      },
+    );
+  }
 
   // Global pipes/filters
   app.useGlobalPipes(
@@ -64,7 +95,8 @@ async function bootstrap() {
       transform: true,
     }),
   );
-  app.useGlobalFilters(new HttpExceptionFilter());
+  // Use DI-resolved HttpExceptionFilter so it can access observability services.
+  app.useGlobalFilters(new HttpExceptionFilter(app.get(ErrorTrackingService)));
 
   // API versioning
   // Ensure header-based versioning to satisfy Nest TS types.

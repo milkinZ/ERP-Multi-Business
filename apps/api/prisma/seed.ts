@@ -75,7 +75,12 @@ async function main() {
 
 main()
   .catch((error) => {
-    console.error(error);
+    // Avoid console.* to align with centralized logging requirements in the API.
+    try {
+      process.stderr.write(String(error) + '\n');
+    } catch {
+      // ignore
+    }
     process.exit(1);
   })
   .finally(async () => {

@@ -59,4 +59,15 @@ export class HealthService {
 
     return { ok: false, status: 'DOWN', details: results };
   }
+  async checkOutbox() {
+    try {
+      const pending = await this.prisma.outboxEvent.count({
+        where: { status: 'PENDING' },
+      });
+      return { ok: true, pending };
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'outbox_error';
+      return { ok: false, error: message };
+    }
+  }
 }

@@ -1,9 +1,12 @@
+/* eslint-disable @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Queue, JobsOptions } from 'bullmq';
+import { QueueEvents } from 'bullmq';
 
 import { QueueName } from './queue.constants';
 
 import { RedisService } from '../redis/redis.service';
+import { MetricsService } from '../observability/metrics/metrics.service';
 
 import { QueueFailureMetadata, QueueProgressMetadata } from './queue.types';
 
@@ -11,6 +14,8 @@ import { QueueFailureMetadata, QueueProgressMetadata } from './queue.types';
 export class QueueService implements OnModuleDestroy {
   private readonly logger = new Logger(QueueService.name);
   private readonly queues = new Map<QueueName, Queue>();
+  private readonly queueEvents = new Map<QueueName, QueueEvents>();
+  private readonly jobStartTimes = new Map<string, number>();
 
   private getJobProgressKey(queueName: QueueName, jobId: string) {
     return `queue:${queueName}:job:${jobId}:progress`;
@@ -40,7 +45,10 @@ export class QueueService implements OnModuleDestroy {
       .set(this.getJobFailureKey(queueName, jobId), JSON.stringify(metadata));
   }
 
-  constructor(private readonly redis: RedisService) {}
+  constructor(
+    private readonly redis: RedisService,
+    private readonly metrics?: MetricsService,
+  ) {}
 
   getQueue(name: QueueName): Queue {
     const existing = this.queues.get(name);
@@ -60,6 +68,99 @@ export class QueueService implements OnModuleDestroy {
       },
     });
 
+    // Attach QueueEvents to capture lifecycle events for metrics
+    try {
+      const events = new QueueEvents(name, {
+        connection: this.redis.getBullmqConnectionOptions(),
+      });
+
+      events.on('waiting', () => {
+        void (() => {
+          try {
+            this.metrics?.queueJobsWaiting?.inc({ queue: name }, 1);
+          } catch {
+            // non-blocking
+          }
+        })();
+      });
+
+      events.on('active', ({ jobId }) => {
+        void (async () => {
+          try {
+            // record start time
+            this.jobStartTimes.set(jobId, Date.now());
+            this.metrics?.queueJobsActive?.inc({ queue: name }, 1);
+            this.metrics?.queueJobsWaiting?.dec({ queue: name }, 1);
+            // compute queue latency by fetching job timestamp
+            try {
+              const job = await queue.getJob(jobId);
+              if (job) {
+                const latencySec =
+                  (Date.now() - (job.timestamp ?? Date.now())) / 1000;
+                this.metrics?.queueJobQueueLatency?.observe(
+                  { queue: name, jobName: job.name },
+                  latencySec,
+                );
+              }
+            } catch {
+              // ignore
+            }
+          } catch {
+            // ignore
+          }
+        })();
+      });
+
+      events.on('completed', ({ jobId }) => {
+        void (() => {
+          try {
+            const start = this.jobStartTimes.get(jobId);
+            if (start) {
+              const dur = (Date.now() - start) / 1000;
+              this.metrics?.queueJobDuration?.observe(
+                { queue: name, jobName: 'job' },
+                dur,
+              );
+              this.jobStartTimes.delete(jobId);
+            }
+            this.metrics?.queueJobsCompleted?.inc({ queue: name }, 1);
+            this.metrics?.queueJobsActive?.dec({ queue: name }, 1);
+          } catch {
+            // ignore
+          }
+        })();
+      });
+
+      events.on('failed', ({ jobId }) => {
+        void (async () => {
+          try {
+            // Attempt to inspect job attempts to detect DLQ
+            try {
+              const job = await queue.getJob(jobId);
+              if (job) {
+                const attemptsMade = job.attemptsMade ?? 0;
+                const maxAttempts = ((job.opts as any)?.attempts ??
+                  0) as number;
+                if (maxAttempts > 0 && attemptsMade >= maxAttempts) {
+                  this.metrics?.queueJobsDeadLettered?.inc({ queue: name }, 1);
+                }
+              }
+            } catch {
+              // ignore
+            }
+
+            this.metrics?.queueJobsFailed?.inc({ queue: name }, 1);
+            this.metrics?.queueJobsActive?.dec({ queue: name }, 1);
+          } catch {
+            // ignore
+          }
+        })();
+      });
+
+      this.queueEvents.set(name, events);
+    } catch {
+      // non-blocking if QueueEvents or redis options fail
+    }
     // Ensure DLQ exists (created once per process)
     this.getDlqQueue(name);
 
@@ -87,14 +188,41 @@ export class QueueService implements OnModuleDestroy {
   }
 
   async onModuleDestroy() {
-    for (const q of this.queues.values()) {
+    this.logger.log('Closing QueueEvents...');
+
+    for (const [name, events] of this.queueEvents.entries()) {
       try {
-        await q.close();
+        await events.close();
+        this.logger.log(`QueueEvents closed: ${name}`);
       } catch (e) {
-        this.logger.warn(e);
+        this.logger.warn(
+          `Failed to close QueueEvents: ${name}`,
+          e instanceof Error ? e.stack : String(e),
+        );
       }
     }
+
+    this.queueEvents.clear();
+
+    this.logger.log('Closing Queues...');
+
+    for (const [name, q] of this.queues.entries()) {
+      try {
+        await q.close();
+        this.logger.log(`Queue closed: ${name}`);
+      } catch (e) {
+        this.logger.warn(
+          `Failed to close Queue: ${name}`,
+          e instanceof Error ? e.stack : String(e),
+        );
+      }
+    }
+
     this.queues.clear();
+
+    this.jobStartTimes.clear();
+
+    this.logger.log('QueueService shutdown complete');
   }
 
   async add(
@@ -102,6 +230,39 @@ export class QueueService implements OnModuleDestroy {
     payload: Record<string, unknown>,
     opts?: JobsOptions,
   ) {
-    return this.getQueue(name).add('job', payload, opts);
+    // Attempt to create an OpenTelemetry span around job enqueue for observability.
+    try {
+      // dynamic require to avoid hard dependency
+
+      const api = require('@opentelemetry/api');
+      const tracer = api.trace.getTracer('erp-api-queue');
+      const span = tracer.startSpan('enqueue_job', {
+        attributes: {
+          'queue.name': String(name),
+        },
+      });
+      try {
+        const result = await this.getQueue(name).add('job', payload, opts);
+        try {
+          span.setAttribute('job.id', String((result as any)?.id ?? ''));
+        } catch {
+          // ignore
+        }
+        span.end();
+        return result;
+      } catch (err) {
+        try {
+          span.recordException(err as Error);
+          span.setStatus({ code: 2 });
+          span.end();
+        } catch {
+          // ignore
+        }
+        throw err;
+      }
+    } catch {
+      // OTEL not available or failed; proceed without tracing (non-blocking).
+      return this.getQueue(name).add('job', payload, opts);
+    }
   }
 }

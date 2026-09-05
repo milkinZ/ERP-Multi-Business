@@ -6,9 +6,10 @@ import { PaymentsRepository } from './payments.repository';
 import { FulfillmentModule } from '../fulfillment/fulfillment.module';
 import { PrismaModule } from '../../core/database/prisma.module';
 import { DomainEventsModule } from '../../core/events/domain-events.module';
+import { OutboxModule } from '../../infrastructure/events/outbox.module';
 
 @Module({
-  imports: [PrismaModule, FulfillmentModule, DomainEventsModule],
+  imports: [PrismaModule, FulfillmentModule, DomainEventsModule, OutboxModule],
 
   controllers: [PaymentsController],
 

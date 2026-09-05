@@ -30,6 +30,7 @@ import { SubscriptionModule } from './modules/subscription/subscription.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { BusinessRegistryModule } from './modules/business-registry/business-registry.module';
 import { SuperAdminModule } from './modules/super-admin/super-admin.module';
+import { ObservabilityModule } from './infrastructure/observability/observability.module';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { SuperAdminModule } from './modules/super-admin/super-admin.module';
     BillingModule,
     BusinessRegistryModule,
     SuperAdminModule,
+    ObservabilityModule,
   ],
 })
 export class AppModule {}

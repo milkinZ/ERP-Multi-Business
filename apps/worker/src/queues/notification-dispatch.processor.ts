@@ -14,7 +14,10 @@ export class NotificationDispatchProcessor implements OnModuleDestroy {
   private readonly worker: Worker;
 
   constructor() {
-    this.worker = new Worker(QUEUE_NAME, async (job: TypedJob) => {
+    // Wrap the processor with OTEL instrumentation if available
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { wrapProcessor } = require('../observability/worker-instrumentation');
+    this.worker = new Worker(QUEUE_NAME, wrapProcessor('notification.dispatch', async (job: TypedJob) => {
       const payload = job.data;
       await Promise.resolve();
 
@@ -35,7 +38,7 @@ export class NotificationDispatchProcessor implements OnModuleDestroy {
           `In-app notification available for recipient=${payload.recipientId ?? "none"}`,
         );
       }
-    });
+    }));
   }
 
   async onModuleDestroy() {

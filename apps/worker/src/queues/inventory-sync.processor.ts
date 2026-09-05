@@ -13,9 +13,12 @@ export class InventorySyncProcessor {
   private worker: Worker;
 
   constructor(processor: (job: TypedJob) => Promise<void>) {
-    this.worker = new Worker(QUEUE_NAME, async (job) =>
+    // Wrap provided processor with OTEL instrumentation when available
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { wrapProcessor } = require('../observability/worker-instrumentation');
+    this.worker = new Worker(QUEUE_NAME, wrapProcessor('inventory-sync', async (job) =>
       processor(job as TypedJob),
-    );
+    ));
   }
 
   async start() {}

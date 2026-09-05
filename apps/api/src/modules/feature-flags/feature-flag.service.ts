@@ -210,7 +210,13 @@ export class FeatureFlagService {
   }
 
   async restore(id: string, tenantId: string): Promise<FeatureFlagAggregate> {
-    const aggregate = await this.findById(id, tenantId);
+    const aggregate = await this.repository.findByIdIncludingArchived(
+      id,
+      tenantId,
+    );
+    if (!aggregate) {
+      throw new NotFoundException(`Feature flag with id "${id}" not found`);
+    }
     aggregate.restore();
 
     await this.repository.save(aggregate);

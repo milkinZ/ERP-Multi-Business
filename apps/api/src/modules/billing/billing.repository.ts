@@ -53,14 +53,22 @@ export class BillingRepository extends BaseRepository {
     return this.prisma.invoice.create({ data });
   }
 
-  async updateInvoiceStatus(id: string, status: string, paidAt?: Date) {
-    return this.prisma.invoice.update({
-      where: { id },
+  async updateInvoiceStatus(
+    id: string,
+    tenantId: string,
+    status: string,
+    paidAt?: Date,
+  ) {
+    const updated = await this.prisma.invoice.updateMany({
+      where: { id, tenantId, deletedAt: null },
       data: {
         status,
         ...(paidAt ? { paidAt } : {}),
       },
     });
+
+    if (updated.count !== 1) return null;
+    return this.findInvoiceById(id, tenantId);
   }
 
   async generateInvoiceNumber(tenantId: string): Promise<string> {

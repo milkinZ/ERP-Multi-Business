@@ -1,0 +1,51 @@
+groups:
+  - name: erp-api.rules
+    rules:
+      - alert: HighErrorRate
+        expr: increase(http_request_errors_total[5m]) / increase(http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP error rate"
+          description: "{{ $labels.instance }} has HTTP error rate > 5% over 5m"
+
+      - alert: RedisDown
+        expr: probe_success{job="redis_exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis unreachable"
+
+      - alert: DatabaseDown
+        expr: pg_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Postgres unreachable"
+
+      - alert: QueueBacklogHigh
+        expr: queue_jobs_waiting > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Queue backlog high"
+
+      - alert: OutboxBacklogStuck
+        expr: sum(outbox_backlog) > 100
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox backlog high"
+
+      - alert: HighHttpLatency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 2
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "High HTTP latency (95th percentile)"

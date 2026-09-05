@@ -18,6 +18,6 @@ import { QueueModule } from '../../infrastructure/queue/queue.module';
     ReservationRepository,
     ReservationExpirationRegistrar,
   ],
-  exports: [InventoryService, InventoryReservationService],
+  exports: [InventoryService, InventoryReservationService, InventoryRepository],
 })
 export class InventoryModule {}

@@ -1,0 +1,97 @@
+name: API testing
+
+on:
+  push:
+    paths:
+      - 'apps/api/**'
+      - 'apps/worker/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/api-testing.yml'
+  pull_request:
+    paths:
+      - 'apps/api/**'
+      - 'apps/worker/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/api-testing.yml'
+
+jobs:
+  api-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cafe_os_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d cafe_os_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/cafe_os_test
+      REDIS_ENABLED: 'true'
+      REDIS_URL: redis://127.0.0.1:6379/15
+      JWT_SECRET: ci-test-secret-must-be-at-least-32-characters-long
+      JWT_EXPIRES_IN_ACCESS: 15m
+      CORS_ORIGIN: http://localhost:3000
+      LOG_LEVEL: silent
+      METRICS_ENABLED: 'false'
+      TRACE_ENABLED: 'false'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate --schema apps/api/prisma/schema.prisma
+
+      - name: Migrate test database
+        run: npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
+
+      - name: Unit tests
+        run: npm run test -w apps/api -- --runInBand
+
+      - name: Coverage
+        run: npm run test:coverage -w apps/api
+
+      - name: Integration tests
+        run: npm run test:integration -w apps/api -- --runInBand
+
+      - name: Build
+        run: npm run build -w apps/api
+
+      - name: Lint
+        run: npm run lint -w apps/api
+
+      - name: Typecheck
+        run: npm run check-types -w apps/api
+
+      - name: E2E tests
+        run: npm run test:e2e -w apps/api -- --runInBand

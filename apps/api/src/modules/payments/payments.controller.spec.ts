@@ -1,32 +1,36 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
-import { PrismaMockModule } from '../../test/prisma-mock.module';
-import { FulfillmentService } from '../fulfillment/fulfillment.service';
-
-import { OutboxPublisher } from '../../infrastructure/events/outbox.publisher';
 
 describe('PaymentsController', () => {
+  const pay = jest.fn();
+  const findAll = jest.fn();
+  const findOne = jest.fn();
+  const service = { pay, findAll, findOne } as unknown as PaymentsService;
   let controller: PaymentsController;
 
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      imports: [PrismaMockModule],
-      controllers: [PaymentsController],
-      providers: [
-        PaymentsService,
-        FulfillmentService,
-        {
-          provide: OutboxPublisher,
-          useValue: { publish: async () => {} },
-        },
-      ],
-    }).compile();
-
-    controller = module.get<PaymentsController>(PaymentsController);
+  beforeEach(() => {
+    jest.clearAllMocks();
+    controller = new PaymentsController(service);
   });
 
-  it('should be defined', () => {
-    expect(controller).toBeDefined();
+  it('uses authenticated tenant context for payment creation', async () => {
+    pay.mockResolvedValue({ id: 'payment-a', tenantId: 'tenant-a' });
+    const dto = { orderId: 'order-a', amount: 100, method: 'CASH' } as never;
+
+    await controller.pay(dto, { tenantId: 'tenant-a' } as never);
+
+    expect(pay).toHaveBeenCalledWith('tenant-a', dto);
+  });
+
+  it('uses authenticated tenant context for payment reads', async () => {
+    findAll.mockResolvedValue([]);
+    findOne.mockResolvedValue(null);
+    const user = { tenantId: 'tenant-a' } as never;
+
+    await controller.findAll(user);
+    await controller.findOne('payment-b', user);
+
+    expect(findAll).toHaveBeenCalledWith('tenant-a');
+    expect(findOne).toHaveBeenCalledWith('payment-b', 'tenant-a');
   });
 });

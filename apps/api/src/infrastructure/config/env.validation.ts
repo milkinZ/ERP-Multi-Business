@@ -19,6 +19,30 @@ export const envSchema = z.object({
   LOG_LEVEL: z
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
     .default('info'),
+
+  // Observability (optional, non-blocking)
+  METRICS_ENABLED: z.enum(['true', 'false']).default('true'),
+  METRICS_PATH: z.string().default('/metrics'),
+
+  TRACE_ENABLED: z.enum(['true', 'false']).default('false'),
+  TRACE_SAMPLING_RATE: z.coerce.number().min(0).max(1).optional(),
+  TRACE_EXPORTER: z.string().default('console'),
+
+  SENTRY_DSN: z.string().optional(),
+  SENTRY_ENVIRONMENT: z.string().optional(),
+  SENTRY_RELEASE: z.string().optional(),
+
+  ALERTING_ENABLED: z.enum(['true', 'false']).default('false'),
+  ALERT_WEBHOOK_URL: z.string().optional(),
+  ALERT_HIGH_ERROR_RATE_THRESHOLD: z.coerce.number().optional(),
+  ALERT_HIGH_RESPONSE_TIME_MS: z.coerce.number().optional(),
+  ALERT_QUEUE_BACKLOG_THRESHOLD: z.coerce.number().optional(),
+  ALERT_OUTBOX_STUCK_THRESHOLD: z.coerce.number().optional(),
+
+  LOG_RETENTION_DURATION_DAYS: z.coerce.number().default(30),
+  LOG_ROTATION_PERIOD: z.string().default('daily'),
+  LOG_COMPRESSION: z.string().default('gzip'),
+  LOG_PATH: z.string().optional(),
 });
 
 export type EnvVars = z.infer<typeof envSchema>;

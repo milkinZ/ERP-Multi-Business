@@ -135,7 +135,12 @@ export class BillingService {
       return;
     }
 
-    await this.billingRepository.updateInvoiceStatus(invoiceId, 'PAID', paidAt);
+    await this.billingRepository.updateInvoiceStatus(
+      invoiceId,
+      tenantId,
+      'PAID',
+      paidAt,
+    );
 
     await this.outbox.publish({
       type: DOMAIN_EVENTS.INVOICE_PAID,
@@ -175,7 +180,11 @@ export class BillingService {
       throw new NotFoundException('Invoice not found');
     }
 
-    await this.billingRepository.updateInvoiceStatus(invoiceId, 'FAILED');
+    await this.billingRepository.updateInvoiceStatus(
+      invoiceId,
+      tenantId,
+      'FAILED',
+    );
 
     await this.outbox.publish({
       type: DOMAIN_EVENTS.INVOICE_FAILED,

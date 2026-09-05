@@ -36,10 +36,6 @@ describe('BusinessRegistryService', () => {
     service = new BusinessRegistryService(repository, tenantContext);
   });
 
-  it('should be defined', () => {
-    expect(service).toBeDefined();
-  });
-
   describe('findAll', () => {
     it('should delegate to repository with tenant context', async () => {
       findAllMock.mockResolvedValue({

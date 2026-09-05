@@ -1,22 +1,36 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { IngredientsController } from './ingredients.controller';
 import { IngredientsService } from './ingredients.service';
-import { PrismaMockModule } from '../../test/prisma-mock.module';
 
 describe('IngredientsController', () => {
+  const create = jest.fn();
+  const findAll = jest.fn();
+  const findOne = jest.fn();
+  const service = { create, findAll, findOne } as unknown as IngredientsService;
   let controller: IngredientsController;
 
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      imports: [PrismaMockModule],
-      controllers: [IngredientsController],
-      providers: [IngredientsService],
-    }).compile();
-
-    controller = module.get<IngredientsController>(IngredientsController);
+  beforeEach(() => {
+    jest.clearAllMocks();
+    controller = new IngredientsController(service);
   });
 
-  it('should be defined', () => {
-    expect(controller).toBeDefined();
+  it('uses authenticated tenant context for creation', async () => {
+    create.mockResolvedValue({ id: 'ingredient-a', tenantId: 'tenant-a' });
+    const dto = { name: 'Coffee beans', unit: 'kg' } as never;
+
+    await controller.create(dto, { tenantId: 'tenant-a' } as never);
+
+    expect(create).toHaveBeenCalledWith('tenant-a', dto);
+  });
+
+  it('keeps ingredient reads tenant-scoped', async () => {
+    findAll.mockResolvedValue([]);
+    findOne.mockResolvedValue(null);
+    const user = { tenantId: 'tenant-a' } as never;
+
+    await controller.findAll(user);
+    await controller.findOne('ingredient-b', user);
+
+    expect(findAll).toHaveBeenCalledWith('tenant-a');
+    expect(findOne).toHaveBeenCalledWith('ingredient-b', 'tenant-a');
   });
 });

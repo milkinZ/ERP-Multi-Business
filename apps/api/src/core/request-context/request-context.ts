@@ -6,6 +6,8 @@ export type RequestContextStore = {
   userId?: string;
   tenantId?: string;
   outletId?: string | null;
+  /** Optional W3C traceparent header value when tracing is enabled */
+  traceparent?: string;
 };
 
 const storage = new AsyncLocalStorage<RequestContextStore>();

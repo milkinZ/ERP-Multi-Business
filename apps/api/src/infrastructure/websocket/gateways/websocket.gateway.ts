@@ -1,9 +1,4 @@
-import {
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-  UseGuards,
-} from '@nestjs/common';
+import { Logger, UseGuards } from '@nestjs/common';
 import {
   OnGatewayConnection,
   OnGatewayDisconnect,
@@ -18,8 +13,8 @@ import {
   WebsocketService,
   type AuthenticatedSocketContext,
 } from '../websocket.service';
+import { MetricsService } from '../../observability/metrics/metrics.service';
 import { WebsocketJwtGuard } from '../guards/websocket-jwt.guard';
-import { SocketRedisAdapterProvider } from '../redis/socket-redis-adapter.provider';
 
 @WebSocketGateway({
   namespace: '/ws',
@@ -32,11 +27,7 @@ import { SocketRedisAdapterProvider } from '../redis/socket-redis-adapter.provid
 })
 @UseGuards(WebsocketJwtGuard)
 export class WebsocketGateway
-  implements
-    OnGatewayConnection,
-    OnGatewayDisconnect,
-    OnModuleInit,
-    OnModuleDestroy
+  implements OnGatewayConnection, OnGatewayDisconnect
 {
   private readonly logger = new Logger(WebsocketGateway.name);
 
@@ -45,22 +36,44 @@ export class WebsocketGateway
 
   constructor(
     private readonly websocketService: WebsocketService,
-    private readonly socketRedisAdapterProvider: SocketRedisAdapterProvider,
+    private readonly metrics: MetricsService,
   ) {}
 
-  async onModuleInit() {
-    const { createAdapter, pubClient, subClient } =
-      await this.socketRedisAdapterProvider.createAdapter();
-
-    // Adapter package typings can be incompatible with our Redis client types.
-    // Assign through unknown to satisfy strict TS checks without changing runtime.
-    const adapter = createAdapter(pubClient, subClient);
-    this.server.adapter(adapter as Parameters<Server['adapter']>[0]);
-
-    this.logger.log('Socket.IO Redis adapter initialized');
-  }
-
   async handleConnection(client: Socket) {
+    // Start a lightweight OTEL span for connection handling
+    try {
+      type OtelSpanLike = { end?: () => void };
+      type OtelTracerApi = {
+        trace?: {
+          getTracer?: (name: string) => {
+            startSpan: (name: string, opts?: unknown) => OtelSpanLike;
+          };
+        };
+      };
+
+      const tracerApi = (() => {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          return require('@opentelemetry/api') as unknown as OtelTracerApi;
+        } catch {
+          return undefined;
+        }
+      })();
+
+      const tracer = tracerApi?.trace?.getTracer?.('erp-api-websocket');
+      if (tracer && typeof tracer.startSpan === 'function') {
+        try {
+          const span = tracer.startSpan('ws.connect', {
+            attributes: { id: client.id },
+          });
+          if (span && typeof span.end === 'function') span.end();
+        } catch {
+          // ignore
+        }
+      }
+    } catch {
+      // ignore
+    }
     const ctx = (
       client.data as { ctx?: AuthenticatedSocketContext } | undefined
     )?.ctx;
@@ -78,20 +91,76 @@ export class WebsocketGateway
       this.websocketService.leaveAllRooms(client).catch(() => undefined);
     });
 
+    // Metrics: increment per-tenant websocket connections
+    try {
+      this.metrics.websocketConnections.inc({ tenant: ctx.tenantId }, 1);
+    } catch {
+      // non-blocking
+    }
+
     this.logger.debug(`WS connected user=${ctx.userId} tenant=${ctx.tenantId}`);
   }
 
   async handleDisconnect(client: Socket) {
+    // Trace disconnects as well
+    try {
+      type OtelSpanLike = { end?: () => void };
+      type OtelTracerApi = {
+        trace?: {
+          getTracer?: (name: string) => {
+            startSpan: (name: string, opts?: unknown) => OtelSpanLike;
+          };
+        };
+      };
+
+      const tracerApi = (() => {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          return require('@opentelemetry/api') as unknown as OtelTracerApi;
+        } catch {
+          return undefined;
+        }
+      })();
+
+      const tracer = tracerApi?.trace?.getTracer?.('erp-api-websocket');
+      if (tracer && typeof tracer.startSpan === 'function') {
+        try {
+          const span = tracer.startSpan('ws.disconnect', {
+            attributes: { id: client.id },
+          });
+          if (span && typeof span.end === 'function') span.end();
+        } catch {
+          // ignore
+        }
+      }
+    } catch {
+      // ignore
+    }
     await this.websocketService.leaveAllRooms(client).catch(() => undefined);
+    // Decrement per-tenant websocket connections if present
+    const ctx = (
+      client.data as { ctx?: AuthenticatedSocketContext } | undefined
+    )?.ctx;
+    if (ctx?.tenantId) {
+      try {
+        this.metrics.websocketConnections.dec(
+          { tenant: ctx.tenantId, outlet: ctx.outletId ?? '' },
+          1,
+        );
+        this.metrics.websocketDisconnects.inc(
+          { tenant: ctx.tenantId, outlet: ctx.outletId ?? '' },
+          1,
+        );
+      } catch {
+        // non-blocking
+      }
+    }
+
     this.logger.debug(`WS disconnected id=${client.id}`);
   }
 
   @SubscribeMessage('ping')
   onPing(): { ok: true; t: number } {
     return { ok: true, t: Date.now() };
-  }
-
-  async onModuleDestroy() {
-    await this.server.close();
   }
 }

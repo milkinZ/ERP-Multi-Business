@@ -50,6 +50,14 @@ export class FeatureFlagAggregate extends AggregateRoot {
     return aggregate;
   }
 
+  static reconstitute(state: FeatureFlagState): FeatureFlagAggregate {
+    return new FeatureFlagAggregate({
+      ...state,
+      targetingRules: [...(state.targetingRules ?? [])],
+      overrides: [...(state.overrides ?? [])],
+    });
+  }
+
   enable(): void {
     if (this.state.deletedAt) {
       throw new Error('Cannot enable an archived feature flag');

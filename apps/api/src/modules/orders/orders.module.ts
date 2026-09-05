@@ -5,9 +5,10 @@ import { OrdersRepository } from './orders.repository';
 import { DomainEventBus } from '../../core/events/domain-event-bus.service';
 import { OrderOrchestratorService } from './order-orchestrator.service';
 import { InventoryModule } from '../inventory/inventory.module';
+import { FulfillmentModule } from '../fulfillment/fulfillment.module';
 
 @Module({
-  imports: [InventoryModule],
+  imports: [InventoryModule, FulfillmentModule],
   controllers: [OrdersController],
   providers: [
     OrdersService,
