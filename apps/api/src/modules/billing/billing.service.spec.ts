@@ -25,12 +25,14 @@ describe('BillingService', () => {
   const generateInvoiceNumber = jest.fn();
   const createInvoice = jest.fn();
   const updateInvoiceStatus = jest.fn();
+  const settlePaidInvoice = jest.fn();
   const billingRepository = {
     findAllInvoices,
     findInvoiceById,
     generateInvoiceNumber,
     createInvoice,
     updateInvoiceStatus,
+    settlePaidInvoice,
   } as unknown as BillingRepository;
   const findById = jest.fn();
   const save = jest.fn();
@@ -59,6 +61,7 @@ describe('BillingService', () => {
   it('creates a tenant-scoped invoice and payment-required events', async () => {
     const subscription = activeSubscription();
     findById.mockResolvedValue(subscription);
+    settlePaidInvoice.mockResolvedValue({ id: 'invoice-a', status: 'PAID' });
     generateInvoiceNumber.mockResolvedValue('INV-A');
     createInvoice.mockResolvedValue({
       id: 'invoice-a',
@@ -125,6 +128,10 @@ describe('BillingService', () => {
       subscriptionId: 'subscription-a',
     });
     findById.mockResolvedValue(subscription);
+    updateInvoiceStatus.mockResolvedValue({
+      id: 'invoice-a',
+      status: 'FAILED',
+    });
 
     await service.handlePaymentFailure('invoice-a', 'declined');
 
@@ -132,6 +139,8 @@ describe('BillingService', () => {
       'invoice-a',
       'tenant-a',
       'FAILED',
+      undefined,
+      'PENDING',
     );
     expect(subscription.markPastDue).toHaveBeenCalledWith(49900);
     expect(save).toHaveBeenCalledWith(subscription);

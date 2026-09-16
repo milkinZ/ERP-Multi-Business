@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InventoryMovementType, PurchaseOrderStatus } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../core/database/prisma.service';
 import { BaseService } from '../../core/services/base.service';
@@ -256,225 +257,228 @@ export class PurchaseOrderService extends BaseService {
     // Receiving transitions must include receivedQuantity increments.
     // Controller currently only passes status; minimal approach: require received quantities
     // to be present in DTO for receiving endpoints by calling updateStatus with body.
-    return this.prisma.$transaction(async (tx) => {
-      // Re-load with items including receivedQuantity
-      const freshPo = await tx.purchaseOrder.findFirst({
-        where: { id, tenantId },
-        include: { PurchaseOrderItem: true, Warehouse: true },
-      });
+    return this.prisma.$transaction(
+      async (tx) => {
+        // Re-load with items including receivedQuantity
+        const freshPo = await tx.purchaseOrder.findFirst({
+          where: { id, tenantId },
+          include: { PurchaseOrderItem: true, Warehouse: true },
+        });
 
-      if (!freshPo) {
-        throw new NotFoundException('Purchase Order not found');
-      }
+        if (!freshPo) {
+          throw new NotFoundException('Purchase Order not found');
+        }
 
-      // Apply stock delta only on receiving status transitions.
-      // Determine nextReceivedQuantities using PurchaseOrderItem.receivedQuantity already persisted.
-      // Since current API doesn’t pass receiving quantities, we treat status RECEIVED/COMPLETED as:
-      // - receivedQuantity becomes full quantity
-      // This keeps backward compatibility while enabling idempotent inventory movements.
-      // Future partial receiving can pass explicit receivedQuantity via repository/DTO.
+        // Apply stock delta only on receiving status transitions.
+        // Determine nextReceivedQuantities using PurchaseOrderItem.receivedQuantity already persisted.
+        // Since current API doesn’t pass receiving quantities, we treat status RECEIVED/COMPLETED as:
+        // - receivedQuantity becomes full quantity
+        // This keeps backward compatibility while enabling idempotent inventory movements.
+        // Future partial receiving can pass explicit receivedQuantity via repository/DTO.
 
-      const warehouseId = freshPo.warehouseId;
+        const warehouseId = freshPo.warehouseId;
 
-      if (
-        (status === PurchaseOrderStatus.PARTIALLY_RECEIVED ||
+        if (
+          (status === PurchaseOrderStatus.PARTIALLY_RECEIVED ||
+            status === PurchaseOrderStatus.RECEIVED ||
+            status === PurchaseOrderStatus.COMPLETED) &&
+          !warehouseId
+        ) {
+          throw new BadRequestException(
+            'Warehouse is required for receiving/receipting',
+          );
+        }
+
+        // Idempotency: compute delta and apply inventory updates only for newly received.
+        const movementsToCreate: Array<{
+          inventoryItemId: string;
+          delta: number;
+        }> = [];
+
+        if (
+          status === PurchaseOrderStatus.PARTIALLY_RECEIVED ||
           status === PurchaseOrderStatus.RECEIVED ||
-          status === PurchaseOrderStatus.COMPLETED) &&
-        !warehouseId
-      ) {
-        throw new BadRequestException(
-          'Warehouse is required for receiving/receipting',
-        );
-      }
+          status === PurchaseOrderStatus.COMPLETED
+        ) {
+          for (const item of freshPo.PurchaseOrderItem) {
+            const prevReceived = item.receivedQuantity ?? 0;
+            const nextReceived =
+              status === PurchaseOrderStatus.PARTIALLY_RECEIVED
+                ? prevReceived // keep as-is until explicit partial quantities are supported
+                : item.quantity; // on RECEIVED/COMPLETED treat as fully received
 
-      // Idempotency: compute delta and apply inventory updates only for newly received.
-      const movementsToCreate: Array<{
-        inventoryItemId: string;
-        delta: number;
-      }> = [];
+            if (nextReceived < prevReceived) {
+              throw new BadRequestException(
+                'Cannot decrease received quantity on receiving',
+              );
+            }
 
-      if (
-        status === PurchaseOrderStatus.PARTIALLY_RECEIVED ||
-        status === PurchaseOrderStatus.RECEIVED ||
-        status === PurchaseOrderStatus.COMPLETED
-      ) {
-        for (const item of freshPo.PurchaseOrderItem) {
-          const prevReceived = item.receivedQuantity ?? 0;
-          const nextReceived =
-            status === PurchaseOrderStatus.PARTIALLY_RECEIVED
-              ? prevReceived // keep as-is until explicit partial quantities are supported
-              : item.quantity; // on RECEIVED/COMPLETED treat as fully received
-
-          if (nextReceived < prevReceived) {
-            throw new BadRequestException(
-              'Cannot decrease received quantity on receiving',
-            );
-          }
-
-          const delta = nextReceived - prevReceived;
-          if (delta > 0) {
-            movementsToCreate.push({
-              inventoryItemId: item.inventoryItemId,
-              delta,
-            });
+            const delta = nextReceived - prevReceived;
+            if (delta > 0) {
+              movementsToCreate.push({
+                inventoryItemId: item.inventoryItemId,
+                delta,
+              });
+            }
           }
         }
-      }
 
-      // Persist status with expected-current guard
-      const updated = await tx.purchaseOrder.updateMany({
-        where: { id, tenantId, status: freshPo.status },
-        data: {
-          status,
-          updatedAt: new Date(),
-          receivedAt:
-            status === PurchaseOrderStatus.RECEIVED ? new Date() : undefined,
-          completedAt:
-            status === PurchaseOrderStatus.COMPLETED ? new Date() : undefined,
-        },
-      });
+        // Persist status with expected-current guard
+        const updated = await tx.purchaseOrder.updateMany({
+          where: { id, tenantId, status: freshPo.status },
+          data: {
+            status,
+            updatedAt: new Date(),
+            receivedAt:
+              status === PurchaseOrderStatus.RECEIVED ? new Date() : undefined,
+            completedAt:
+              status === PurchaseOrderStatus.COMPLETED ? new Date() : undefined,
+          },
+        });
 
-      if (updated.count !== 1) {
-        throw new NotFoundException('Purchase Order not found');
-      }
+        if (updated.count !== 1) {
+          throw new NotFoundException('Purchase Order not found');
+        }
 
-      // Apply inventory stock + inventory movements for newly received deltas
-      if (movementsToCreate.length > 0) {
-        for (const m of movementsToCreate) {
-          const beforeQty =
-            (
-              await tx.inventoryStock.findFirst({
-                where: { warehouseId, inventoryItemId: m.inventoryItemId },
-              })
-            )?.quantity ?? 0;
+        // Apply inventory stock + inventory movements for newly received deltas
+        if (movementsToCreate.length > 0) {
+          for (const m of movementsToCreate) {
+            const beforeQty =
+              (
+                await tx.inventoryStock.findFirst({
+                  where: { warehouseId, inventoryItemId: m.inventoryItemId },
+                })
+              )?.quantity ?? 0;
 
-          const stock = await tx.inventoryStock.findFirst({
-            where: { warehouseId, inventoryItemId: m.inventoryItemId },
-          });
-
-          if (stock) {
-            await tx.inventoryStock.update({
-              where: { id: stock.id },
-              data: {
-                quantity: { increment: m.delta },
-                updatedAt: new Date(),
-              },
+            const stock = await tx.inventoryStock.findFirst({
+              where: { warehouseId, inventoryItemId: m.inventoryItemId },
             });
-          } else {
-            await tx.inventoryStock.create({
+
+            if (stock) {
+              await tx.inventoryStock.update({
+                where: { id: stock.id },
+                data: {
+                  quantity: { increment: m.delta },
+                  updatedAt: new Date(),
+                },
+              });
+            } else {
+              await tx.inventoryStock.create({
+                data: {
+                  warehouseId,
+                  inventoryItemId: m.inventoryItemId,
+                  quantity: m.delta,
+                  updatedAt: new Date(),
+                },
+              });
+            }
+
+            await tx.inventoryMovement.create({
               data: {
+                tenantId,
                 warehouseId,
                 inventoryItemId: m.inventoryItemId,
+                type: InventoryMovementType.STOCK_IN,
                 quantity: m.delta,
-                updatedAt: new Date(),
+                beforeQuantity: beforeQty,
+                afterQuantity: beforeQty + m.delta,
+                note: `PO ${freshPo.poNumber} ${status}`,
+                createdById: null,
+                referenceType: 'PURCHASE_ORDER',
+                referenceId: freshPo.id,
               },
             });
           }
-
-          await tx.inventoryMovement.create({
-            data: {
-              tenantId,
-              warehouseId,
-              inventoryItemId: m.inventoryItemId,
-              type: InventoryMovementType.STOCK_IN,
-              quantity: m.delta,
-              beforeQuantity: beforeQty,
-              afterQuantity: beforeQty + m.delta,
-              note: `PO ${freshPo.poNumber} ${status}`,
-              createdById: null,
-              referenceType: 'PURCHASE_ORDER',
-              referenceId: freshPo.id,
-            },
-          });
         }
-      }
 
-      // Update receivedQuantity fields when we move to fully received/completed.
-      if (
-        status === PurchaseOrderStatus.RECEIVED ||
-        status === PurchaseOrderStatus.COMPLETED
-      ) {
-        await tx.purchaseOrderItem
-          .updateMany({
-            where: {
-              purchaseOrderId: id,
-              receivedQuantity: {
-                lt: tx.purchaseOrderItem.fields.quantity,
+        // Update receivedQuantity fields when we move to fully received/completed.
+        if (
+          status === PurchaseOrderStatus.RECEIVED ||
+          status === PurchaseOrderStatus.COMPLETED
+        ) {
+          await tx.purchaseOrderItem
+            .updateMany({
+              where: {
+                purchaseOrderId: id,
+                receivedQuantity: {
+                  lt: tx.purchaseOrderItem.fields.quantity,
+                },
               },
-            },
-            data: {
-              receivedQuantity: tx.purchaseOrderItem.fields
-                .quantity as unknown as number,
-            },
-          })
-          .catch(() => {
-            // Fallback: update per item to avoid Prisma field limitations in this skeleton.
-          });
+              data: {
+                receivedQuantity: tx.purchaseOrderItem.fields
+                  .quantity as unknown as number,
+              },
+            })
+            .catch(() => {
+              // Fallback: update per item to avoid Prisma field limitations in this skeleton.
+            });
 
-        for (const item of freshPo.PurchaseOrderItem) {
-          const prevReceived = item.receivedQuantity ?? 0;
-          if (prevReceived === item.quantity) continue;
-          await tx.purchaseOrderItem.update({
-            where: { id: item.id },
-            data: { receivedQuantity: item.quantity },
+          for (const item of freshPo.PurchaseOrderItem) {
+            const prevReceived = item.receivedQuantity ?? 0;
+            if (prevReceived === item.quantity) continue;
+            await tx.purchaseOrderItem.update({
+              where: { id: item.id },
+              data: { receivedQuantity: item.quantity },
+            });
+          }
+        }
+
+        // Publish required domain events for lifecycle transitions
+        const publishBasePayload = {
+          purchaseOrderId: id,
+          tenantId,
+        };
+
+        if (status === PurchaseOrderStatus.PENDING) {
+          await this.eventBus.publish({
+            type: DOMAIN_EVENTS.PURCHASE_ORDER_PENDING_APPROVAL,
+            payload: publishBasePayload,
           });
         }
-      }
+        if (status === PurchaseOrderStatus.APPROVED) {
+          await this.eventBus.publish({
+            type: DOMAIN_EVENTS.PURCHASE_ORDER_APPROVED,
+            payload: publishBasePayload,
+          });
+        }
+        if (status === PurchaseOrderStatus.REJECTED) {
+          await this.eventBus.publish({
+            type: DOMAIN_EVENTS.PURCHASE_ORDER_REJECTED,
+            payload: publishBasePayload,
+          });
+        }
+        if (status === PurchaseOrderStatus.PARTIALLY_RECEIVED) {
+          await this.eventBus.publish({
+            type: DOMAIN_EVENTS.PURCHASE_ORDER_PARTIALLY_RECEIVED,
+            payload: publishBasePayload,
+          });
+        }
+        if (status === PurchaseOrderStatus.RECEIVED) {
+          await this.eventBus.publish({
+            type: DOMAIN_EVENTS.PURCHASE_ORDER_RECEIVED,
+            payload: publishBasePayload,
+          });
+        }
+        if (status === PurchaseOrderStatus.COMPLETED) {
+          await this.eventBus.publish({
+            type: DOMAIN_EVENTS.PURCHASE_ORDER_COMPLETED,
+            payload: publishBasePayload,
+          });
+        }
+        if (status === PurchaseOrderStatus.CANCELLED) {
+          await this.eventBus.publish({
+            type: DOMAIN_EVENTS.PURCHASE_ORDER_CANCELLED,
+            payload: publishBasePayload,
+          });
+        }
 
-      // Publish required domain events for lifecycle transitions
-      const publishBasePayload = {
-        purchaseOrderId: id,
-        tenantId,
-      };
-
-      if (status === PurchaseOrderStatus.PENDING) {
-        await this.eventBus.publish({
-          type: DOMAIN_EVENTS.PURCHASE_ORDER_PENDING_APPROVAL,
-          payload: publishBasePayload,
+        return tx.purchaseOrder.findFirst({
+          where: { id, tenantId },
+          include: { PurchaseOrderItem: true, Supplier: true, Warehouse: true },
         });
-      }
-      if (status === PurchaseOrderStatus.APPROVED) {
-        await this.eventBus.publish({
-          type: DOMAIN_EVENTS.PURCHASE_ORDER_APPROVED,
-          payload: publishBasePayload,
-        });
-      }
-      if (status === PurchaseOrderStatus.REJECTED) {
-        await this.eventBus.publish({
-          type: DOMAIN_EVENTS.PURCHASE_ORDER_REJECTED,
-          payload: publishBasePayload,
-        });
-      }
-      if (status === PurchaseOrderStatus.PARTIALLY_RECEIVED) {
-        await this.eventBus.publish({
-          type: DOMAIN_EVENTS.PURCHASE_ORDER_PARTIALLY_RECEIVED,
-          payload: publishBasePayload,
-        });
-      }
-      if (status === PurchaseOrderStatus.RECEIVED) {
-        await this.eventBus.publish({
-          type: DOMAIN_EVENTS.PURCHASE_ORDER_RECEIVED,
-          payload: publishBasePayload,
-        });
-      }
-      if (status === PurchaseOrderStatus.COMPLETED) {
-        await this.eventBus.publish({
-          type: DOMAIN_EVENTS.PURCHASE_ORDER_COMPLETED,
-          payload: publishBasePayload,
-        });
-      }
-      if (status === PurchaseOrderStatus.CANCELLED) {
-        await this.eventBus.publish({
-          type: DOMAIN_EVENTS.PURCHASE_ORDER_CANCELLED,
-          payload: publishBasePayload,
-        });
-      }
-
-      return tx.purchaseOrder.findFirst({
-        where: { id, tenantId },
-        include: { PurchaseOrderItem: true, Supplier: true, Warehouse: true },
-      });
-    });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   async delete(tenantId: string, id: string) {
@@ -487,7 +491,9 @@ export class PurchaseOrderService extends BaseService {
       throw new BadRequestException('Can only delete PO in DRAFT status');
     }
 
-    await this.prisma.purchaseOrder.delete({ where: { id } });
+    await this.prisma.purchaseOrder.deleteMany({
+      where: { id, tenantId },
+    });
 
     return this.findOne(tenantId, id);
   }

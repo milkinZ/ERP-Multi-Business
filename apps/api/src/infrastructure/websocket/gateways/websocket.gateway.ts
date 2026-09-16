@@ -37,7 +37,19 @@ export class WebsocketGateway
   constructor(
     private readonly websocketService: WebsocketService,
     private readonly metrics: MetricsService,
+    private readonly authGuard: WebsocketJwtGuard,
   ) {}
+
+  afterInit(server: Server) {
+    server.use((client, next) => {
+      try {
+        this.authGuard.authenticateSocket(client);
+        next();
+      } catch (error) {
+        next(error as Error);
+      }
+    });
+  }
 
   async handleConnection(client: Socket) {
     // Start a lightweight OTEL span for connection handling

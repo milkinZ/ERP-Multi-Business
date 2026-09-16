@@ -1,3 +1,5 @@
+/* Optional OpenTelemetry is intentionally loaded at runtime so workers can run without it. */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-require-imports */
 export function wrapProcessor<T extends { id?: string; data?: unknown }>(
   name: string,
   fn: (job: T) => Promise<void>,
@@ -5,8 +7,7 @@ export function wrapProcessor<T extends { id?: string; data?: unknown }>(
   return async (job: T) => {
     const tracerApi = (() => {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        return require('@opentelemetry/api');
+        return require("@opentelemetry/api");
       } catch {
         return null;
       }
@@ -17,9 +18,9 @@ export function wrapProcessor<T extends { id?: string; data?: unknown }>(
     try {
       if (tracerApi) {
         try {
-          const tracer = tracerApi.trace.getTracer('erp-worker');
+          const tracer = tracerApi.trace.getTracer("erp-worker");
           span = tracer.startSpan(name, {
-            attributes: { 'job.id': String(job.id ?? ''), 'job.name': name },
+            attributes: { "job.id": String(job.id ?? ""), "job.name": name },
           });
         } catch {
           span = null;
@@ -31,8 +32,10 @@ export function wrapProcessor<T extends { id?: string; data?: unknown }>(
       const dur = (Date.now() - start) / 1000;
       try {
         // Best-effort logging for worker duration; metrics typically handled by central API
-        // eslint-disable-next-line no-console
-        console.debug(`worker.${name} duration=${dur}s job=${String(job.id ?? '')}`);
+
+        console.debug(
+          `worker.${name} duration=${dur}s job=${String(job.id ?? "")}`,
+        );
       } catch {
         // ignore
       }

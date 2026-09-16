@@ -139,10 +139,11 @@ export class NotificationService {
     });
   }
 
-  async deleteNotification(id: string) {
-    return this.prisma.notification.update({
+  async deleteNotification(id: string, tenantId: string) {
+    return this.prisma.notification.updateMany({
       where: {
         id,
+        tenantId,
       },
       data: {
         deletedAt: new Date(),

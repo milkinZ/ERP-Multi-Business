@@ -28,6 +28,11 @@ export class WebsocketJwtGuard implements CanActivate {
     };
     const socket = execContext.switchToWs().getClient();
 
+    this.authenticateSocket(socket);
+    return true;
+  }
+
+  authenticateSocket(socket: Socket): void {
     const token =
       (socket.handshake.auth?.token as string | undefined) ??
       socket.handshake.headers?.authorization;
@@ -37,7 +42,10 @@ export class WebsocketJwtGuard implements CanActivate {
     }
 
     const jwtToken = token.startsWith('Bearer ') ? token.slice(7) : token;
-    const secret = this.configService.get<string>('JWT_ACCESS_SECRET');
+    const secret =
+      this.configService.get<string>('JWT_ACCESS_SECRET') ??
+      this.configService.get<string>('JWT_SECRET') ??
+      this.configService.get<string>('jwt.secret');
 
     if (!secret) {
       this.logger.error('Missing JWT_ACCESS_SECRET');
@@ -53,6 +61,15 @@ export class WebsocketJwtGuard implements CanActivate {
 
       const typedPayload = payload as JwtPayloadLike;
 
+      if (
+        typeof typedPayload.userId !== 'string' ||
+        typedPayload.userId.length === 0 ||
+        typeof typedPayload.tenantId !== 'string' ||
+        typedPayload.tenantId.length === 0
+      ) {
+        throw new UnauthorizedException('Invalid JWT payload');
+      }
+
       const socketData = socket.data as unknown as {
         ctx?: {
           userId: string;
@@ -62,12 +79,10 @@ export class WebsocketJwtGuard implements CanActivate {
       };
 
       socketData.ctx = {
-        userId: typedPayload.userId as string,
-        tenantId: typedPayload.tenantId as string,
+        userId: typedPayload.userId,
+        tenantId: typedPayload.tenantId,
         outletId: (typedPayload.outletId as string | undefined) ?? null,
       };
-
-      return true;
     } catch {
       throw new UnauthorizedException('Invalid or expired JWT');
     }

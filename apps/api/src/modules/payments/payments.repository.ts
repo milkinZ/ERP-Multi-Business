@@ -35,6 +35,15 @@ export class PaymentsRepository extends BaseRepository {
     method: PaymentMethod,
   ) {
     const payment = await this.prisma.$transaction(async (tx) => {
+      const claimedOrder = await tx.salesOrder.updateMany({
+        where: { id: orderId, tenantId, status: 'PENDING' },
+        data: { status: 'PAID' },
+      });
+
+      if (claimedOrder.count !== 1) {
+        return null;
+      }
+
       const created = await tx.payment.create({
         data: {
           orderId,
@@ -51,10 +60,6 @@ export class PaymentsRepository extends BaseRepository {
         include: { SalesOrder: true },
       });
     });
-
-    if (!payment) {
-      throw new Error('Failed to create payment');
-    }
 
     return payment;
   }

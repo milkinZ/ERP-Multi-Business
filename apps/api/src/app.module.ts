@@ -1,4 +1,5 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { PrismaModule } from './core/database/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -17,7 +18,8 @@ import { AuditLogModule } from './modules/audit-logs/audit-log.module';
 import { AppConfigModule } from './infrastructure/config/config.module';
 import { OutboxModule } from './infrastructure/events/outbox.module';
 import { HealthModule } from './infrastructure/health/health.module';
-import { RequestContextMiddlewareModule } from './infrastructure/request/middleware.module';
+import { RequestContextMiddleware } from './core/request-context/request-context.middleware';
+import { RequestContextInterceptor } from './core/request-context/request-context.interceptor';
 import { QueueModule } from './infrastructure/queue/queue.module';
 import { SecurityModule } from './infrastructure/security/security.module';
 import { LoggerModule } from './infrastructure/logger/pino-logger.module';
@@ -31,6 +33,10 @@ import { BillingModule } from './modules/billing/billing.module';
 import { BusinessRegistryModule } from './modules/business-registry/business-registry.module';
 import { SuperAdminModule } from './modules/super-admin/super-admin.module';
 import { ObservabilityModule } from './infrastructure/observability/observability.module';
+import { OutletsModule } from './modules/outlets';
+import { RBACModule } from './modules/rbac/rbac.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { SchedulerModule } from './infrastructure/scheduler/scheduler.module';
 
 @Module({
   imports: [
@@ -56,7 +62,6 @@ import { ObservabilityModule } from './infrastructure/observability/observabilit
     AuditLogModule,
     OutboxModule,
     HealthModule,
-    RequestContextMiddlewareModule,
     QueueModule,
     SecurityModule,
     WebsocketModule,
@@ -66,6 +71,20 @@ import { ObservabilityModule } from './infrastructure/observability/observabilit
     BusinessRegistryModule,
     SuperAdminModule,
     ObservabilityModule,
+    OutletsModule,
+    RBACModule,
+    ScheduleModule.forRoot(),
+    SchedulerModule,
+  ],
+  providers: [
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: RequestContextInterceptor,
+    },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RequestContextMiddleware).forRoutes('*');
+  }
+}

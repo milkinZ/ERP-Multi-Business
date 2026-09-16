@@ -110,6 +110,23 @@ describe('PaymentsService', () => {
     expect(createPayment).not.toHaveBeenCalled();
   });
 
+  it('rejects a payment lost to the repository transaction race', async () => {
+    findOrderForPayment.mockResolvedValue({
+      id: 'order-a',
+      status: 'PENDING',
+      totalAmount: 1000,
+    });
+    createPayment.mockResolvedValue(null);
+
+    await expect(
+      service.pay('tenant-a', {
+        orderId: 'order-a',
+        amount: 1000,
+        method: PaymentMethod.CASH,
+      }),
+    ).rejects.toThrow('Order already paid');
+  });
+
   it('does not expose another tenant payment through findOne', async () => {
     findOne.mockResolvedValue(null);
 

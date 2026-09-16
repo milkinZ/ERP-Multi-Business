@@ -223,6 +223,8 @@ describe('Orders, payments, billing, and subscription integration', () => {
     ).resolves.toBeNull();
 
     const payment = await payments.createPayment(orderA, tenantA, 100, 'CASH');
+    expect(payment).not.toBeNull();
+    if (!payment) throw new Error('Expected payment to be created');
     await expect(
       prisma.payment.findUnique({ where: { id: payment.id } }),
     ).resolves.toEqual(
@@ -234,6 +236,48 @@ describe('Orders, payments, billing, and subscription integration', () => {
       }),
     );
     await expect(payments.findOne(payment.id, tenantB)).resolves.toBeNull();
+  });
+
+  it('allows only one concurrent payment to claim an order', async () => {
+    await prisma.salesOrder.create({
+      data: {
+        id: orderB,
+        orderNumber: 'IT-PAYMENT-CONCURRENT',
+        tenantId: tenantA,
+        outletId: outletA,
+        totalAmount: 100,
+        SalesOrderItem: {
+          create: {
+            productId: productA,
+            quantity: 1,
+            price: 100,
+            subtotal: 100,
+          },
+        },
+      },
+    });
+
+    const outcomes = await Promise.allSettled([
+      payments.createPayment(orderB, tenantA, 100, 'CASH'),
+      payments.createPayment(orderB, tenantA, 100, 'CASH'),
+    ]);
+
+    const fulfilled = outcomes.filter(
+      (outcome) => outcome.status === 'fulfilled',
+    );
+    expect(fulfilled).toHaveLength(2);
+    expect(fulfilled.filter((outcome) => outcome.value !== null)).toHaveLength(
+      1,
+    );
+    expect(fulfilled.filter((outcome) => outcome.value === null)).toHaveLength(
+      1,
+    );
+    await expect(
+      prisma.payment.findMany({ where: { orderId: orderB } }),
+    ).resolves.toHaveLength(1);
+    await expect(
+      prisma.salesOrder.findUnique({ where: { id: orderB } }),
+    ).resolves.toEqual(expect.objectContaining({ status: 'PAID' }));
   });
 
   it('persists subscription events and prevents cross-tenant billing updates', async () => {

@@ -9,7 +9,6 @@ datasource db {
 
 model Ingredient {
   id              String        @id @default(cuid())
-
   name            String
   unit            String
   tenantId        String
@@ -22,7 +21,6 @@ model Ingredient {
 
 model InventoryItem {
   id                String              @id @default(cuid())
-
   code              String
   name              String
   description       String?
@@ -43,7 +41,6 @@ model InventoryItem {
 
 model InventoryMovement {
   id              String                @id @default(cuid())
-
   tenantId        String
   type            InventoryMovementType
   quantity        Float
@@ -69,7 +66,6 @@ model InventoryMovement {
 
 model InventoryStock {
   id              String        @id @default(cuid())
-
   warehouseId     String?
   inventoryItemId String
   quantity        Float         @default(0)
@@ -84,30 +80,23 @@ model InventoryStock {
 }
 
 model Outlet {
-  id         String       @id @default(cuid())
-
-  name       String
-  tenantId   String
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
-  deletedAt  DateTime?
-  Tenant     Tenant       @relation(fields: [tenantId], references: [id])
-
-  // Phase-2 core entities
-  Session         Session[]
-  AuditLog        AuditLog[]
-  Notification    Notification[]
-  UserOutlet     UserOutlet[]
-
-  SalesOrder SalesOrder[]
-  Warehouse  Warehouse[]
+  id           String         @id @default(cuid())
+  name         String
+  tenantId     String
+  createdAt    DateTime       @default(now())
+  deletedAt    DateTime?
+  updatedAt    DateTime       @updatedAt
+  AuditLog     AuditLog[]
+  Notification Notification[]
+  Tenant       Tenant         @relation(fields: [tenantId], references: [id])
+  SalesOrder   SalesOrder[]
+  Session      Session[]
+  UserOutlet   UserOutlet[]
+  Warehouse    Warehouse[]
 }
-
-
 
 model Payment {
   id              String        @id @default(cuid())
-
   orderId         String
   tenantId        String
   method          PaymentMethod
@@ -130,8 +119,7 @@ model Permission {
 }
 
 model Product {
-  id              String        @id @default(cuid())
-
+  id              String           @id @default(cuid())
   name            String
   description     String?
   sku             String?
@@ -151,7 +139,6 @@ model Product {
 
 model PurchaseOrder {
   id                   String              @id @default(cuid())
-
   poNumber             String              @db.VarChar(50)
   status               PurchaseOrderStatus @default(DRAFT)
   supplierId           String
@@ -177,7 +164,6 @@ model PurchaseOrder {
 
 model PurchaseOrderItem {
   id               String        @id @default(cuid())
-
   purchaseOrderId  String
   inventoryItemId  String
   quantity         Float
@@ -193,7 +179,6 @@ model PurchaseOrderItem {
 
 model Recipe {
   id         String       @id @default(cuid())
-
   tenantId   String
   productId  String       @unique
   createdAt  DateTime     @default(now())
@@ -204,7 +189,6 @@ model Recipe {
 
 model RecipeItem {
   id           String     @id @default(cuid())
-
   recipeId     String
   ingredientId String
   quantity     Float
@@ -214,11 +198,8 @@ model RecipeItem {
 
 model RefreshToken {
   id            String    @id @default(cuid())
-
-  tokenSelector String   @unique
   tokenHash     String    @unique
   userId        String
-
   tenantId      String
   roleId        String
   outletId      String?
@@ -226,21 +207,18 @@ model RefreshToken {
   revokedAt     DateTime?
   createdAt     DateTime  @default(now())
   rotatedFromId String?
+  tokenSelector String    @unique
   User          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Role {
   id             String           @id @default(cuid())
-
   name           String
   tenantId       String
   Tenant         Tenant           @relation(fields: [tenantId], references: [id])
   RolePermission RolePermission[]
-
-  // Phase-2 core entities
   UserRole       UserRole[]
 }
-
 
 model RolePermission {
   id           String     @id
@@ -254,7 +232,6 @@ model RolePermission {
 
 model SalesOrder {
   id             String           @id @default(cuid())
-
   orderNumber    String           @db.VarChar(50)
   status         OrderStatus      @default(PENDING)
   totalAmount    Int
@@ -271,7 +248,6 @@ model SalesOrder {
 
 model SalesOrderItem {
   id         String     @id @default(cuid())
-
   orderId    String
   productId  String
   quantity   Int
@@ -283,7 +259,6 @@ model SalesOrderItem {
 
 model Supplier {
   id            String          @id @default(cuid())
-
   name          String
   phone         String?
   email         String?
@@ -302,16 +277,17 @@ model Supplier {
 model Tenant {
   id                String              @id @default(cuid())
   name              String
-  contactEmail      String?
-  contactPhone      String?
-  address           String?
   createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
-  deletedAt         DateTime?
   businessType      BusinessType        @default(CAFE)
+  deletedAt         DateTime?
+  updatedAt         DateTime            @updatedAt
+  AuditLog          AuditLog[]
+  FeatureFlag       FeatureFlag[]
   Ingredient        Ingredient[]
   InventoryItem     InventoryItem[]
   InventoryMovement InventoryMovement[]
+  Invoice           Invoice[]
+  Notification      Notification[]
   Outlet            Outlet[]
   Payment           Payment[]
   Product           Product[]
@@ -319,51 +295,36 @@ model Tenant {
   Recipe            Recipe[]
   Role              Role[]
   SalesOrder        SalesOrder[]
+  Session           Session[]
+  Subscription      Subscription?
   Supplier          Supplier[]
   User              User[]
+  UserOutlet        UserOutlet[]
+  UserRole          UserRole[]
   Warehouse         Warehouse[]
-
-  Session         Session[]
-  AuditLog        AuditLog[]
-  Notification    Notification[]
-  FeatureFlag     FeatureFlag[]
-  Subscription    Subscription[]
-  Invoice         Invoice[]
-  UserRole        UserRole[]
-  UserOutlet      UserOutlet[]
 }
-
-
 
 model User {
   id                String              @id @default(cuid())
-
   email             String              @unique
   password          String
   tenantId          String
   createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
   deletedAt         DateTime?
-
+  updatedAt         DateTime            @updatedAt
+  AuditLog          AuditLog[]
   InventoryMovement InventoryMovement[]
+  Notification      Notification[]
   Payment           Payment[]
   RefreshToken      RefreshToken[]
-
-  // Phase-2 core entities
-  Session         Session[]
-  AuditLog        AuditLog[]
-  Notification    Notification[]
-  UserRole        UserRole[]
-  UserOutlet      UserOutlet[]
-
+  Session           Session[]
   Tenant            Tenant              @relation(fields: [tenantId], references: [id])
+  UserOutlet        UserOutlet[]
+  UserRole          UserRole[]
 }
-
-
 
 model Warehouse {
   id                String              @id @default(cuid())
-
   name              String
   tenantId          String
   outletId          String?
@@ -377,6 +338,192 @@ model Warehouse {
 
   @@unique([tenantId, code])
   @@unique([tenantId, name])
+}
+
+model OutboxEvent {
+  id          String            @id @default(cuid())
+  tenantId    String?
+  outletId    String?
+  type        String
+  payload     Json
+  status      OutboxEventStatus @default(PENDING)
+  error       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  processedAt DateTime?
+  deletedAt   DateTime?
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model DeadLetterJob {
+  id           String              @id @default(cuid())
+  queueName    String
+  jobId        String
+  tenantId     String?
+  outletId     String?
+  payload      Json
+  errorMessage String
+  stackTrace   String?
+  attemptsMade Int                 @default(0)
+  failedAt     DateTime            @default(now())
+  retriedAt    DateTime?
+  resolvedAt   DateTime?
+  status       DeadLetterJobStatus @default(FAILED)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@unique([queueName, jobId])
+  @@index([queueName])
+  @@index([status])
+  @@index([failedAt])
+}
+
+model Session {
+  id        String    @id @default(cuid())
+  sessionId String    @unique
+  userId    String
+  tenantId  String
+  outletId  String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  outlet    Outlet?   @relation(fields: [outletId], references: [id])
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id        String    @id @default(cuid())
+  userId    String?
+  tenantId  String
+  outletId  String?
+  entity    String
+  entityId  String
+  action    String
+  metadata  Json?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  outlet    Outlet?   @relation(fields: [outletId], references: [id])
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  user      User?     @relation(fields: [userId], references: [id])
+
+  @@index([tenantId])
+  @@index([entity, entityId])
+  @@index([action])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  tenantId  String
+  outletId  String?
+  userId    String?
+  type      String
+  title     String?
+  message   String?
+  payload   Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  outlet    Outlet?   @relation(fields: [outletId], references: [id])
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  user      User?     @relation(fields: [userId], references: [id])
+
+  @@index([tenantId])
+  @@index([type])
+}
+
+model FeatureFlag {
+  id        String    @id @default(cuid())
+  tenantId  String
+  key       String
+  enabled   Boolean   @default(false)
+  payload   Json?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+}
+
+model Plan {
+  id            String         @id @default(cuid())
+  type          PlanType       @unique
+  name          String
+  priceCents    Int
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  deletedAt     DateTime?
+  Subscriptions Subscription[]
+}
+
+model Subscription {
+  id        String             @id @default(cuid())
+  tenantId  String             @unique
+  planId    String
+  status    SubscriptionStatus @default(ACTIVE)
+  startedAt DateTime           @default(now())
+  endedAt   DateTime?
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+  deletedAt DateTime?
+  plan      Plan               @relation(fields: [planId], references: [id])
+  tenant    Tenant             @relation(fields: [tenantId], references: [id])
+}
+
+model Invoice {
+  id             String    @id @default(cuid())
+  tenantId       String
+  subscriptionId String?
+  invoiceNumber  String    @unique
+  amountCents    Int
+  currency       String    @default("IDR")
+  status         String    @default("PENDING")
+  dueAt          DateTime?
+  paidAt         DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+  tenant         Tenant    @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+}
+
+model UserRole {
+  id        String    @id @default(cuid())
+  userId    String
+  roleId    String
+  tenantId  String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  role      Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([tenantId])
+}
+
+model UserOutlet {
+  id        String    @id @default(cuid())
+  userId    String
+  outletId  String
+  tenantId  String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  outlet    Outlet    @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, outletId])
+  @@index([tenantId])
 }
 
 enum BusinessType {
@@ -450,147 +597,10 @@ enum OutboxEventStatus {
   FAILED
 }
 
-model OutboxEvent {
-  id String @id @default(cuid())
-
-  tenantId String?
-  outletId String?
-
-  type String
-  payload Json
-  status OutboxEventStatus @default(PENDING)
-
-  error String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  processedAt DateTime?
-  deletedAt DateTime?
-
-  @@index([status])
-  @@index([createdAt])
-}
-
 enum DeadLetterJobStatus {
   FAILED
   RETRYING
   RESOLVED
-}
-
-model DeadLetterJob {
-  id           String @id @default(cuid())
-
-  queueName    String
-  jobId        String
-  tenantId     String?
-  outletId     String?
-  payload      Json
-
-  errorMessage String
-  stackTrace   String?
-
-  attemptsMade Int     @default(0)
-
-  failedAt   DateTime @default(now())
-  retriedAt  DateTime?
-  resolvedAt DateTime?
-
-  status     DeadLetterJobStatus @default(FAILED)
-
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@index([queueName])
-  @@index([status])
-  @@index([failedAt])
-  @@unique([queueName, jobId])
-}
-
-model Session {
-  id String @id @default(cuid())
-
-  sessionId String @unique
-
-  userId   String
-  tenantId String
-  outletId String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
-
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-  outlet Outlet? @relation(fields: [outletId], references: [id])
-}
-
-model AuditLog {
-  id String @id @default(cuid())
-
-  userId   String?
-  tenantId String
-  outletId String?
-
-  entity   String
-  entityId String
-  action   String
-  metadata Json?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
-
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-  user   User?  @relation(fields: [userId], references: [id])
-  outlet Outlet? @relation(fields: [outletId], references: [id])
-
-  @@index([tenantId])
-  @@index([entity, entityId])
-  @@index([action])
-}
-
-model Notification {
-  id String @id @default(cuid())
-
-  tenantId String
-  outletId String?
-  userId   String?
-
-  type    String
-  title   String?
-  message String?
-  payload Json?
-
-  readAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
-
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-  outlet Outlet? @relation(fields: [outletId], references: [id])
-  user   User? @relation(fields: [userId], references: [id])
-
-  @@index([tenantId])
-  @@index([type])
-}
-
-model FeatureFlag {
-  id String @id @default(cuid())
-
-  tenantId String
-  key String
-  enabled Boolean @default(false)
-  payload Json?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
-
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-
-  @@unique([tenantId, key])
-  @@index([tenantId])
 }
 
 enum PlanType {
@@ -600,107 +610,9 @@ enum PlanType {
   ENTERPRISE
 }
 
-model Plan {
-  id String @id @default(cuid())
-
-  type PlanType @unique
-  name String
-
-  priceCents Int
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
-
-  Subscriptions Subscription[]
-}
-
-
 enum SubscriptionStatus {
   ACTIVE
   INACTIVE
   CANCELLED
   EXPIRED
 }
-
-model Subscription {
-  id String @id @default(cuid())
-
-  tenantId String @unique
-  planId String
-
-  status SubscriptionStatus @default(ACTIVE)
-  startedAt DateTime @default(now())
-  endedAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
-
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-  plan   Plan @relation(fields: [planId], references: [id])
-}
-
-model Invoice {
-  id String @id @default(cuid())
-
-  tenantId String
-  subscriptionId String?
-
-  invoiceNumber String @unique
-  amountCents Int
-  currency String @default("IDR")
-
-  status String @default("PENDING")
-  dueAt DateTime?
-  paidAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
-
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-
-  @@index([tenantId])
-}
-
-model UserRole {
-  id String @id @default(cuid())
-
-  userId String
-  roleId String
-  tenantId String
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-
-  @@unique([userId, roleId])
-  @@index([tenantId])
-}
-
-model UserOutlet {
-  id String @id @default(cuid())
-
-  userId String
-  outletId String
-  tenantId String
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  outlet Outlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-
-  @@unique([userId, outletId])
-  @@index([tenantId])
-}
-
-
-

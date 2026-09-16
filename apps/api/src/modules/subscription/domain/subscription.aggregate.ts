@@ -43,7 +43,7 @@ export type PlanProps = {
 export class SubscriptionAggregate extends AggregateRoot {
   private constructor(
     private readonly props: SubscriptionProps,
-    private readonly plan: PlanProps,
+    private plan: PlanProps,
   ) {
     super();
   }
@@ -260,6 +260,9 @@ export class SubscriptionAggregate extends AggregateRoot {
       // Idempotent — same plan
       return;
     }
+
+    this.props.planId = newPlan.id;
+    this.plan = newPlan;
 
     this.addDomainEvent({
       type: DOMAIN_EVENTS.SUBSCRIPTION_PLAN_CHANGED,

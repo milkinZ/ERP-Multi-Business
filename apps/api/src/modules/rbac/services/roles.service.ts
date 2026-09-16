@@ -51,8 +51,8 @@ export class RolesService {
   ) {
     const role = await this.getById(tenantId, roleId);
 
-    await this.prisma.role.update({
-      where: { id: role.id },
+    await this.prisma.role.updateMany({
+      where: { id: role.id, tenantId },
       data: { name: data.name },
     });
 
@@ -96,7 +96,9 @@ export class RolesService {
     await this.prisma.rolePermission.deleteMany({
       where: { roleId: role.id },
     });
-    await this.prisma.role.delete({ where: { id: role.id } });
+    await this.prisma.role.deleteMany({
+      where: { id: role.id, tenantId },
+    });
 
     return { id: role.id, deleted: true };
   }

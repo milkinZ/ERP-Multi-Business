@@ -7,10 +7,16 @@ import { TenantContextService } from '../tenants/tenant-context.service';
 
 import { OutletsController } from './outlets.controller';
 import { OutletsService } from './outlets.service';
+import { OutletsRepository } from './outlets.repository';
 
 @Module({
   imports: [TenantContextModule],
   controllers: [OutletsController],
-  providers: [OutletsService, PrismaService, TenantContextService],
+  providers: [
+    OutletsService,
+    PrismaService,
+    TenantContextService,
+    OutletsRepository,
+  ],
 })
 export class OutletsModule {}

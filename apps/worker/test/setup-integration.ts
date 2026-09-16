@@ -1,0 +1,8 @@
+import * as path from "node:path";
+import * as dotenv from "dotenv";
+
+dotenv.config({
+  path: path.resolve(__dirname, "../../api/.env.test"),
+});
+
+process.env.NODE_ENV = "test";

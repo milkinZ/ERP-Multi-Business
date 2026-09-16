@@ -31,8 +31,8 @@ export class HealthController {
         redis,
         bullmq: await this.healthService.checkBullmq(),
         outbox: await this.healthService.checkOutbox(),
-        storage: { ok: false, reason: 'Storage module not enabled (Phase 11)' },
-        worker: { ok: false, reason: 'Worker app not enabled (Phase 6)' },
+        storage: await this.healthService.checkStorage(),
+        worker: await this.healthService.checkWorker(),
       },
     };
   }

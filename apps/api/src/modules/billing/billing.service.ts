@@ -135,35 +135,13 @@ export class BillingService {
       return;
     }
 
-    await this.billingRepository.updateInvoiceStatus(
+    const updated = await this.billingRepository.settlePaidInvoice(
       invoiceId,
       tenantId,
-      'PAID',
       paidAt,
     );
 
-    await this.outbox.publish({
-      type: DOMAIN_EVENTS.INVOICE_PAID,
-      payload: {
-        invoiceId: invoice.id,
-        invoiceNumber: invoice.invoiceNumber,
-        tenantId,
-        subscriptionId: invoice.subscriptionId ?? undefined,
-        amountCents: invoice.amountCents,
-      },
-    });
-
-    if (invoice.subscriptionId) {
-      const subscription = await this.subscriptionRepository.findById(
-        invoice.subscriptionId,
-        tenantId,
-      );
-
-      if (subscription) {
-        subscription.activate();
-        await this.subscriptionRepository.save(subscription);
-      }
-    }
+    if (!updated) return;
   }
 
   async handlePaymentFailure(
@@ -180,11 +158,15 @@ export class BillingService {
       throw new NotFoundException('Invoice not found');
     }
 
-    await this.billingRepository.updateInvoiceStatus(
+    const updated = await this.billingRepository.updateInvoiceStatus(
       invoiceId,
       tenantId,
       'FAILED',
+      undefined,
+      'PENDING',
     );
+
+    if (!updated) return;
 
     await this.outbox.publish({
       type: DOMAIN_EVENTS.INVOICE_FAILED,

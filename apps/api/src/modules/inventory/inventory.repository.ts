@@ -5,11 +5,11 @@ import {
   InventoryItemAggregate,
   InventoryItemProps,
 } from './domain/inventory-item.aggregate';
-import { BusinessType, InventoryMovementType } from '@prisma/client';
+import { BusinessType, InventoryMovementType, Prisma } from '@prisma/client';
 import { StockInDto } from './dto/stock-in.dto';
 import { StockAdjustmentDto } from './dto/stock-adjustment.dto';
 import { WasteDto } from './dto/waste.dto';
-import { InventoryItemType, Prisma } from '@prisma/client';
+import { InventoryItemType } from '@prisma/client';
 
 @Injectable()
 export class InventoryRepository extends BaseRepository {
@@ -35,96 +35,117 @@ export class InventoryRepository extends BaseRepository {
   // --- Fulfillment persistence (owned by InventoryRepository) ---
   // Idempotent by SalesOrder.status === COMPLETED and only executes for PAID orders.
   async fulfillRetail(orderId: string, tenantId: string): Promise<boolean> {
-    return this.prisma.$transaction(async (tx) => {
-      const order = await tx.salesOrder.findFirst({
-        where: { id: orderId, tenantId },
-        include: {
-          SalesOrderItem: {
-            include: {
-              Product: {
-                include: {
-                  InventoryItem: true,
+    return this.prisma.$transaction(
+      async (tx) => {
+        const order = await tx.salesOrder.findFirst({
+          where: { id: orderId, tenantId },
+          include: {
+            SalesOrderItem: {
+              include: {
+                Product: {
+                  include: {
+                    InventoryItem: true,
+                  },
                 },
               },
             },
           },
-        },
-      });
-
-      if (!order) {
-        throw new BadRequestException('Order not found');
-      }
-
-      if (order.status === 'COMPLETED') {
-        return false;
-      }
-
-      if (order.status !== 'PAID') {
-        throw new BadRequestException('Order must be PAID before fulfillment');
-      }
-
-      for (const item of order.SalesOrderItem) {
-        const inventoryItemId =
-          item.Product.InventoryItem?.id ?? item.Product.inventoryItemId;
-
-        if (!inventoryItemId) continue;
-
-        const stock = await tx.inventoryStock.findFirst({
-          where: { inventoryItemId },
         });
 
-        if (!stock) {
+        if (!order) {
+          throw new BadRequestException('Order not found');
+        }
+
+        if (order.status === 'COMPLETED') {
+          return false;
+        }
+
+        if (order.status !== 'PAID') {
           throw new BadRequestException(
-            `Stock not found for ${item.Product.name}`,
+            'Order must be PAID before fulfillment',
           );
         }
 
-        if (stock.quantity < item.quantity) {
-          throw new BadRequestException(
-            `Insufficient stock for ${item.Product.name}`,
-          );
+        for (const item of order.SalesOrderItem) {
+          const inventoryItemId =
+            item.Product.InventoryItem?.id ?? item.Product.inventoryItemId;
+
+          if (!inventoryItemId) continue;
+
+          const stock = await tx.inventoryStock.findFirst({
+            where: { inventoryItemId },
+          });
+
+          if (!stock) {
+            throw new BadRequestException(
+              `Stock not found for ${item.Product.name}`,
+            );
+          }
+
+          if (stock.quantity < item.quantity) {
+            throw new BadRequestException(
+              `Insufficient stock for ${item.Product.name}`,
+            );
+          }
+
+          const updatedStock = await tx.inventoryStock.updateMany({
+            where: { id: stock.id, quantity: { gte: item.quantity } },
+            data: {
+              quantity: { decrement: item.quantity },
+              updatedAt: new Date(),
+            },
+          });
+
+          if (updatedStock.count !== 1) {
+            throw new BadRequestException(
+              `Insufficient stock for ${item.Product.name}`,
+            );
+          }
+
+          await tx.inventoryMovement.create({
+            data: {
+              tenantId,
+              inventoryItemId,
+              warehouseId: stock.warehouseId,
+              type: InventoryMovementType.SALE,
+              quantity: item.quantity,
+              beforeQuantity: stock.quantity,
+              afterQuantity: stock.quantity - item.quantity,
+              referenceType: 'ORDER',
+              referenceId: order.id,
+            },
+          });
         }
 
-        await tx.inventoryStock.update({
-          where: { id: stock.id },
-          data: { quantity: stock.quantity - item.quantity },
+        const completed = await tx.salesOrder.updateMany({
+          where: { id: order.id, tenantId, status: 'PAID' },
+          data: { status: 'COMPLETED' },
         });
 
-        await tx.inventoryMovement.create({
-          data: {
-            tenantId,
-            inventoryItemId,
-            warehouseId: stock.warehouseId,
-            type: InventoryMovementType.SALE,
-            quantity: item.quantity,
-            beforeQuantity: stock.quantity,
-            afterQuantity: stock.quantity - item.quantity,
-            referenceType: 'ORDER',
-            referenceId: order.id,
-          },
-        });
-      }
-
-      return true;
-    });
+        return completed.count === 1;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   async fulfillCafe(orderId: string, tenantId: string): Promise<boolean> {
-    return this.prisma.$transaction(async (tx) => {
-      const order = await tx.salesOrder.findFirst({
-        where: { id: orderId, tenantId },
-        include: {
-          SalesOrderItem: {
-            include: {
-              Product: {
-                include: {
-                  Recipe: {
-                    include: {
-                      RecipeItem: {
-                        include: {
-                          Ingredient: {
-                            include: {
-                              InventoryItem: true,
+    return this.prisma.$transaction(
+      async (tx) => {
+        const order = await tx.salesOrder.findFirst({
+          where: { id: orderId, tenantId },
+          include: {
+            SalesOrderItem: {
+              include: {
+                Product: {
+                  include: {
+                    Recipe: {
+                      include: {
+                        RecipeItem: {
+                          include: {
+                            Ingredient: {
+                              include: {
+                                InventoryItem: true,
+                              },
                             },
                           },
                         },
@@ -135,69 +156,83 @@ export class InventoryRepository extends BaseRepository {
               },
             },
           },
-        },
-      });
+        });
 
-      if (!order) {
-        throw new BadRequestException('Order not found');
-      }
-
-      if (order.status === 'COMPLETED') {
-        return false;
-      }
-
-      if (order.status !== 'PAID') {
-        throw new BadRequestException('Order must be PAID before fulfillment');
-      }
-
-      for (const orderItem of order.SalesOrderItem) {
-        const recipe = orderItem.Product.Recipe;
-        if (!recipe) continue;
-
-        for (const recipeItem of recipe.RecipeItem) {
-          const usage = recipeItem.quantity * orderItem.quantity;
-
-          const inventoryItemId = recipeItem.Ingredient.inventoryItemId;
-
-          const stock = await tx.inventoryStock.findFirst({
-            where: { inventoryItemId },
-          });
-
-          if (!stock) {
-            throw new BadRequestException(
-              `Stock not found for ingredient ${recipeItem.Ingredient.name}`,
-            );
-          }
-
-          if (stock.quantity < usage) {
-            throw new BadRequestException(
-              `Insufficient stock for ingredient ${recipeItem.Ingredient.name}`,
-            );
-          }
-
-          await tx.inventoryStock.update({
-            where: { id: stock.id },
-            data: { quantity: stock.quantity - usage },
-          });
-
-          await tx.inventoryMovement.create({
-            data: {
-              tenantId,
-              inventoryItemId,
-              warehouseId: stock.warehouseId,
-              type: InventoryMovementType.CONSUMPTION,
-              quantity: usage,
-              beforeQuantity: stock.quantity,
-              afterQuantity: stock.quantity - usage,
-              referenceType: 'ORDER',
-              referenceId: order.id,
-            },
-          });
+        if (!order) {
+          throw new BadRequestException('Order not found');
         }
-      }
 
-      return true;
-    });
+        if (order.status === 'COMPLETED') {
+          return false;
+        }
+
+        if (order.status !== 'PAID') {
+          throw new BadRequestException(
+            'Order must be PAID before fulfillment',
+          );
+        }
+
+        for (const orderItem of order.SalesOrderItem) {
+          const recipe = orderItem.Product.Recipe;
+          if (!recipe) continue;
+
+          for (const recipeItem of recipe.RecipeItem) {
+            const usage = recipeItem.quantity * orderItem.quantity;
+
+            const inventoryItemId = recipeItem.Ingredient.inventoryItemId;
+
+            const stock = await tx.inventoryStock.findFirst({
+              where: { inventoryItemId },
+            });
+
+            if (!stock) {
+              throw new BadRequestException(
+                `Stock not found for ingredient ${recipeItem.Ingredient.name}`,
+              );
+            }
+
+            if (stock.quantity < usage) {
+              throw new BadRequestException(
+                `Insufficient stock for ingredient ${recipeItem.Ingredient.name}`,
+              );
+            }
+
+            const updatedStock = await tx.inventoryStock.updateMany({
+              where: { id: stock.id, quantity: { gte: usage } },
+              data: { quantity: { decrement: usage }, updatedAt: new Date() },
+            });
+
+            if (updatedStock.count !== 1) {
+              throw new BadRequestException(
+                `Insufficient stock for ingredient ${recipeItem.Ingredient.name}`,
+              );
+            }
+
+            await tx.inventoryMovement.create({
+              data: {
+                tenantId,
+                inventoryItemId,
+                warehouseId: stock.warehouseId,
+                type: InventoryMovementType.CONSUMPTION,
+                quantity: usage,
+                beforeQuantity: stock.quantity,
+                afterQuantity: stock.quantity - usage,
+                referenceType: 'ORDER',
+                referenceId: order.id,
+              },
+            });
+          }
+        }
+
+        const completed = await tx.salesOrder.updateMany({
+          where: { id: order.id, tenantId, status: 'PAID' },
+          data: { status: 'COMPLETED' },
+        });
+
+        return completed.count === 1;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   async findAll(tenantId: string) {
@@ -254,6 +289,12 @@ export class InventoryRepository extends BaseRepository {
 
   async stockIn(tenantId: string, dto: StockInDto, userId: string) {
     return this.prisma.$transaction(async (tx) => {
+      await this.assertTenantStockScope(
+        tx,
+        tenantId,
+        dto.inventoryItemId,
+        dto.warehouseId,
+      );
       const stock = await tx.inventoryStock.findFirst({
         where: {
           warehouseId: dto.warehouseId,
@@ -297,6 +338,12 @@ export class InventoryRepository extends BaseRepository {
 
   async adjustment(tenantId: string, dto: StockAdjustmentDto, userId: string) {
     return this.prisma.$transaction(async (tx) => {
+      await this.assertTenantStockScope(
+        tx,
+        tenantId,
+        dto.inventoryItemId,
+        dto.warehouseId,
+      );
       const stock = await tx.inventoryStock.findFirst({
         where: {
           warehouseId: dto.warehouseId,
@@ -338,6 +385,12 @@ export class InventoryRepository extends BaseRepository {
 
   async waste(tenantId: string, dto: WasteDto, userId: string) {
     return this.prisma.$transaction(async (tx) => {
+      await this.assertTenantStockScope(
+        tx,
+        tenantId,
+        dto.inventoryItemId,
+        dto.warehouseId,
+      );
       const stock = await tx.inventoryStock.findFirst({
         where: {
           warehouseId: dto.warehouseId,
@@ -375,6 +428,21 @@ export class InventoryRepository extends BaseRepository {
         },
       });
     });
+  }
+
+  private async assertTenantStockScope(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    inventoryItemId: string,
+    warehouseId: string,
+  ): Promise<void> {
+    const [item, warehouse] = await Promise.all([
+      tx.inventoryItem.findFirst({ where: { id: inventoryItemId, tenantId } }),
+      tx.warehouse.findFirst({ where: { id: warehouseId, tenantId } }),
+    ]);
+    if (!item || !warehouse) {
+      throw new BadRequestException('Inventory resource not found');
+    }
   }
 
   async history(tenantId: string) {

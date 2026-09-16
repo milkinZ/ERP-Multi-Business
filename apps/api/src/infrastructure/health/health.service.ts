@@ -2,12 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../queue/queue.service';
 import { QUEUE_NAMES } from '../queue/queue.constants';
+import { StorageService } from '../storage/storage.service';
 
 @Injectable()
 export class HealthService {
   constructor(
     private prisma: PrismaService,
     private readonly queueService: QueueService,
+    private readonly storageService: StorageService,
   ) {}
 
   async checkDb() {
@@ -69,5 +71,57 @@ export class HealthService {
       const message = e instanceof Error ? e.message : 'outbox_error';
       return { ok: false, error: message };
     }
+  }
+
+  async checkStorage() {
+    try {
+      await this.storageService.listFiles('');
+      return {
+        ok: true,
+        status: 'UP',
+        provider: this.storageService.getStorageType(),
+      };
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'storage_error';
+      return {
+        ok: false,
+        status: 'DOWN',
+        provider: this.storageService.getStorageType(),
+        error: message,
+      };
+    }
+  }
+
+  async checkWorker() {
+    const queues = Object.values(QUEUE_NAMES);
+    const results: Record<
+      string,
+      { ok: boolean; workers?: number; reason?: string }
+    > = {};
+
+    for (const qName of queues) {
+      try {
+        const queue = this.queueService.getQueue(qName);
+        await queue.waitUntilReady();
+        const workers = await queue.getWorkers();
+        results[qName] =
+          workers.length > 0
+            ? { ok: true, workers: workers.length }
+            : { ok: false, workers: 0, reason: 'no_active_workers' };
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : 'worker_error';
+        results[qName] = { ok: false, reason: message };
+      }
+    }
+
+    const healthy = Object.values(results).filter((result) => result.ok);
+    const status =
+      healthy.length === queues.length
+        ? 'UP'
+        : healthy.length > 0
+          ? 'DEGRADED'
+          : 'DOWN';
+
+    return { ok: status === 'UP', status, details: results };
   }
 }

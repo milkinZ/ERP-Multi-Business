@@ -127,6 +127,7 @@ export class StorageUploadService {
     if (!tenantId) throw new ForbiddenException('Tenant context missing');
 
     // Cross-tenant protection: id must start with tenant root.
+    this.assertOutletScope(params.id, outletId);
     const expectedRoot = this.storageIdRoot({ tenantId, outletId });
     if (!params.id.startsWith(expectedRoot)) {
       throw new BadRequestException('Invalid storage id');
@@ -147,6 +148,7 @@ export class StorageUploadService {
 
     if (!tenantId) throw new ForbiddenException('Tenant context missing');
 
+    this.assertOutletScope(params.id, outletId);
     const expectedRoot = this.storageIdRoot({ tenantId, outletId });
     if (!params.id.startsWith(expectedRoot)) {
       throw new BadRequestException('Invalid storage id');
@@ -208,6 +210,21 @@ export class StorageUploadService {
   }): string {
     const outletPart = params.outletId ? `outlet-${params.outletId}/` : '';
     return `tenant-${params.tenantId}/${outletPart}`;
+  }
+
+  private assertOutletScope(id: string, outletId: string | null): void {
+    const segments = id.split('/').filter(Boolean);
+    const resourceOutlet = segments.find((segment) =>
+      segment.startsWith('outlet-'),
+    );
+
+    if (resourceOutlet && !outletId) {
+      throw new BadRequestException('Invalid storage id');
+    }
+
+    if (outletId && resourceOutlet !== `outlet-${outletId}`) {
+      throw new BadRequestException('Invalid storage id');
+    }
   }
 
   private buildStorageId(params: {

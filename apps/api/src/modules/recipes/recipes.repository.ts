@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { BaseRepository } from '../../core/database/repositories/base.repository';
 import { PrismaService } from '../../core/database/prisma.service';
@@ -34,25 +34,42 @@ export class RecipesRepository extends BaseRepository {
       createdAt: new Date(),
     });
 
-    const persisted = await this.prisma.recipe.create({
-      data: {
-        tenantId: aggregate.tenantId,
-        productId: aggregate.productId,
-        RecipeItem: {
-          create: aggregate.items.map((item) => ({
-            ingredientId: item.ingredientId,
-            quantity: item.quantity,
-          })),
+    const persisted = await this.prisma.$transaction(async (tx) => {
+      const product = await tx.product.findFirst({
+        where: { id: aggregate.productId, tenantId: aggregate.tenantId },
+      });
+      if (!product) throw new BadRequestException('Product not found');
+
+      const ingredients = await tx.ingredient.findMany({
+        where: {
+          id: { in: aggregate.items.map((item) => item.ingredientId) },
+          tenantId: aggregate.tenantId,
         },
-      },
-      include: {
-        Product: true,
-        RecipeItem: {
-          include: {
-            Ingredient: true,
+      });
+      if (ingredients.length !== aggregate.items.length) {
+        throw new BadRequestException('Ingredient not found');
+      }
+
+      return tx.recipe.create({
+        data: {
+          tenantId: aggregate.tenantId,
+          productId: aggregate.productId,
+          RecipeItem: {
+            create: aggregate.items.map((item) => ({
+              ingredientId: item.ingredientId,
+              quantity: item.quantity,
+            })),
           },
         },
-      },
+        include: {
+          Product: true,
+          RecipeItem: {
+            include: {
+              Ingredient: true,
+            },
+          },
+        },
+      });
     });
 
     return persisted;

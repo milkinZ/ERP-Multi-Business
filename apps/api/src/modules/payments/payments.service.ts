@@ -63,6 +63,18 @@ export class PaymentsService {
       dto.method,
     );
 
+    if (!payment) {
+      await this.outbox.publish({
+        type: DOMAIN_EVENTS.ORDER_PAYMENT_FAILED,
+        payload: {
+          orderId: order.id,
+          tenantId,
+          reason: 'Order already paid',
+        },
+      });
+      throw new BadRequestException('Order already paid');
+    }
+
     await this.outbox.publish({
       type: DOMAIN_EVENTS.ORDER_PAYMENT_SUCCESS,
       payload: {

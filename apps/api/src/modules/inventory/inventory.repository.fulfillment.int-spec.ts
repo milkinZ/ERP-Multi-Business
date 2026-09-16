@@ -10,7 +10,9 @@ describe('InventoryRepository fulfillment integration', () => {
   const tenantB = 'it-fulfillment-tenant-b';
   const warehouseA = 'it-fulfillment-warehouse-a';
   const itemA = 'it-fulfillment-item-a';
+  const itemB = 'it-fulfillment-item-b';
   const productA = 'it-fulfillment-product-a';
+  const productB = 'it-fulfillment-product-b';
   const orderA = 'it-fulfillment-order-a';
   const orderB = 'it-fulfillment-order-b';
 
@@ -25,13 +27,13 @@ describe('InventoryRepository fulfillment integration', () => {
       where: { id: { in: [orderA, orderB] } },
     });
     await prisma.inventoryStock.deleteMany({
-      where: { inventoryItemId: itemA },
+      where: { inventoryItemId: { in: [itemA, itemB] } },
     });
     await prisma.product.deleteMany({
-      where: { id: productA },
+      where: { id: { in: [productA, productB] } },
     });
     await prisma.inventoryItem.deleteMany({
-      where: { id: itemA },
+      where: { id: { in: [itemA, itemB] } },
     });
     await prisma.warehouse.deleteMany({
       where: { id: warehouseA },
@@ -68,6 +70,15 @@ describe('InventoryRepository fulfillment integration', () => {
         tenantId: tenantA,
       },
     });
+    await prisma.inventoryItem.create({
+      data: {
+        id: itemB,
+        code: 'ITEM-B',
+        name: 'Product Stock B',
+        type: 'PRODUCT',
+        tenantId: tenantA,
+      },
+    });
     await prisma.product.create({
       data: {
         id: productA,
@@ -76,6 +87,16 @@ describe('InventoryRepository fulfillment integration', () => {
         price: 100,
         tenantId: tenantA,
         inventoryItemId: itemA,
+      },
+    });
+    await prisma.product.create({
+      data: {
+        id: productB,
+        name: 'Product B',
+        sku: 'FULFILL-B',
+        price: 100,
+        tenantId: tenantA,
+        inventoryItemId: itemB,
       },
     });
   });
@@ -156,6 +177,73 @@ describe('InventoryRepository fulfillment integration', () => {
         type: 'SALE',
       }),
     );
+    await expect(
+      prisma.salesOrder.findUnique({ where: { id: orderA } }),
+    ).resolves.toEqual(expect.objectContaining({ status: 'COMPLETED' }));
+  });
+
+  it('rolls back earlier inventory mutations when a later item fails', async () => {
+    await prisma.inventoryStock.createMany({
+      data: [
+        {
+          warehouseId: warehouseA,
+          inventoryItemId: itemA,
+          quantity: 10,
+          updatedAt: new Date(),
+        },
+        {
+          warehouseId: warehouseA,
+          inventoryItemId: itemB,
+          quantity: 0,
+          updatedAt: new Date(),
+        },
+      ],
+    });
+    await prisma.salesOrder.create({
+      data: {
+        id: orderA,
+        orderNumber: orderA,
+        status: 'PAID',
+        totalAmount: 200,
+        tenantId: tenantA,
+        SalesOrderItem: {
+          create: [
+            { productId: productA, quantity: 3, price: 100, subtotal: 300 },
+            { productId: productB, quantity: 1, price: 100, subtotal: 100 },
+          ],
+        },
+      },
+    });
+
+    await expect(repository.fulfillRetail(orderA, tenantA)).rejects.toThrow(
+      'Insufficient stock for Product B',
+    );
+    await expect(
+      prisma.inventoryStock.findUnique({
+        where: {
+          warehouseId_inventoryItemId: {
+            warehouseId: warehouseA,
+            inventoryItemId: itemA,
+          },
+        },
+      }),
+    ).resolves.toEqual(expect.objectContaining({ quantity: 10 }));
+    await expect(
+      prisma.inventoryStock.findUnique({
+        where: {
+          warehouseId_inventoryItemId: {
+            warehouseId: warehouseA,
+            inventoryItemId: itemB,
+          },
+        },
+      }),
+    ).resolves.toEqual(expect.objectContaining({ quantity: 0 }));
+    await expect(
+      prisma.inventoryMovement.findMany({ where: { referenceId: orderA } }),
+    ).resolves.toHaveLength(0);
+    await expect(
+      prisma.salesOrder.findUnique({ where: { id: orderA } }),
+    ).resolves.toEqual(expect.objectContaining({ status: 'PAID' }));
   });
 
   it('does not process an order through another tenant context', async () => {

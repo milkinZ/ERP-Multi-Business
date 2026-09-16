@@ -3,6 +3,7 @@ import { Queue, JobsOptions } from "bullmq";
 
 import { RedisService } from "../shared/redis.service";
 import { type QueueName } from "./queue.constants";
+import { WORKER_CONFIG } from "./worker-config";
 
 @Injectable()
 export class QueueService implements OnModuleDestroy {
@@ -18,10 +19,10 @@ export class QueueService implements OnModuleDestroy {
     const queue = new Queue(name, {
       connection: this.redis.getConnectionOptions(),
       defaultJobOptions: {
-        attempts: 5,
+        attempts: WORKER_CONFIG.attempts,
         backoff: {
           type: "exponential",
-          delay: 2000,
+          delay: WORKER_CONFIG.backoffDelayMs,
         },
         removeOnComplete: 1000,
         removeOnFail: 5000,

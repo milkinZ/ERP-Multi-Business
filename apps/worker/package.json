@@ -10,7 +10,10 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main",
-    "lint": "eslint src --fix"
+    "lint": "eslint src --fix",
+    "check-types": "tsc --noEmit -p tsconfig.json",
+    "test": "jest --config ./test/jest-integration.json",
+    "test:integration": "jest --config ./test/jest-integration.json"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

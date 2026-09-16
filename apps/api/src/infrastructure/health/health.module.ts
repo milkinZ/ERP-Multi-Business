@@ -7,9 +7,10 @@ import { HealthService } from './health.service';
 import { RedisModule } from '../redis/redis.module';
 import { QueueModule } from '../queue/queue.module';
 import { HealthCheck } from '../redis/redis.health-indicator';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
-  imports: [RedisModule, QueueModule, TerminusModule],
+  imports: [RedisModule, QueueModule, StorageModule, TerminusModule],
   controllers: [HealthController],
   providers: [HealthService, HealthCheck],
 })

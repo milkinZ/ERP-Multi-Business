@@ -133,9 +133,16 @@ export class NotificationController {
   })
   async deleteNotification(
     @Param('id') id: string,
-    // @CurrentUser() user: JwtUser,
+    @CurrentUser() user: JwtUser,
   ) {
-    await this.notificationService.deleteNotification(id);
+    const result = await this.notificationService.deleteNotification(
+      id,
+      user.tenantId,
+    );
+
+    if (result.count === 0) {
+      throw new BadRequestException('Notification not found');
+    }
 
     return {
       success: true,

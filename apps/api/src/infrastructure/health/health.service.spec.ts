@@ -1,6 +1,7 @@
 import { HealthService } from './health.service';
 import { QueueService } from '../queue/queue.service';
 import { PrismaService } from '../../core/database/prisma.service';
+import { StorageService } from '../storage/storage.service';
 
 describe('HealthService', () => {
   const queryRaw = jest.fn();
@@ -11,17 +12,26 @@ describe('HealthService', () => {
   } as unknown as PrismaService;
   const getQueue = jest.fn();
   const queueService = { getQueue } as unknown as QueueService;
+  const listFiles = jest.fn();
+  const getStorageType = jest.fn();
+  const storageService = {
+    listFiles,
+    getStorageType,
+  } as unknown as StorageService;
   let service: HealthService;
 
   beforeEach(() => {
     jest.clearAllMocks();
     queryRaw.mockResolvedValue([{ '?column?': 1 }]);
     outboxCount.mockResolvedValue(0);
+    listFiles.mockResolvedValue([]);
+    getStorageType.mockReturnValue('local');
     getQueue.mockReturnValue({
       waitUntilReady: jest.fn().mockResolvedValue(undefined),
       getJobCounts: jest.fn().mockResolvedValue({}),
+      getWorkers: jest.fn().mockResolvedValue([{ id: 'worker-1' }]),
     });
-    service = new HealthService(prisma, queueService);
+    service = new HealthService(prisma, queueService, storageService);
   });
 
   it('reports database and outbox health', async () => {
@@ -61,6 +71,36 @@ describe('HealthService', () => {
 
     getQueue.mockReturnValue(failingQueue);
     await expect(service.checkBullmq()).resolves.toEqual(
+      expect.objectContaining({ ok: false, status: 'DOWN' }),
+    );
+  });
+
+  it('reports storage provider health', async () => {
+    await expect(service.checkStorage()).resolves.toEqual({
+      ok: true,
+      status: 'UP',
+      provider: 'local',
+    });
+
+    listFiles.mockRejectedValue(new Error('storage unavailable'));
+    await expect(service.checkStorage()).resolves.toEqual({
+      ok: false,
+      status: 'DOWN',
+      provider: 'local',
+      error: 'storage unavailable',
+    });
+  });
+
+  it('reports active worker consumers separately from queue connectivity', async () => {
+    await expect(service.checkWorker()).resolves.toEqual(
+      expect.objectContaining({ ok: true, status: 'UP' }),
+    );
+
+    getQueue.mockReturnValue({
+      waitUntilReady: jest.fn().mockResolvedValue(undefined),
+      getWorkers: jest.fn().mockResolvedValue([]),
+    });
+    await expect(service.checkWorker()).resolves.toEqual(
       expect.objectContaining({ ok: false, status: 'DOWN' }),
     );
   });
