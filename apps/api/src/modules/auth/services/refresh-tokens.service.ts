@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../../../core/database/prisma.service';
+import { requestContext } from '../../../core/request-context/request-context';
 
 import type { Prisma } from '@prisma/client';
 
@@ -18,6 +19,21 @@ export class RefreshTokensService {
     return this.prisma.refreshToken.findUnique({
       where: { tokenSelector: selector },
     });
+  }
+
+  getBySelectorForAuthentication(selector: string) {
+    return requestContext.run(
+      {
+        ...requestContext.get(),
+        allowPreAuthRefreshTokenLookup: true,
+      },
+      async () => {
+        const token = await this.prisma.refreshToken.findUnique({
+          where: { tokenSelector: selector },
+        });
+        return token;
+      },
+    );
   }
 
   async create(data: Prisma.RefreshTokenUncheckedCreateInput) {

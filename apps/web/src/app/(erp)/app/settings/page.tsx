@@ -1,0 +1,1 @@
+import React from "react"; import { UnavailablePage } from "@/components/data-display/unavailable-page"; export default function Page() { return <UnavailablePage title="Tenant settings" area="tenant" /> }

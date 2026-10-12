@@ -3,6 +3,15 @@ import { BaseRepository } from '../../core/database/repositories/base.repository
 import { PrismaService } from '../../core/database/prisma.service';
 import { UserAggregate } from './domain/user.aggregate';
 
+export type SafeUserRecord = {
+  id: string;
+  email: string;
+  createdAt: Date;
+  updatedAt: Date;
+  UserRole: { role: { id: string; name: string } }[];
+  UserOutlet: { outlet: { id: string; name: string } }[];
+};
+
 @Injectable()
 export class UsersRepository extends BaseRepository {
   constructor(protected readonly prisma: PrismaService) {
@@ -37,5 +46,53 @@ export class UsersRepository extends BaseRepository {
 
   findByEmail(email: string) {
     return this.prisma.user.findUnique({ where: { email } });
+  }
+
+  async findAllSafe(tenantId: string): Promise<SafeUserRecord[]> {
+    return this.prisma.user.findMany({
+      where: { tenantId, deletedAt: null },
+      select: {
+        id: true,
+        email: true,
+        createdAt: true,
+        updatedAt: true,
+        UserRole: {
+          where: { tenantId, deletedAt: null },
+          select: { role: { select: { id: true, name: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
+        UserOutlet: {
+          where: { tenantId, deletedAt: null },
+          select: { outlet: { select: { id: true, name: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async findSafeById(
+    tenantId: string,
+    userId: string,
+  ): Promise<SafeUserRecord | null> {
+    return this.prisma.user.findFirst({
+      where: { id: userId, tenantId, deletedAt: null },
+      select: {
+        id: true,
+        email: true,
+        createdAt: true,
+        updatedAt: true,
+        UserRole: {
+          where: { tenantId, deletedAt: null },
+          select: { role: { select: { id: true, name: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
+        UserOutlet: {
+          where: { tenantId, deletedAt: null },
+          select: { outlet: { select: { id: true, name: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
   }
 }

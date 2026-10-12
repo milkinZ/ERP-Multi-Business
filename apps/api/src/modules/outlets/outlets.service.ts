@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../core/database/prisma.service';
 import { TenantContextService } from '../tenants/tenant-context.service';
@@ -30,12 +30,18 @@ export class OutletsService {
   update(id: string, data: { name?: string }) {
     const tenantId = this.tenantContext.requireTenant();
     // Enforce tenant isolation at mutation level.
-    return this.outletsRepository.update(id, tenantId, data);
+    return this.outletsRepository.update(id, tenantId, data).then((result) => {
+      if (result.count !== 1) throw new NotFoundException('Outlet not found');
+      return this.outletsRepository.findOne(id, tenantId);
+    });
   }
 
   softDelete(id: string) {
     const tenantId = this.tenantContext.requireTenant();
     // Enforce tenant isolation at mutation level.
-    return this.outletsRepository.softDelete(id, tenantId);
+    return this.outletsRepository.softDelete(id, tenantId).then((result) => {
+      if (result.count !== 1) throw new NotFoundException('Outlet not found');
+      return { id, deleted: true };
+    });
   }
 }

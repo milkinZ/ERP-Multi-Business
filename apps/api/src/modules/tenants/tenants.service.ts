@@ -2,12 +2,14 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { TenantContextService } from './tenant-context.service';
 import { TenantsRepository } from './tenants.repository';
+import { BusinessRegistryService } from '../business-registry/business-registry.service';
 
 @Injectable()
 export class TenantsService {
   constructor(
     private readonly tenantContext: TenantContextService,
     private readonly tenantsRepository: TenantsRepository,
+    private readonly businessRegistry: BusinessRegistryService,
   ) {}
 
   findAll() {
@@ -60,6 +62,6 @@ export class TenantsService {
       throw new BadRequestException('Tenant not found');
     }
 
-    return this.tenantsRepository.softDelete(id);
+    return this.businessRegistry.archive(id);
   }
 }

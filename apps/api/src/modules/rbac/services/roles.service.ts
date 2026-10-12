@@ -28,13 +28,17 @@ export class RolesService {
     tenantId: string,
     data: { name: string; permissionCodes?: string[] },
   ) {
+    const permissionCodes = await this.validatePermissionCodes(
+      data.permissionCodes,
+    );
+
     return this.prisma.role.create({
       data: {
         tenantId,
         name: data.name,
-        RolePermission: data.permissionCodes?.length
+        RolePermission: permissionCodes.length
           ? {
-              create: data.permissionCodes.map((code) => ({
+              create: permissionCodes.map((code) => ({
                 id: crypto.randomUUID(),
                 Permission: { connect: { code } },
               })),
@@ -50,44 +54,55 @@ export class RolesService {
     data: { name: string; permissionCodes?: string[] },
   ) {
     const role = await this.getById(tenantId, roleId);
+    const permissionCodes = data.permissionCodes
+      ? await this.validatePermissionCodes(data.permissionCodes)
+      : undefined;
 
-    await this.prisma.role.updateMany({
-      where: { id: role.id, tenantId },
-      data: { name: data.name },
-    });
-
-    if (data.permissionCodes) {
-      await this.prisma.rolePermission.deleteMany({
-        where: { roleId: role.id },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.role.updateMany({
+        where: { id: role.id, tenantId },
+        data: { name: data.name },
       });
 
-      if (data.permissionCodes.length) {
-        await this.prisma.rolePermission.createMany({
-          data: await Promise.all(
-            data.permissionCodes.map(async (code) => {
-              const permission = await this.prisma.permission.findUnique({
-                where: { code },
-                select: { id: true },
-              });
-
-              if (!permission) {
-                throw new NotFoundException(
-                  `Permission not found for code: ${code}`,
-                );
-              }
-
-              return {
-                id: crypto.randomUUID(),
-                roleId: role.id,
-                permissionId: permission.id,
-              };
-            }),
-          ),
-        });
+      if (permissionCodes) {
+        await tx.rolePermission.deleteMany({ where: { roleId: role.id } });
+        if (permissionCodes.length) {
+          const permissions = await tx.permission.findMany({
+            where: { code: { in: permissionCodes } },
+            select: { id: true },
+          });
+          await tx.rolePermission.createMany({
+            data: permissions.map((permission) => ({
+              id: crypto.randomUUID(),
+              roleId: role.id,
+              permissionId: permission.id,
+            })),
+          });
+        }
       }
-    }
+    });
 
     return this.getById(tenantId, roleId);
+  }
+
+  private async validatePermissionCodes(codes?: string[]): Promise<string[]> {
+    const uniqueCodes = [...new Set(codes ?? [])];
+    if (!uniqueCodes.length) return [];
+
+    const permissions = await this.prisma.permission.findMany({
+      where: { code: { in: uniqueCodes } },
+      select: { code: true },
+    });
+    const knownCodes = new Set(
+      permissions.map((permission) => permission.code),
+    );
+    const unknownCode = uniqueCodes.find((code) => !knownCodes.has(code));
+    if (unknownCode) {
+      throw new NotFoundException(
+        `Permission not found for code: ${unknownCode}`,
+      );
+    }
+    return uniqueCodes;
   }
 
   async remove(tenantId: string, roleId: string) {

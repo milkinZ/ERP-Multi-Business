@@ -33,15 +33,21 @@ async function bootstrap() {
   app.use(cookieParser());
 
   // Security
+  const corsOrigins = (
+    config.get<string>('CORS_ORIGIN') ?? 'http://localhost:3000'
+  )
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
   app.enableCors({
-    origin: config.get<string>('CORS_ORIGIN') ?? 'http://localhost:3000',
+    origin: corsOrigins,
     credentials: true,
   });
 
   // Helmet (runtime security headers)
   app.use(
     helmet({
-      contentSecurityPolicy: false,
       crossOriginEmbedderPolicy: false,
     }),
   );
@@ -105,8 +111,8 @@ async function bootstrap() {
     header: 'x-api-version',
   });
 
-  // const port = config.get<number>('PORT') ?? 3000;
-  const port = 3000;
+  const port = config.get<number>('PORT') ?? 3000;
+  // const port = 3000;
   await app.listen(port, '127.0.0.1');
 }
 void bootstrap();

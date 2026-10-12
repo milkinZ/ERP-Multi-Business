@@ -1,5 +1,23 @@
 # API testing
 
+## Prisma migration baseline
+
+The active migration history now starts with `20261012000000_initial_baseline`,
+generated from the current `prisma/schema.prisma`. It is intended only for a
+fresh, empty development database. The prior experimental migration directories
+are retained under `prisma/retired-experimental-migrations/20261012/` and are
+not part of Prisma's active migration discovery path.
+
+This change does not reset, migrate, or validate any database. Do not apply the
+new baseline to an existing development database or any shared/production
+database. Adoption by an existing database requires a separately reviewed
+migration and data-recovery strategy.
+
+For an explicitly created empty development database, configure its
+`DATABASE_URL` privately and apply the active history with the repository's
+Prisma CLI. Future schema changes must use incremental migrations rather than
+regenerating this initial baseline.
+
 Unit tests run without PostgreSQL, Redis, queues, or network services. They
 exercise domain/application behavior with explicit mocks and deterministic
 fixtures. They must not silently become integration tests.

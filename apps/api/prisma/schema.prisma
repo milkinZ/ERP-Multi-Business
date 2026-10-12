@@ -103,6 +103,11 @@ model Payment {
   status          PaymentStatus @default(PENDING)
   amount          Int
   referenceNumber String?
+  providerReferenceId String? @unique
+  providerPaymentRequestId String? @unique
+  providerPaymentId String? @unique
+  providerEventId String? @unique
+  providerStatus String?
   paidAt          DateTime?
   createdAt       DateTime      @default(now())
   createdById     String?
@@ -277,8 +282,12 @@ model Supplier {
 model Tenant {
   id                String              @id @default(cuid())
   name              String
+  contactEmail      String?
+  contactPhone      String?
+  address           String?
   createdAt         DateTime            @default(now())
   businessType      BusinessType        @default(CAFE)
+  status            TenantStatus        @default(ACTIVE)
   deletedAt         DateTime?
   updatedAt         DateTime            @updatedAt
   AuditLog          AuditLog[]
@@ -357,6 +366,51 @@ model OutboxEvent {
   @@index([createdAt])
 }
 
+model WorkerInstance {
+  id            String       @id @default(cuid())
+  workerKey     String       @unique
+  name          String
+  hostname      String?
+  instancePid   Int?
+  version       String?
+  status        WorkerStatus @default(ACTIVE)
+  startedAt     DateTime     @default(now())
+  lastHeartbeatAt DateTime    @default(now())
+  stoppedAt     DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  jobExecutions JobExecution[]
+
+  @@index([status])
+  @@index([lastHeartbeatAt])
+  @@index([name])
+}
+
+model JobExecution {
+  id            String            @id @default(cuid())
+  queueName     String
+  bullmqJobId   String
+  jobName       String?
+  workerId      String?
+  worker        WorkerInstance?   @relation(fields: [workerId], references: [id], onDelete: SetNull)
+  attemptNumber Int               @default(1)
+  status        JobExecutionStatus @default(ACTIVE)
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  durationMs    Int?
+  errorCategory String?
+  errorMessage  String?
+  correlationId String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@unique([queueName, bullmqJobId, attemptNumber])
+  @@index([queueName])
+  @@index([status])
+  @@index([workerId])
+  @@index([startedAt])
+}
+
 model DeadLetterJob {
   id           String              @id @default(cuid())
   queueName    String
@@ -413,6 +467,28 @@ model AuditLog {
   @@index([tenantId])
   @@index([entity, entityId])
   @@index([action])
+}
+
+model PlatformAuditLog {
+  id             String   @id @default(cuid())
+  actorUserId    String
+  actorTenantId  String
+  actorType      String   @default("PLATFORM_USER")
+  action         String
+  resourceType   String
+  resourceId     String
+  targetTenantId String?
+  requestId      String?
+  correlationId  String?
+  metadata       Json?
+  outcome        String   @default("SUCCESS")
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt, id])
+  @@index([action, createdAt])
+  @@index([resourceType, resourceId])
+  @@index([targetTenantId, createdAt])
+  @@index([actorUserId, createdAt])
 }
 
 model Notification {
@@ -484,14 +560,55 @@ model Invoice {
   amountCents    Int
   currency       String    @default("IDR")
   status         String    @default("PENDING")
+  providerReferenceId String? @unique
+  providerPaymentRequestId String? @unique
+  providerPaymentId String? @unique
+  providerEventId String? @unique
+  providerStatus String?
   dueAt          DateTime?
   paidAt         DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?
   tenant         Tenant    @relation(fields: [tenantId], references: [id])
+  xenditPaymentRequestAttempt XenditPaymentRequestAttempt?
 
   @@index([tenantId])
+}
+
+model InvoiceNumberCounter {
+  key       String   @id
+  value     Int
+  updatedAt DateTime @updatedAt
+}
+
+model XenditPaymentRequestAttempt {
+  id                       String                                 @id @default(cuid())
+  invoiceId                String                                 @unique
+  tenantId                 String
+  state                    XenditPaymentRequestAttemptState       @default(IN_PROGRESS)
+  providerPaymentRequestId String?                                @unique
+  createdAt                DateTime                               @default(now())
+  updatedAt                DateTime                               @updatedAt
+  invoice                  Invoice                                @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, state])
+}
+
+model XenditWebhookReceipt {
+  id                   String   @id @default(cuid())
+  idempotencyKey       String   @unique @db.VarChar(64)
+  paymentRequestId     String?
+  paymentId            String
+  referenceId          String?
+  eventType            String
+  paymentStatus        String
+  outcome              String   @default("PROCESSING")
+  receivedAt           DateTime @default(now())
+  processedAt          DateTime?
+
+  @@index([paymentRequestId])
+  @@index([paymentId])
 }
 
 model UserRole {
@@ -579,6 +696,13 @@ enum PaymentStatus {
   REFUNDED
 }
 
+enum XenditPaymentRequestAttemptState {
+  IN_PROGRESS
+  REJECTED
+  UNKNOWN
+  COMPLETED
+}
+
 enum PurchaseOrderStatus {
   DRAFT
   PENDING
@@ -603,6 +727,21 @@ enum DeadLetterJobStatus {
   RESOLVED
 }
 
+enum JobExecutionStatus {
+  ACTIVE
+  RETRYING
+  COMPLETED
+  FAILED
+}
+
+enum WorkerStatus {
+  STARTING
+  ACTIVE
+  DRAINING
+  STOPPED
+  STALE
+}
+
 enum PlanType {
   FREE
   STARTER
@@ -610,9 +749,18 @@ enum PlanType {
   ENTERPRISE
 }
 
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
 enum SubscriptionStatus {
+  TRIAL
   ACTIVE
   INACTIVE
+  PAST_DUE
+  SUSPENDED
   CANCELLED
   EXPIRED
 }

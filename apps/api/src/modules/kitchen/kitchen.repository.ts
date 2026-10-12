@@ -67,20 +67,19 @@ export class KitchenRepository extends BaseRepository {
     id: string,
     tenantId: string,
     status: KitchenStatus,
+    expectedStatus: KitchenStatus,
   ): Promise<KitchenTicketAggregate | null> {
     const dbStatus = this.mapKitchenStatusToOrderStatus(status);
+    const expectedDbStatus = this.mapKitchenStatusToOrderStatus(expectedStatus);
 
-    const updated = await this.prisma.salesOrder.update({
-      where: {
-        id,
-        tenantId,
-      },
+    const updated = await this.prisma.salesOrder.updateMany({
+      where: { id, tenantId, status: expectedDbStatus },
       data: {
         status: dbStatus,
       },
     });
 
-    if (!updated) {
+    if (updated.count !== 1) {
       return null;
     }
 
@@ -129,7 +128,7 @@ export class KitchenRepository extends BaseRepository {
     orderStatus: OrderStatus,
   ): KitchenStatus {
     const map: Partial<Record<OrderStatus, KitchenStatus>> = {
-      [OrderStatus.PENDING]: KitchenStatus.NEW,
+      [OrderStatus.PENDING]: KitchenStatus.QUEUED,
       [OrderStatus.IN_PROGRESS]: KitchenStatus.COOKING,
       [OrderStatus.READY]: KitchenStatus.READY,
       [OrderStatus.COMPLETED]: KitchenStatus.SERVED,

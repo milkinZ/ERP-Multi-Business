@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { BaseRepository } from '../../core/database/repositories/base.repository';
 import { PrismaService } from '../../core/database/prisma.service';
 import { IngredientAggregate } from './domain/ingredient.aggregate';
@@ -9,12 +10,15 @@ export class IngredientsRepository extends BaseRepository {
     super(prisma);
   }
 
-  async createIngredient(data: {
-    tenantId: string;
-    name: string;
-    unit: string;
-    inventoryItemId: string;
-  }) {
+  async createIngredient(
+    data: {
+      tenantId: string;
+      name: string;
+      unit: string;
+      inventoryItemId: string;
+    },
+    client: Prisma.TransactionClient = this.prisma,
+  ) {
     const aggregate = IngredientAggregate.create({
       id: `ING-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       name: data.name,
@@ -25,7 +29,7 @@ export class IngredientsRepository extends BaseRepository {
       //   updatedAt: new Date(),
     });
 
-    const persisted = await this.prisma.ingredient.create({
+    const persisted = await client.ingredient.create({
       data: {
         name: aggregate['name'],
         unit: aggregate['unit'],

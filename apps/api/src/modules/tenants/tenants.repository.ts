@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { BusinessType } from '@prisma/client';
+import { BusinessType, TenantStatus } from '@prisma/client';
 import { BaseRepository } from '../../core/database/repositories/base.repository';
 import { PrismaService } from '../../core/database/prisma.service';
 
@@ -7,6 +7,7 @@ export type TenantProps = {
   id: string;
   name: string;
   businessType?: BusinessType | null;
+  status: TenantStatus;
   createdAt: Date;
   deletedAt?: Date | null;
 };
@@ -49,13 +50,6 @@ export class TenantsRepository extends BaseRepository {
         ...(data.name ? { name: data.name } : {}),
         businessType: data.businessType ?? undefined,
       },
-    });
-  }
-
-  async softDelete(id: string) {
-    return this.prisma.tenant.update({
-      where: { id },
-      data: { deletedAt: new Date() },
     });
   }
 }

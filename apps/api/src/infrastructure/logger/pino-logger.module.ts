@@ -19,14 +19,17 @@ function ensureLogPath(dir: string) {
   }
 }
 
-function compressFile(filePath: string): Promise<void> {
+async function compressFile(filePath: string): Promise<void> {
   const gzipPath = `${filePath}.gz`;
   const source = fs.createReadStream(filePath);
   const dest = fs.createWriteStream(gzipPath);
   const gzip = zlib.createGzip();
-  return pipe(source, gzip, dest)
-    .then(() => fs.promises.unlink(filePath))
-    .catch(() => undefined);
+  try {
+    await pipe(source, gzip, dest);
+    return await fs.promises.unlink(filePath);
+  } catch {
+    return undefined;
+  }
 }
 
 function cleanupOldLogs(

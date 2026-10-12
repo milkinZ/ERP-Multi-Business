@@ -1,9 +1,18 @@
-import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionGuard } from '../rbac/permission.guard';
 import { Permissions } from '../../common/decorator/permissions.decorator';
 import { PERMISSIONS } from '../rbac/permissions';
 import { BillingService } from './billing.service';
+import { CreateXenditPaymentRequestDto } from './dto/create-xendit-payment-request.dto';
 
 @Controller('billing')
 @UseGuards(JwtAuthGuard, PermissionGuard)
@@ -23,6 +32,15 @@ export class BillingController {
   @Permissions(PERMISSIONS.INVOICE_READ)
   getInvoice(@Param('id') id: string) {
     return this.billingService.getInvoiceById(id);
+  }
+
+  @Post('invoices/:id/payment-request')
+  @Permissions(PERMISSIONS.BILLING_EXECUTE)
+  createPaymentRequest(
+    @Param('id') id: string,
+    @Body() body: CreateXenditPaymentRequestDto,
+  ) {
+    return this.billingService.createXenditPaymentRequest(id, body.channelCode);
   }
 
   @Post('execute/:subscriptionId')

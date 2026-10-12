@@ -1,5 +1,13 @@
-import { Body, Controller, Get, Post, Res, UseGuards } from '@nestjs/common';
-import type { Response } from 'express';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
+import type { Request, Response } from 'express';
 
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -13,6 +21,7 @@ import { CurrentUser } from '../../common/decorator/current-user.decorator';
 import type { JwtUser } from '../../common/interfaces/jwt-user.interface';
 
 import { CsrfRefreshGuard } from '../../infrastructure/security/csrf-refresh.guard';
+import { REFRESH_COOKIE_NAME } from '../../infrastructure/security/security.constants';
 
 @Controller('auth')
 export class AuthController {
@@ -28,15 +37,37 @@ export class AuthController {
     return this.authService.login(body.email, body.password, res);
   }
 
+  @Get('csrf')
+  csrf(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    return this.authService.issueCsrfToken(req, res);
+  }
+
+  @UseGuards(CsrfRefreshGuard)
   @Post('logout')
-  logout(@Body() body: LogoutDto, @Res({ passthrough: true }) res: Response) {
-    return this.authService.logout(body.refreshToken, res);
+  logout(
+    @Body() _body: LogoutDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const cookies = req.cookies as Record<string, unknown> | undefined;
+    const refreshTokenValue = cookies?.[REFRESH_COOKIE_NAME];
+    const refreshToken =
+      typeof refreshTokenValue === 'string' ? refreshTokenValue : '';
+    return this.authService.logout(refreshToken, res);
   }
 
   @UseGuards(CsrfRefreshGuard)
   @Post('refresh')
-  refresh(@Body() body: RefreshDto, @Res({ passthrough: true }) res: Response) {
-    return this.authService.refresh(body.refreshToken, body.csrfToken, res);
+  refresh(
+    @Body() body: RefreshDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const cookies = req.cookies as Record<string, unknown> | undefined;
+    const refreshTokenValue = cookies?.[REFRESH_COOKIE_NAME];
+    const refreshToken =
+      typeof refreshTokenValue === 'string' ? refreshTokenValue : '';
+    return this.authService.refresh(refreshToken, body.csrfToken, res);
   }
 
   @UseGuards(JwtAuthGuard)

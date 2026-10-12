@@ -10,6 +10,7 @@ export type PaymentGatewayChargeInput = {
   currency: string;
   description: string;
   tenantId: string;
+  channelCode: string;
   metadata?: Record<string, unknown>;
 };
 
@@ -17,6 +18,7 @@ export type PaymentGatewayChargeResult = {
   success: boolean;
   transactionId: string;
   gatewayReference: string;
+  paymentRequestId?: string;
   status: 'PAID' | 'FAILED' | 'PENDING';
   errorMessage?: string;
 };

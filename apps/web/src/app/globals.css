@@ -1,0 +1,86 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-card: var(--panel);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--danger);
+  --color-ring: var(--ring);
+}
+
+:root {
+  --background: #edf5ff;
+  --foreground: #0f172a;
+  --muted: #eaf1ff;
+  --muted-foreground: #52627c;
+  --panel: #ffffff;
+  --panel-alt: #f7faff;
+  --border: #d8e6ff;
+  --primary: #1d4ed8;
+  --primary-foreground: #eff6ff;
+  --secondary: #e2e9f7;
+  --secondary-foreground: #10213e;
+  --accent: #0f172a;
+  --accent-foreground: #edf6ff;
+  --platform: #0b3b78;
+  --platform-soft: #ebf4ff;
+  --success: #0f9f6e;
+  --success-soft: #eafaf4;
+  --warning: #d97706;
+  --warning-soft: #fff7eb;
+  --danger: #d14343;
+  --danger-soft: #fef2f2;
+  --ring: rgba(29, 78, 216, 0.35);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #081221;
+    --foreground: #e5eefb;
+    --muted: #12233d;
+    --muted-foreground: #9aaec7;
+    --panel: #0e1d32;
+    --panel-alt: #101f39;
+    --border: rgba(148, 163, 184, 0.2);
+    --primary: #7aa8ff;
+    --primary-foreground: #071727;
+    --secondary: #142843;
+    --secondary-foreground: #edf5ff;
+    --accent: #eef6ff;
+    --accent-foreground: #091a2d;
+    --platform: #89b7ff;
+    --platform-soft: rgba(137, 183, 255, 0.14);
+    --success: #34d399;
+    --success-soft: rgba(52, 211, 153, 0.12);
+    --warning: #fbbf24;
+    --warning-soft: rgba(251, 191, 36, 0.12);
+    --danger: #f87171;
+    --danger-soft: rgba(248, 113, 113, 0.12);
+    --ring: rgba(122, 168, 255, 0.4);
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(96, 165, 250, 0.2), transparent 28%),
+    linear-gradient(180deg, var(--background) 0%, color-mix(in srgb, var(--background) 88%, white) 100%);
+  color: var(--foreground);
+  font-family: "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+}
+button, input, select, textarea { font: inherit; }
+a { color: inherit; text-decoration: none; }

@@ -51,11 +51,11 @@ describe('AuthController', () => {
 
   it('passes refresh and logout inputs to their service operations', async () => {
     const response = {} as never;
-    await controller.refresh(
-      { refreshToken: 'selector.secret', csrfToken: 'csrf-token' },
-      response,
-    );
-    await controller.logout({ refreshToken: 'selector.secret' }, response);
+    const request = {
+      cookies: { refresh_token: 'selector.secret' },
+    } as never;
+    await controller.refresh({ csrfToken: 'csrf-token' }, request, response);
+    await controller.logout({ csrfToken: 'csrf-token' }, request, response);
 
     expect(refresh).toHaveBeenCalledWith(
       'selector.secret',

@@ -4,6 +4,7 @@ import { DomainEvent, DOMAIN_EVENTS } from './domain-events';
 import { DomainEventBus } from './domain-event-bus.service';
 import { PrismaService } from '../database/prisma.service';
 import { MetricsService } from '../../infrastructure/observability/metrics/metrics.service';
+import { requestContext } from '../request-context/request-context';
 
 const isDomainEventName = (value: unknown): value is DomainEvent['type'] => {
   const types = Object.values(DOMAIN_EVENTS);
@@ -23,6 +24,38 @@ const isDomainEvent = (value: unknown): value is DomainEvent => {
   const payload = value.payload;
 
   return isDomainEventName(type) && isRecord(payload);
+};
+
+const normalizeDomainEvent = (value: unknown): DomainEvent => {
+  if (!isDomainEvent(value)) {
+    throw new Error('Invalid domain event payload in outbox');
+  }
+
+  const occurredAt = value.occurredAt;
+  if (occurredAt === undefined || occurredAt instanceof Date) {
+    if (occurredAt instanceof Date && Number.isNaN(occurredAt.getTime())) {
+      throw new Error('Invalid domain event occurredAt in outbox');
+    }
+    return value;
+  }
+
+  if (typeof occurredAt !== 'string') {
+    throw new Error('Invalid domain event occurredAt in outbox');
+  }
+
+  const normalizedOccurredAt = new Date(occurredAt);
+  if (Number.isNaN(normalizedOccurredAt.getTime())) {
+    throw new Error('Invalid domain event occurredAt in outbox');
+  }
+
+  return { ...value, occurredAt: normalizedOccurredAt };
+};
+
+const getEventTenantId = (event: DomainEvent): string | undefined => {
+  const tenantId = event.payload.tenantId;
+  return typeof tenantId === 'string' && tenantId.length > 0
+    ? tenantId
+    : undefined;
 };
 
 @Injectable()
@@ -67,8 +100,11 @@ export class OutboxDispatcherService {
           parsed = JSON.parse(raw);
         }
 
-        if (!isDomainEvent(parsed)) {
-          throw new Error('Invalid domain event payload in outbox');
+        const event = normalizeDomainEvent(parsed);
+
+        const tenantId = outbox.tenantId ?? getEventTenantId(event);
+        if (!tenantId) {
+          throw new Error('OUTBOX_TENANT_CONTEXT_MISSING');
         }
 
         // Start an OpenTelemetry span if available
@@ -99,7 +135,7 @@ export class OutboxDispatcherService {
           const tracer = tracerApi?.trace?.getTracer?.('erp-api-outbox');
           if (tracer && typeof tracer.startSpan === 'function') {
             span = tracer.startSpan('outbox.dispatch', {
-              attributes: { 'outbox.event.type': parsed.type },
+              attributes: { 'outbox.event.type': event.type },
             });
           }
         } catch {
@@ -107,17 +143,27 @@ export class OutboxDispatcherService {
         }
 
         try {
-          await this.eventBus.publish(parsed);
+          const systemContext = requestContext.get();
+          await requestContext.run(
+            {
+              ...systemContext,
+              tenantId,
+              outletId: outbox.outletId,
+            },
+            async () => {
+              await this.eventBus.publish(event);
+
+              await this.prisma.outboxEvent.update({
+                where: { id: outbox.id },
+                data: { status: 'PROCESSED', processedAt: new Date() },
+              });
+            },
+          );
           try {
-            this.metrics?.domainEventsPublished?.inc({ event: parsed.type }, 1);
+            this.metrics?.domainEventsPublished?.inc({ event: event.type }, 1);
           } catch {
             // ignore
           }
-
-          await this.prisma.outboxEvent.update({
-            where: { id: outbox.id },
-            data: { status: 'PROCESSED', processedAt: new Date() },
-          });
         } finally {
           try {
             span?.end?.();

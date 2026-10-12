@@ -48,9 +48,9 @@ export class BusinessRegistryService {
   }) {
     const tenantId = this.tenantContext.requireTenant();
 
-    // Check existing
+    // Reuse the explicit lifecycle operations for suspended/archived records.
     const existing = await this.repository.findById(tenantId, tenantId);
-    if (existing && existing.isActive()) {
+    if (existing) {
       throw new ConflictException('Business already exists for this tenant');
     }
 

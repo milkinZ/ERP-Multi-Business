@@ -495,7 +495,7 @@ export class PurchaseOrderService extends BaseService {
       where: { id, tenantId },
     });
 
-    return this.findOne(tenantId, id);
+    return { success: true };
   }
 
   private async generatePoNumber(tenantId: string): Promise<string> {

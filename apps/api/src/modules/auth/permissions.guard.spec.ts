@@ -62,4 +62,20 @@ describe('PermissionsGuard', () => {
       ),
     ).toBe(true);
   });
+
+  it('requires the exact canonical permission string for platform access', () => {
+    getAllAndOverride.mockReturnValue(['super-admin.read']);
+
+    expect(
+      guard.canActivate(
+        executionContext({ permissions: ['super-admin.read'] }),
+      ),
+    ).toBe(true);
+
+    expect(
+      guard.canActivate(
+        executionContext({ permissions: ['super_admin.read'] }),
+      ),
+    ).toBe(false);
+  });
 });

@@ -7,6 +7,7 @@ import { TenantContextModule } from '../tenants/tenant-context.module';
 import { PrismaModule } from '../../core/database/prisma.module';
 import { OutboxModule } from '../../infrastructure/events/outbox.module';
 import { WebhookController } from './webhook/webhook.controller';
+import { XenditPaymentGateway } from './gateway/xendit-payment.gateway';
 
 @Module({
   imports: [
@@ -16,7 +17,7 @@ import { WebhookController } from './webhook/webhook.controller';
     OutboxModule,
   ],
   controllers: [BillingController, WebhookController],
-  providers: [BillingService, BillingRepository],
-  exports: [BillingService, BillingRepository],
+  providers: [BillingService, BillingRepository, XenditPaymentGateway],
+  exports: [BillingService, BillingRepository, XenditPaymentGateway],
 })
 export class BillingModule {}

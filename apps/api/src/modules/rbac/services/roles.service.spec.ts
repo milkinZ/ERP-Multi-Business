@@ -12,13 +12,24 @@ describe('RolesService', () => {
   const rolePermissionDeleteMany = jest.fn();
   const permissionFindUnique = jest.fn();
   const rolePermissionCreateMany = jest.fn();
+  const transaction = jest.fn((callback: (client: unknown) => unknown) =>
+    callback({
+      role: { updateMany },
+      rolePermission: {
+        deleteMany: rolePermissionDeleteMany,
+        createMany: rolePermissionCreateMany,
+      },
+      permission: { findMany: jest.fn().mockResolvedValue([]) },
+    }),
+  );
   const prisma = {
     role: { findMany, findFirst, create, updateMany, deleteMany },
     rolePermission: {
       deleteMany: rolePermissionDeleteMany,
       createMany: rolePermissionCreateMany,
     },
-    permission: { findUnique: permissionFindUnique },
+    permission: { findUnique: permissionFindUnique, findMany: jest.fn() },
+    $transaction: transaction,
   } as unknown as PrismaService;
   const service = new RolesService(prisma);
 

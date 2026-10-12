@@ -40,12 +40,15 @@ export class IngredientsService {
       }
 
       // Delegate persistence to repository to keep service thin
-      const ingredient = await this.ingredientsRepository.createIngredient({
-        tenantId,
-        name: data.name,
-        unit: data.unit,
-        inventoryItemId: inventoryItem.id,
-      });
+      const ingredient = await this.ingredientsRepository.createIngredient(
+        {
+          tenantId,
+          name: data.name,
+          unit: data.unit,
+          inventoryItemId: inventoryItem.id,
+        },
+        tx,
+      );
 
       return ingredient;
     });

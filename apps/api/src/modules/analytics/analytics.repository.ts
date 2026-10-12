@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { BaseRepository } from '../../core/database/repositories/base.repository';
+import { PrismaService } from '../../core/database/prisma.service';
 import type { AnalyticsQueryDto } from './dto/analytics-query.dto';
 
 export interface RevenueAggregation {
@@ -22,6 +23,35 @@ export interface TopProductRow {
 
 @Injectable()
 export class AnalyticsRepository extends BaseRepository {
+  constructor(protected readonly prisma: PrismaService) {
+    super(prisma);
+  }
+
+  private async resolveOrderIds(
+    tenantId: string,
+    query?: AnalyticsQueryDto,
+    status?: 'PENDING' | 'PAID' | 'COMPLETED' | 'CANCELLED',
+  ): Promise<string[]> {
+    const dateFilter = this.buildDateFilter(query?.startDate, query?.endDate);
+
+    const where: Record<string, unknown> = { tenantId, ...dateFilter };
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (query?.outletId) {
+      where.outletId = query.outletId;
+    }
+
+    const rows = await this.prisma.salesOrder.findMany({
+      where,
+      select: { id: true },
+    });
+
+    return rows.map((row) => row.id);
+  }
+
   /**
    * Aggregates revenue/order metrics within a tenant (and optional outlet/date range).
    * Uses database-side aggregation — no full-table loads.
@@ -38,6 +68,10 @@ export class AnalyticsRepository extends BaseRepository {
       ...outletFilter,
     };
 
+    const scopedOrderIds = query?.outletId
+      ? await this.resolveOrderIds(tenantId, query, 'PAID')
+      : [];
+
     const paymentWhere: Record<string, unknown> = {
       tenantId,
       status: 'PAID',
@@ -45,7 +79,10 @@ export class AnalyticsRepository extends BaseRepository {
     };
 
     if (query?.outletId) {
-      paymentWhere.SalesOrder = { outletId: query.outletId };
+      paymentWhere.orderId =
+        scopedOrderIds.length > 0
+          ? { in: scopedOrderIds }
+          : { in: ['__none__'] };
     }
 
     const [
@@ -93,10 +130,15 @@ export class AnalyticsRepository extends BaseRepository {
       this.prisma.payment.count({
         where: {
           tenantId,
-          ...(query?.outletId
-            ? { SalesOrder: { outletId: query.outletId } }
-            : {}),
           ...dateFilter,
+          ...(query?.outletId
+            ? {
+                orderId:
+                  scopedOrderIds.length > 0
+                    ? { in: scopedOrderIds }
+                    : { in: ['__none__'] },
+              }
+            : {}),
         },
       }),
     ]);
@@ -127,22 +169,12 @@ export class AnalyticsRepository extends BaseRepository {
     query?: AnalyticsQueryDto,
     limit = 10,
   ): Promise<TopProductRow[]> {
-    const dateFilter = this.buildDateFilter(query?.startDate, query?.endDate);
-
-    const orderWhere: Record<string, unknown> = {
-      tenantId,
-      status: 'COMPLETED',
-      ...dateFilter,
-    };
-
-    if (query?.outletId) {
-      orderWhere.outletId = query.outletId;
-    }
+    const orderIds = await this.resolveOrderIds(tenantId, query, 'COMPLETED');
 
     const rows = await this.prisma.salesOrderItem.groupBy({
       by: ['productId'],
       where: {
-        SalesOrder: orderWhere,
+        orderId: orderIds.length > 0 ? { in: orderIds } : { in: ['__none__'] },
       },
       _sum: { quantity: true },
       orderBy: { _sum: { quantity: 'desc' } },

@@ -5,6 +5,12 @@
   "author": "",
   "private": true,
   "license": "UNLICENSED",
+  "exports": {
+    "./reservation.repository": {
+      "types": "./src/modules/inventory/reservation.repository.ts",
+      "default": "./dist/src/modules/inventory/reservation.repository.js"
+    }
+  },
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",

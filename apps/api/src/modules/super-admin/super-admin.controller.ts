@@ -24,6 +24,7 @@ import { CreatePlanDto } from './dto/create-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
 import { ChangeTenantPlanDto } from './dto/change-tenant-plan.dto';
 import { TenantActionDto } from './dto/tenant-action.dto';
+import { ListPlatformAuditLogsDto } from '../audit-logs/dto/list-platform-audit-logs.dto';
 
 @ApiTags('super-admin')
 @ApiBearerAuth()
@@ -132,6 +133,30 @@ export class SuperAdminController {
     return this.superAdminService.listSubscriptions();
   }
 
+  @Get('subscriptions/:id')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_READ)
+  getSubscription(@Param('id') id: string) {
+    return this.superAdminService.getSubscription(id);
+  }
+
+  @Get('workers')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_READ)
+  listWorkers() {
+    return this.superAdminService.listWorkers();
+  }
+
+  @Get('workers/:id')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_READ)
+  getWorker(@Param('id') id: string) {
+    return this.superAdminService.getWorker(id);
+  }
+
+  @Get('billing/aggregate')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_READ)
+  getBillingAggregate() {
+    return this.superAdminService.getBillingAggregate();
+  }
+
   @Put('tenants/:tenantId/plan')
   @Permissions(PERMISSIONS.SUPER_ADMIN_MANAGE_SUBSCRIPTIONS)
   changeTenantPlan(
@@ -150,6 +175,24 @@ export class SuperAdminController {
   @Permissions(PERMISSIONS.SUPER_ADMIN_READ)
   listInvoices() {
     return this.superAdminService.listInvoices();
+  }
+
+  @Get('invoices/:id')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_READ)
+  getInvoice(@Param('id') id: string) {
+    return this.superAdminService.getInvoice(id);
+  }
+
+  @Get('audit-logs')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_READ)
+  listAuditLogs(@Query() query: ListPlatformAuditLogsDto) {
+    return this.superAdminService.listPlatformAuditLogs(query);
+  }
+
+  @Get('audit-logs/:id')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_READ)
+  getAuditLog(@Param('id') id: string) {
+    return this.superAdminService.getPlatformAuditLog(id);
   }
 
   // ---- Feature flags -----------------------------------------------------

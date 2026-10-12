@@ -43,6 +43,51 @@ describe('OutboxDispatcherService', () => {
     expect(update).toHaveBeenCalledWith(processedUpdate);
   });
 
+  it('revives serialized occurredAt values before publishing', async () => {
+    const occurredAt = '2026-09-25T09:17:00.000Z';
+    const serializedEvent = {
+      ...event,
+      occurredAt,
+    };
+    findMany.mockResolvedValue([
+      {
+        id: 'outbox-with-timestamp',
+        type: event.type,
+        payload: JSON.stringify(serializedEvent),
+        tenantId: 'tenant-a',
+      },
+    ]);
+
+    await service.dispatchBatch();
+
+    expect(publish).toHaveBeenCalledWith({
+      ...event,
+      occurredAt: new Date(occurredAt),
+    });
+  });
+
+  it('rejects invalid occurredAt values without publishing them', async () => {
+    findMany.mockResolvedValue([
+      {
+        id: 'outbox-invalid-timestamp',
+        type: event.type,
+        payload: JSON.stringify({ ...event, occurredAt: 'not-a-date' }),
+        tenantId: 'tenant-a',
+      },
+    ]);
+
+    await service.dispatchBatch();
+
+    expect(publish).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'outbox-invalid-timestamp' },
+      data: {
+        status: 'FAILED',
+        error: 'Invalid domain event occurredAt in outbox',
+      },
+    });
+  });
+
   it('marks invalid payloads failed without publishing them', async () => {
     findMany.mockResolvedValue([
       { id: 'outbox-invalid', type: 'invalid', payload: JSON.stringify({}) },

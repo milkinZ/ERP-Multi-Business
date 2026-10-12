@@ -1,0 +1,601 @@
+
+> build
+> turbo run build
+
+ΓÇó turbo 2.9.16
+ WARNING  Unable to calculate transitive closures: Missing version from non-workspace package: 'node_modules/@opentelemetry/exporter-trace-otlp-http'
+
+   ΓÇó Packages in scope: @repo/eslint-config, @repo/typescript-config, @repo/ui, api, web, worker
+   ΓÇó Running build in 6 packages
+   ΓÇó Remote caching disabled
+
+api:build: cache hit, replaying logs ffc670627ed45bce
+api:build: 
+api:build: > api@0.0.1 build
+api:build: > nest build
+api:build: 
+worker:build: cache hit, replaying logs e929d3d25f524195
+worker:build: 
+worker:build: > worker@0.0.1 build
+worker:build: > nest build
+worker:build: 
+web:build: cache hit, replaying logs a15dcf84d8073d17
+web:build: [6n[?9001h[?1004h[m]0;C:\WINDOWS\system32\cmd.exe[?25h]0;npm]0;npm run build[?25l
+web:build: > web@0.1.0 build
+web:build: > next build[5;1H[?25h]0;C:\WINDOWS\system32\cmd.exe [38;2;173;127;168m[1mΓû▓ Next.js 16.2.0[m (Turbopack)
+web:build: 
+web:build: [37m[1m [m Creating an optimized production build ...
+web:build: [32m[1mΓ£ô[m Compiled successfully in 67s
+web:build: [?25l[37m[1m [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Running TypeScript  [36m...[m
+web:build: [K[60C[32m[1m
+web:build: Γ£ô[m Finished TypeScript in 47s[K
+web:build: [?25h
+web:build: [37m[1m [m Collecting page data using 7 workers  [36m.[?25l[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m..[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m...[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Collecting page data using 7 workers  [36m..[m
+web:build: [K[60C[32m[1m
+web:build: Γ£ô[m Collecting page data using 7 workers in 5.5s    
+web:build: [?25h
+web:build: [?25l[37m[1m [m Generating static pages using 7 workers (0/34)  [36m[    ][m
+web:build: [K[60C[37m[1m[8;1H [m Generating static pages using 7 workers (0/34)  [36m[=   ]    [m[8;1H[K[60C[37m[1m[7;1H [m Generating static pages using 7 workers (0/34)  [36m[==  ]    [m[7;1H[K[60C[37m[1m[6;1H [m Generating static pages using 7 workers (0/34)  [36m[=== ]    [m[6;1H[K[60C[37m[1m[5;1H [m Generating static pages using 7 workers (0/34)  [36m[ ===]    [m[5;1H[K[60C[37m[1m[4;1H [m Generating static pages using 7 workers (0/34)  [36m[  ==]    [m[4;1H[K[60C[37m[1m[3;1H [m Generating static pages using 7 workers (0/34)  [36m[   =]    [m[3;1H[K[60C[37m[1m[2;1H [m Generating static pages using 7 workers (0/34)  [36m[    ]    [m[2;1H[K[60C[H[K[60C[37m[1m[H [m Generating static pages using 7 workers (0/34)  [36m[   =][m[H[K[60C[37m[1m[H [m Generating static pages using 7 workers (2/34)  [36m[  ==]    [m[H[K[60C[37m[1m[H [m Generating static pages using 7 workers (16/34)  [36m[ ===]   [m[H[K[60C[37m[1m[H [m Generating static pages using 7 workers (16/34)  [36m[====]   [m[H[K[60C[37m[1m[H [m Generating static pages using 7 workers (16/34)  [36m[=== ]   [m[H[K[60C[H[K[60C[37m[1m[H [m Generating static pages using 7 workers (16/34)  [36m[==  ][m[H[K[60C[H[K[60C[37m[1m[H [m Generating static pages using 7 workers (16/34)  [36m[=   ][m[H[K[60C[H[K[60C[37m[1m[H [m Generating static pages using 7 workers (16/34)  [36m[    ][m[H[K[60C[H[K[60C[H[K[60C[H[K[60C[37m[1m[H [m Generating static pages using 7 workers (24/34)  [36m[==  ][m[37m[1m[H [m Generating static pages using 7 workers (25/34)  [36m[=== ]   [m[H[K[60C[H[K[60C[37m[1m[H [m Generating static pages using 7 workers (33/34)  [36m[ ===][m[H[K[60C[H[K[60C[32m[1m[HΓ£ô[m Generating static pages using 7 workers (34/34) in 5.4s
+web:build: [?25h[?25l[37m[1m [m Finalizing page optimization  [36m.[m
+web:build: [K[60C[37m[1m
+web:build:  [m Finalizing page optimization  [36m..[m
+web:build: [K[?25h[?25l[32m[1mΓ£ô[m Finalizing page optimization in 249ms    [4;1H[?25h[4mRoute (app)[24m
+web:build: Γöî Γùï /
+web:build: Γö£ Γùï /_not-found
+web:build: Γö£ Γùï /app
+web:build: Γö£ Γùï /app/billing
+web:build: Γö£ ╞Æ /app/billing/[invoiceId]
+web:build: Γö£ Γùï /app/dashboard
+web:build: Γö£ Γùï /app/ingredients
+web:build: Γö£ ╞Æ /app/ingredients/[ingredientId]
+web:build: Γö£ Γùï /app/inventory
+web:build: Γö£ ╞Æ /app/inventory/[inventoryItemId]
+web:build: Γö£ Γùï /app/kitchen
+web:build: Γö£ Γùï /app/notifications
+web:build: Γö£ Γùï /app/orders
+web:build: Γö£ ╞Æ /app/orders/[orderId]
+web:build: Γö£ Γùï /app/outlets
+web:build: Γö£ ╞Æ /app/outlets/[outletId]
+web:build: Γö£ Γùï /app/payments
+web:build: Γö£ ╞Æ /app/payments/[paymentId]
+web:build: Γö£ Γùï /app/products
+web:build: Γö£ ╞Æ /app/products/[productId]
+web:build: Γö£ Γùï /app/purchase-orders
+web:build: Γö£ ╞Æ /app/purchase-orders/[purchaseOrderId]
+web:build: Γö£ Γùï /app/recipes
+web:build: Γö£ Γùï /app/roles
+web:build: Γö£ ╞Æ /app/roles/[roleId]
+web:build: Γö£ Γùï /app/settings
+web:build: Γö£ Γùï /app/subscriptions
+web:build: Γö£ Γùï /app/suppliers
+web:build: Γö£ ╞Æ /app/suppliers/[supplierId]
+web:build: Γö£ Γùï /app/users
+web:build: Γö£ ╞Æ /app/users/[userId]
+web:build: Γö£ Γùï /app/warehouses
+web:build: Γö£ ╞Æ /app/warehouses/[warehouseId]
+web:build: Γö£ Γùï /login
+web:build: Γö£ Γùï /platform
+web:build: Γö£ Γùï /platform/audit-logs
+web:build: Γö£ ╞Æ /platform/audit-logs/[auditId]
+web:build: Γö£ Γùï /platform/billing
+web:build: Γö£ ╞Æ /platform/billing/[invoiceId]
+web:build: Γö£ Γùï /platform/dashboard
+web:build: Γö£ Γùï /platform/jobs
+web:build: Γö£ Γùï /platform/observability
+web:build: Γö£ Γùï /platform/settings
+web:build: Γö£ Γùï /platform/subscriptions
+web:build: Γö£ ╞Æ /platform/subscriptions/[subscriptionId]
+web:build: Γö£ Γùï /platform/tenants
+web:build: Γö£ ╞Æ /platform/tenants/[tenantId]
+web:build: Γö£ Γùï /platform/workers
+web:build: Γöö Γùï /register
+web:build: 
+web:build: 
+web:build: Γùï  (Static)   prerendered as static content
+web:build: ╞Æ  (Dynamic)  server-rendered on demand
+web:build: 
+web:build: ΓáÖ
+web:build: [K[?9001l[?1004l
+
+ Tasks:    3 successful, 3 total
+Cached:    3 cached, 3 total
+  Time:    1.771s >>> FULL TURBO
+

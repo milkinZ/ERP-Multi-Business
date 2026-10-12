@@ -20,6 +20,11 @@ export const envSchema = z.object({
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
     .default('info'),
 
+  // Xendit payment provider boundary (optional until the provider is configured)
+  XENDIT_API_KEY: z.string().optional(),
+  XENDIT_API_BASE_URL: z.string().url().optional(),
+  XENDIT_WEBHOOK_TOKEN: z.string().optional(),
+
   // Observability (optional, non-blocking)
   METRICS_ENABLED: z.enum(['true', 'false']).default('true'),
   METRICS_PATH: z.string().default('/metrics'),

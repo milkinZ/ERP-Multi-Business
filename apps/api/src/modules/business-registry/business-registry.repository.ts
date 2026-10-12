@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { BusinessType } from '@prisma/client';
+import { BusinessType, TenantStatus } from '@prisma/client';
 import { BaseRepository } from '../../core/database/repositories/base.repository';
 import { PrismaService } from '../../core/database/prisma.service';
 import {
@@ -80,48 +80,58 @@ export class BusinessRegistryRepository extends BaseRepository {
 
   async save(aggregate: BusinessRegistryAggregate): Promise<void> {
     const events = aggregate.pullDomainEvents();
+    const status =
+      aggregate.status === BusinessStatus.SUSPENDED
+        ? TenantStatus.SUSPENDED
+        : aggregate.status === BusinessStatus.ARCHIVED
+          ? TenantStatus.DEACTIVATED
+          : TenantStatus.ACTIVE;
 
-    await this.prisma.tenant.upsert({
-      where: { id: aggregate.id },
-      create: {
-        id: aggregate.id,
-        name: aggregate.name,
-        businessType: aggregate.businessType as BusinessType,
-        contactEmail: aggregate.contactEmail ?? null,
-        contactPhone: aggregate.contactPhone ?? null,
-        address: aggregate.address ?? null,
-      },
-      update: {
-        name: aggregate.name,
-        businessType: aggregate.businessType as BusinessType,
-        contactEmail: aggregate.contactEmail ?? null,
-        contactPhone: aggregate.contactPhone ?? null,
-        address: aggregate.address ?? null,
-        deletedAt: aggregate.deletedAt ?? null,
-      },
-    });
-
-    // Write events to outbox
-    for (const event of events) {
-      await this.prisma.outboxEvent.create({
-        data: {
-          type: event.type,
-          tenantId: aggregate.tenantId,
-          payload: JSON.stringify({
-            ...event,
-            occurredAt: event.occurredAt ?? new Date(),
-          }),
-          status: 'PENDING',
+    await this.prisma.$transaction(async (tx) => {
+      await tx.tenant.upsert({
+        where: { id: aggregate.id },
+        create: {
+          id: aggregate.id,
+          name: aggregate.name,
+          businessType: aggregate.businessType as BusinessType,
+          contactEmail: aggregate.contactEmail ?? null,
+          contactPhone: aggregate.contactPhone ?? null,
+          address: aggregate.address ?? null,
+          status,
+          deletedAt: aggregate.deletedAt ?? null,
+        },
+        update: {
+          name: aggregate.name,
+          businessType: aggregate.businessType as BusinessType,
+          contactEmail: aggregate.contactEmail ?? null,
+          contactPhone: aggregate.contactPhone ?? null,
+          address: aggregate.address ?? null,
+          status,
+          deletedAt: aggregate.deletedAt ?? null,
         },
       });
-    }
+
+      for (const event of events) {
+        await tx.outboxEvent.create({
+          data: {
+            type: event.type,
+            tenantId: aggregate.tenantId,
+            payload: JSON.stringify({
+              ...event,
+              occurredAt: event.occurredAt ?? new Date(),
+            }),
+            status: 'PENDING',
+          },
+        });
+      }
+    });
   }
 
   async softDelete(id: string, tenantId: string): Promise<void> {
     if (id !== tenantId) return;
     await this.prisma.tenant.updateMany({
       where: { id },
-      data: { deletedAt: new Date() },
+      data: { status: TenantStatus.DEACTIVATED, deletedAt: new Date() },
     });
   }
 
@@ -139,6 +149,7 @@ export class BusinessRegistryRepository extends BaseRepository {
     contactEmail?: string | null;
     contactPhone?: string | null;
     address?: string | null;
+    status: TenantStatus;
     deletedAt: Date | null;
     createdAt: Date;
   }): BusinessRegistryAggregate {
@@ -150,9 +161,12 @@ export class BusinessRegistryRepository extends BaseRepository {
       contactEmail: record.contactEmail ?? null,
       contactPhone: record.contactPhone ?? null,
       address: record.address ?? null,
-      status: record.deletedAt
-        ? BusinessStatus.ARCHIVED
-        : BusinessStatus.ACTIVE,
+      status:
+        record.status === TenantStatus.SUSPENDED
+          ? BusinessStatus.SUSPENDED
+          : record.status === TenantStatus.DEACTIVATED
+            ? BusinessStatus.ARCHIVED
+            : BusinessStatus.ACTIVE,
       deletedAt: record.deletedAt,
     });
   }

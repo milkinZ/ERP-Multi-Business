@@ -15,6 +15,8 @@ export class RBACPermissionsSeeder implements OnModuleInit {
     const targetCodes = entries.filter(
       (c) =>
         c.startsWith('rbac.') ||
+        c.startsWith('user.') ||
+        c.startsWith('outlet.') ||
         c.startsWith('subscription.') ||
         c.startsWith('plan.') ||
         c.startsWith('invoice.') ||

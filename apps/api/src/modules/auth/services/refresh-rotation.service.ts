@@ -2,7 +2,6 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 
 import { PrismaService } from '../../../core/database/prisma.service';
 
-import { RefreshTokensService } from './refresh-tokens.service';
 import { RefreshTokenSelectorsService } from './refresh-token-selectors.service';
 import { RefreshSecretHashService } from './refresh-secret-hash.service';
 
@@ -10,7 +9,6 @@ import { RefreshSecretHashService } from './refresh-secret-hash.service';
 export class RefreshRotationService {
   constructor(
     private prisma: PrismaService,
-    private refreshTokens: RefreshTokensService,
     private selectors: RefreshTokenSelectorsService,
     private secretHasher: RefreshSecretHashService,
   ) {}
@@ -53,21 +51,40 @@ export class RefreshRotationService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    const revokedAt = new Date();
-    await this.refreshTokens.revokeById(oldTokenRow.id, revokedAt);
-
     const newSelector = this.selectors.createSelector();
     const newHash = await this.secretHasher.hashSecret(newTokenPlain);
+    const rotatedAt = new Date();
 
-    const newToken = await this.refreshTokens.create({
-      tokenSelector: newSelector,
-      tokenHash: newHash,
-      userId: oldTokenRow.userId,
-      tenantId: oldTokenRow.tenantId,
-      roleId: oldTokenRow.roleId,
-      outletId: oldTokenRow.outletId ?? null,
-      expiresAt: newExpiresAt,
-      rotatedFromId: oldTokenRow.id,
+    const newToken = await this.prisma.$transaction(async (transaction) => {
+      const consumed = await transaction.refreshToken.updateMany({
+        where: {
+          id: oldTokenRow.id,
+          tokenSelector: oldTokenSelector,
+          tokenHash: oldTokenRow.tokenHash,
+          userId,
+          tenantId,
+          revokedAt: null,
+          expiresAt: { gt: rotatedAt },
+        },
+        data: { revokedAt: rotatedAt },
+      });
+
+      if (consumed.count !== 1) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+
+      return transaction.refreshToken.create({
+        data: {
+          tokenSelector: newSelector,
+          tokenHash: newHash,
+          userId: oldTokenRow.userId,
+          tenantId: oldTokenRow.tenantId,
+          roleId: oldTokenRow.roleId,
+          outletId: oldTokenRow.outletId ?? null,
+          expiresAt: newExpiresAt,
+          rotatedFromId: oldTokenRow.id,
+        },
+      });
     });
 
     return {

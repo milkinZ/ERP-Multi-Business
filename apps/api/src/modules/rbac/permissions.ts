@@ -64,6 +64,12 @@ export const PERMISSIONS = {
   ROLE_PERMISSION_MANAGE: 'rbac.role.permission.manage',
   USER_ROLE_MANAGE: 'rbac.user.role.manage',
   USER_OUTLET_MANAGE: 'rbac.user.outlet.manage',
+  USER_READ: 'user.read',
+
+  OUTLET_READ: 'outlet.read',
+  OUTLET_CREATE: 'outlet.create',
+  OUTLET_UPDATE: 'outlet.update',
+  OUTLET_DELETE: 'outlet.delete',
 
   // Feature Flags
   FEATURE_FLAG_READ: 'feature-flag.read',

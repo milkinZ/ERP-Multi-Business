@@ -98,7 +98,7 @@ describe('BusinessRegistryService', () => {
       });
     });
 
-    it('should throw ConflictException when already exists', async () => {
+    it('should throw ConflictException when a business already exists', async () => {
       const aggregate = BusinessRegistryAggregate.reconstitute({
         id: tenantId,
         tenantId,
@@ -116,6 +116,30 @@ describe('BusinessRegistryService', () => {
         }),
       ).rejects.toThrow(ConflictException);
     });
+
+    it.each([BusinessStatus.SUSPENDED, BusinessStatus.ARCHIVED])(
+      'does not recreate a %s business as ACTIVE',
+      async (status) => {
+        findByIdMock.mockResolvedValue(
+          BusinessRegistryAggregate.reconstitute({
+            id: tenantId,
+            tenantId,
+            name: 'My Cafe',
+            businessType: 'CAFE',
+            status,
+            deletedAt: status === BusinessStatus.ARCHIVED ? new Date() : null,
+          }),
+        );
+
+        await expect(
+          service.create({
+            name: 'My Cafe',
+            businessType: BusinessType.CAFE,
+          }),
+        ).rejects.toThrow(ConflictException);
+        expect(saveMock).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe('update', () => {

@@ -17,7 +17,14 @@ export class OutletsRepository extends BaseRepository {
 
   async findAll(tenantId: string) {
     return this.prisma.outlet.findMany({
-      where: this.buildTenantFilter(tenantId),
+      where: { ...this.buildTenantFilter(tenantId), deletedAt: null },
+      select: {
+        id: true,
+        tenantId: true,
+        name: true,
+        createdAt: true,
+        updatedAt: true,
+      },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -25,6 +32,13 @@ export class OutletsRepository extends BaseRepository {
   async findOne(id: string, tenantId: string) {
     return this.prisma.outlet.findFirst({
       where: { id, tenantId, deletedAt: null },
+      select: {
+        id: true,
+        tenantId: true,
+        name: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
   }
 

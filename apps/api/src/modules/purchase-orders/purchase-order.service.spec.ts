@@ -30,7 +30,7 @@ describe('PurchaseOrderService', () => {
     supplier: { findUnique: supplierFindUnique },
     inventoryItem: { findMany: inventoryFindMany },
     $transaction: transaction,
-    purchaseOrder: { count: jest.fn() },
+    purchaseOrder: { count: jest.fn(), deleteMany: jest.fn() },
   };
   const createPurchaseOrder = jest.fn();
   const findOne = jest.fn();
@@ -133,5 +133,17 @@ describe('PurchaseOrderService', () => {
     ).rejects.toThrow(
       new BadRequestException('Warehouse is required for receiving/receipting'),
     );
+  });
+
+  it('returns a successful result after deleting a draft purchase order', async () => {
+    findOne.mockResolvedValue(purchaseOrder(PurchaseOrderStatus.DRAFT));
+    prisma.purchaseOrder.deleteMany.mockResolvedValue({ count: 1 });
+
+    await expect(service.delete('tenant-a', 'po-a')).resolves.toEqual({
+      success: true,
+    });
+    expect(prisma.purchaseOrder.deleteMany).toHaveBeenCalledWith({
+      where: { id: 'po-a', tenantId: 'tenant-a' },
+    });
   });
 });

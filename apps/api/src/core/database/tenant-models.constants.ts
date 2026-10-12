@@ -28,6 +28,7 @@ export const TENANT_SCOPED_MODELS = [
   'FeatureFlag',
   'Subscription',
   'Invoice',
+  'XenditPaymentRequestAttempt',
   'UserRole',
   'UserOutlet',
 ] as const;

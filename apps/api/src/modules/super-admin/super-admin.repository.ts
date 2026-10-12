@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, TenantStatus } from '@prisma/client';
 import { BaseRepository } from '../../core/database/repositories/base.repository';
 import { PrismaService } from '../../core/database/prisma.service';
 export type SuperAdminTenantQueryOptions = {
@@ -123,11 +123,160 @@ export class SuperAdminRepository extends BaseRepository {
     });
   }
 
+  async findSubscriptionById(id: string) {
+    return this.prisma.subscription.findFirst({
+      where: { id, deletedAt: null },
+      include: { plan: true, tenant: true },
+    });
+  }
+
   async findAllInvoices() {
     return this.prisma.invoice.findMany({
       where: { deletedAt: null },
       include: { tenant: true },
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getBillingAggregate() {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const [
+          tenantGroups,
+          subscriptionStatusGroups,
+          subscriptionPlanGroups,
+          invoiceGroups,
+          invoiceProviderStatusGroups,
+          paymentRequestGroups,
+        ] = await Promise.all([
+          tx.tenant.groupBy({
+            by: ['status'],
+            _count: { _all: true },
+            orderBy: { status: 'asc' },
+          }),
+          tx.subscription.groupBy({
+            by: ['status'],
+            where: { deletedAt: null },
+            _count: { _all: true },
+            orderBy: { status: 'asc' },
+          }),
+          tx.subscription.groupBy({
+            by: ['planId'],
+            where: { deletedAt: null },
+            _count: { _all: true },
+            orderBy: { planId: 'asc' },
+          }),
+          tx.invoice.groupBy({
+            by: ['status', 'currency'],
+            where: { deletedAt: null },
+            _count: { _all: true },
+            _sum: { amountCents: true },
+            orderBy: [{ status: 'asc' }, { currency: 'asc' }],
+          }),
+          tx.invoice.groupBy({
+            by: ['providerStatus'],
+            where: { deletedAt: null },
+            _count: { _all: true },
+            orderBy: { providerStatus: 'asc' },
+          }),
+          tx.xenditPaymentRequestAttempt.groupBy({
+            by: ['state'],
+            where: { invoice: { is: { deletedAt: null } } },
+            _count: { _all: true },
+            orderBy: { state: 'asc' },
+          }),
+        ]);
+
+        const plans =
+          subscriptionPlanGroups.length === 0
+            ? []
+            : await tx.plan.findMany({
+                where: {
+                  id: {
+                    in: subscriptionPlanGroups.map((group) => group.planId),
+                  },
+                },
+                select: { id: true, type: true, name: true },
+              });
+        const plansById = new Map(plans.map((plan) => [plan.id, plan]));
+
+        const byPlan = subscriptionPlanGroups.map((group) => {
+          const plan = plansById.get(group.planId);
+          if (!plan) {
+            throw new Error(
+              `Subscription references missing plan ${group.planId}`,
+            );
+          }
+          return {
+            planId: plan.id,
+            planType: plan.type,
+            planName: plan.name,
+            subscriptionCount: group._count._all,
+          };
+        });
+
+        return {
+          tenants: {
+            total: tenantGroups.reduce(
+              (total, group) => total + group._count._all,
+              0,
+            ),
+            byStatus: tenantGroups.map(({ status, _count }) => ({
+              status,
+              count: _count._all,
+            })),
+          },
+          subscriptions: {
+            total: subscriptionStatusGroups.reduce(
+              (total, group) => total + group._count._all,
+              0,
+            ),
+            byStatus: subscriptionStatusGroups.map(({ status, _count }) => ({
+              status,
+              count: _count._all,
+            })),
+            byPlan,
+          },
+          invoices: {
+            total: invoiceGroups.reduce(
+              (total, group) => total + group._count._all,
+              0,
+            ),
+            byStatusAndCurrency: invoiceGroups.map(
+              ({ status, currency, _count, _sum }) => ({
+                status,
+                currency,
+                count: _count._all,
+                amountCents: _sum.amountCents ?? 0,
+              }),
+            ),
+            byProviderStatus: invoiceProviderStatusGroups.map(
+              ({ providerStatus, _count }) => ({
+                providerStatus,
+                count: _count._all,
+              }),
+            ),
+          },
+          paymentRequests: {
+            total: paymentRequestGroups.reduce(
+              (total, group) => total + group._count._all,
+              0,
+            ),
+            byState: paymentRequestGroups.map(({ state, _count }) => ({
+              state,
+              count: _count._all,
+            })),
+          },
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
+  async findInvoiceById(id: string) {
+    return this.prisma.invoice.findFirst({
+      where: { id, deletedAt: null },
+      include: { tenant: true },
     });
   }
 
@@ -142,7 +291,11 @@ export class SuperAdminRepository extends BaseRepository {
   async updateTenantDeletedAt(tenantId: string, deletedAt: Date | null) {
     return this.prisma.tenant.update({
       where: { id: tenantId },
-      data: { deletedAt },
+      data: {
+        deletedAt,
+        status:
+          deletedAt === null ? TenantStatus.ACTIVE : TenantStatus.DEACTIVATED,
+      },
     });
   }
 }

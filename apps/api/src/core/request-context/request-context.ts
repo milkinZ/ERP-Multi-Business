@@ -6,6 +6,9 @@ export type RequestContextStore = {
   userId?: string;
   tenantId?: string;
   outletId?: string | null;
+  allowPreAuthUserLookup?: boolean;
+  allowPreAuthRefreshTokenLookup?: boolean;
+  systemOperation?: 'outbox-dispatch' | 'xendit-webhook';
   /** Optional W3C traceparent header value when tracing is enabled */
   traceparent?: string;
 };

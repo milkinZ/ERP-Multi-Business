@@ -24,11 +24,13 @@ export class KitchenService {
       tenantId,
     );
     if (!ticket) throw new BadRequestException('Kitchen ticket not found');
+    const expectedStatus = ticket.status;
     ticket.startCooking();
     const persisted = await this.kitchenRepository.updateStatus(
       id,
       tenantId,
       ticket.status,
+      expectedStatus,
     );
     if (!persisted)
       throw new BadRequestException('Failed to persist kitchen ticket');
@@ -53,11 +55,13 @@ export class KitchenService {
       tenantId,
     );
     if (!ticket) throw new BadRequestException('Kitchen ticket not found');
+    const expectedStatus = ticket.status;
     ticket.markReady();
     const persisted = await this.kitchenRepository.updateStatus(
       id,
       tenantId,
       ticket.status,
+      expectedStatus,
     );
     if (!persisted)
       throw new BadRequestException('Failed to persist kitchen ticket');
@@ -82,11 +86,13 @@ export class KitchenService {
       tenantId,
     );
     if (!ticket) throw new BadRequestException('Kitchen ticket not found');
+    const expectedStatus = ticket.status;
     ticket.markServed();
     const persisted = await this.kitchenRepository.updateStatus(
       id,
       tenantId,
       ticket.status,
+      expectedStatus,
     );
     if (!persisted)
       throw new BadRequestException('Failed to persist kitchen ticket');
@@ -108,11 +114,13 @@ export class KitchenService {
       tenantId,
     );
     if (!ticket) throw new BadRequestException('Kitchen ticket not found');
+    const expectedStatus = ticket.status;
     ticket.cancel();
     const persisted = await this.kitchenRepository.updateStatus(
       id,
       tenantId,
       ticket.status,
+      expectedStatus,
     );
     if (!persisted)
       throw new BadRequestException('Failed to persist kitchen ticket');
@@ -134,11 +142,13 @@ export class KitchenService {
       tenantId,
     );
     if (!ticket) throw new BadRequestException('Kitchen ticket not found');
+    const expectedStatus = ticket.status;
     ticket.recall();
     const persisted = await this.kitchenRepository.updateStatus(
       id,
       tenantId,
       ticket.status,
+      expectedStatus,
     );
     if (!persisted)
       throw new BadRequestException('Failed to persist kitchen ticket');

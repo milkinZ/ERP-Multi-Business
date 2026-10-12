@@ -40,12 +40,15 @@ describe('IngredientsService', () => {
     await expect(
       service.create('tenant-a', { name: 'Coffee beans', unit: 'kg' }),
     ).resolves.toEqual(expect.objectContaining({ tenantId: 'tenant-a' }));
-    expect(createIngredient).toHaveBeenCalledWith({
-      tenantId: 'tenant-a',
-      name: 'Coffee beans',
-      unit: 'kg',
-      inventoryItemId: 'inventory-a',
-    });
+    expect(createIngredient).toHaveBeenCalledWith(
+      {
+        tenantId: 'tenant-a',
+        name: 'Coffee beans',
+        unit: 'kg',
+        inventoryItemId: 'inventory-a',
+      },
+      expect.any(Object),
+    );
     expect(transaction).toHaveBeenCalledTimes(1);
   });
 

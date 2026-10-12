@@ -55,7 +55,12 @@ describe('KitchenService', () => {
     await expect(service.startCooking('order-a', 'tenant-a')).resolves.toBe(
       current,
     );
-    expect(updateStatus).toHaveBeenCalledWith('order-a', 'tenant-a', 'COOKING');
+    expect(updateStatus).toHaveBeenCalledWith(
+      'order-a',
+      'tenant-a',
+      'COOKING',
+      KitchenStatus.QUEUED,
+    );
     expect(publish).toHaveBeenCalledWith({
       type: 'kitchen.cooking.started',
       payload: {

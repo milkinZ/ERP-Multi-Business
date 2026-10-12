@@ -296,4 +296,181 @@ describe('Billing and subscription PostgreSQL integration', () => {
       prisma.outboxEvent.count({ where: { type: 'invoice.paid' } }),
     ).resolves.toBe(0);
   });
+
+  it('allocates globally unique sequential invoice numbers through billing', async () => {
+    const existingIds = new Set(
+      (
+        await prisma.invoice.findMany({
+          where: { tenantId: tenantA },
+          select: { id: true },
+        })
+      ).map((invoice) => invoice.id),
+    );
+    await prisma.subscription.create({
+      data: {
+        id: subscriptionA,
+        tenantId: tenantA,
+        planId: planA,
+        status: 'ACTIVE',
+        startedAt: new Date(),
+      },
+    });
+
+    try {
+      await inTenant(tenantA, async () => {
+        await billing.executeBilling(subscriptionA);
+        await billing.executeBilling(subscriptionA);
+        await billing.executeBilling(subscriptionA);
+      });
+
+      const invoices = (
+        await prisma.invoice.findMany({
+          where: { tenantId: tenantA },
+        })
+      ).filter((invoice) => !existingIds.has(invoice.id));
+      expect(invoices).toHaveLength(3);
+      expect(invoices.map((invoice) => invoice.invoiceNumber)).toEqual(
+        expect.arrayContaining([expect.stringMatching(/^INV-\d{6}-\d{6}$/)]),
+      );
+      const numbers = invoices.map((invoice) => invoice.invoiceNumber);
+      expect(new Set(numbers).size).toBe(3);
+      const sequences = numbers
+        .map((number) => Number(number.slice(-6)))
+        .sort((left, right) => left - right);
+      expect(sequences[1]).toBe(sequences[0] + 1);
+      expect(sequences[2]).toBe(sequences[1] + 1);
+    } finally {
+      const created = await prisma.invoice.findMany({
+        where: { tenantId: tenantA },
+        select: { id: true },
+      });
+      await prisma.invoice.deleteMany({
+        where: {
+          id: {
+            in: created
+              .map((invoice) => invoice.id)
+              .filter((id) => !existingIds.has(id)),
+          },
+        },
+      });
+      await prisma.subscription.deleteMany({ where: { id: subscriptionA } });
+    }
+  });
+
+  it('allocates distinct numbers under concurrent billing and remains usable', async () => {
+    const existingIds = new Set(
+      (
+        await prisma.invoice.findMany({
+          where: { tenantId: tenantA },
+          select: { id: true },
+        })
+      ).map((invoice) => invoice.id),
+    );
+    await prisma.subscription.create({
+      data: {
+        id: subscriptionA,
+        tenantId: tenantA,
+        planId: planA,
+        status: 'ACTIVE',
+        startedAt: new Date(),
+      },
+    });
+
+    try {
+      const results = await inTenant(tenantA, () =>
+        Promise.allSettled(
+          Array.from({ length: 10 }, () =>
+            billing.executeBilling(subscriptionA),
+          ),
+        ),
+      );
+      expect(
+        results.filter((result) => result.status === 'fulfilled'),
+      ).toHaveLength(10);
+      expect(
+        results.filter((result) => result.status === 'rejected'),
+      ).toHaveLength(0);
+
+      await inTenant(tenantA, () => billing.executeBilling(subscriptionA));
+      const invoices = (
+        await prisma.invoice.findMany({
+          where: { tenantId: tenantA },
+        })
+      ).filter((invoice) => !existingIds.has(invoice.id));
+      expect(invoices).toHaveLength(11);
+      expect(
+        new Set(invoices.map((invoice) => invoice.invoiceNumber)).size,
+      ).toBe(11);
+    } finally {
+      const created = await prisma.invoice.findMany({
+        where: { tenantId: tenantA },
+        select: { id: true },
+      });
+      await prisma.invoice.deleteMany({
+        where: {
+          id: {
+            in: created
+              .map((invoice) => invoice.id)
+              .filter((id) => !existingIds.has(id)),
+          },
+        },
+      });
+      await prisma.subscription.deleteMany({ where: { id: subscriptionA } });
+    }
+  });
+
+  it('rolls back allocation when invoice insertion fails and rejects duplicates in PostgreSQL', async () => {
+    const counterBefore = await prisma.$queryRaw<Array<{ value: number }>>`
+      SELECT "value" FROM "InvoiceNumberCounter" WHERE "key" = 'global'
+    `;
+    const invoiceCountBefore = await prisma.invoice.count({
+      where: { tenantId: tenantA },
+    });
+
+    await expect(
+      billingRepository.createInvoice({
+        tenantId: 'it-billing-missing-tenant',
+        subscriptionId: null,
+        amountCents: 49900,
+        currency: 'IDR',
+        status: 'PENDING',
+        dueAt: null,
+      }),
+    ).rejects.toThrow();
+
+    const counterAfter = await prisma.$queryRaw<Array<{ value: number }>>`
+      SELECT "value" FROM "InvoiceNumberCounter" WHERE "key" = 'global'
+    `;
+    expect(counterAfter).toEqual(counterBefore);
+    expect(await prisma.invoice.count({ where: { tenantId: tenantA } })).toBe(
+      invoiceCountBefore,
+    );
+
+    const invoice = await billingRepository.createInvoice({
+      tenantId: tenantA,
+      subscriptionId: null,
+      amountCents: 49900,
+      currency: 'IDR',
+      status: 'PENDING',
+      dueAt: null,
+    });
+    try {
+      expect(Number(invoice.invoiceNumber.slice(-6))).toBe(
+        counterBefore[0].value + 1,
+      );
+      await expect(
+        prisma.invoice.create({
+          data: {
+            tenantId: tenantB,
+            invoiceNumber: invoice.invoiceNumber,
+            amountCents: 49900,
+            currency: 'IDR',
+            status: 'PENDING',
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'P2002' });
+    } finally {
+      await prisma.invoice.delete({ where: { id: invoice.id } });
+    }
+  });
 });

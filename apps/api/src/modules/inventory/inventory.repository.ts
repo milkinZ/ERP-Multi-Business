@@ -448,10 +448,29 @@ export class InventoryRepository extends BaseRepository {
   async history(tenantId: string) {
     return this.prisma.inventoryMovement.findMany({
       where: { tenantId },
-      include: {
-        InventoryItem: true,
-        Warehouse: true,
-        User: true,
+      select: {
+        id: true,
+        tenantId: true,
+        type: true,
+        quantity: true,
+        note: true,
+        createdAt: true,
+        afterQuantity: true,
+        beforeQuantity: true,
+        createdById: true,
+        inventoryItemId: true,
+        referenceId: true,
+        referenceType: true,
+        warehouseId: true,
+        InventoryItem: {
+          select: { id: true, name: true, code: true, type: true },
+        },
+        Warehouse: {
+          select: { id: true, name: true, code: true },
+        },
+        User: {
+          select: { id: true, email: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -460,9 +479,26 @@ export class InventoryRepository extends BaseRepository {
   async historyByItem(tenantId: string, inventoryItemId: string) {
     return this.prisma.inventoryMovement.findMany({
       where: { tenantId, inventoryItemId },
-      include: {
-        InventoryItem: true,
-        Warehouse: true,
+      select: {
+        id: true,
+        tenantId: true,
+        type: true,
+        quantity: true,
+        note: true,
+        createdAt: true,
+        afterQuantity: true,
+        beforeQuantity: true,
+        createdById: true,
+        inventoryItemId: true,
+        referenceId: true,
+        referenceType: true,
+        warehouseId: true,
+        InventoryItem: {
+          select: { id: true, name: true, code: true, type: true },
+        },
+        Warehouse: {
+          select: { id: true, name: true, code: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });

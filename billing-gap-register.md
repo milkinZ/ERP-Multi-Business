@@ -1,0 +1,61 @@
+# Billing Gap Register
+
+## Verified Backend Contract
+
+- Tenant invoice list: `GET /billing/invoices?skip=&take=` (`invoice.read`)
+- Tenant invoice detail: `GET /billing/invoices/:id` (`invoice.read`)
+- Execute billing: `POST /billing/execute/:subscriptionId` (`billing.execute`)
+- Renew subscription: `POST /billing/renew/:subscriptionId` (`billing.execute`)
+- Current subscription context: `GET /subscriptions/current` (`subscription.read`)
+- Platform invoice list: `GET /super-admin/invoices` (`super-admin.read`)
+- Platform invoice detail: `GET /super-admin/invoices/:id` (`super-admin.read`)
+- Platform invoice responses expose only verified invoice fields and a tenant `{ id, name }` summary.
+
+## Verified Platform Boundary
+
+- Platform invoice reads use the existing `JwtAuthGuard` and `PermissionGuard` with `super-admin.read`.
+- Tenant billing endpoints remain scoped by `TenantContextService.requireTenant()` and are not called by the platform UI.
+- No platform billing mutation endpoint exists. `super-admin.manage.billing` is defined but is not attached to a billing controller action.
+- `Invoice.subscriptionId` is an optional scalar without a Prisma relation; the platform UI links to the existing subscription route only when that identifier is present.
+
+## Confirmed Gaps
+
+### API-002 status: RESOLVED WITH GAP
+
+The supported billing contract remains intentionally limited to invoice list/detail and the existing billing execution/renewal flows. Payment settlement APIs, refunds, cancellations, reconciliation, PDF/CSV exports, and broader lifecycle actions remain unsupported; no provider behavior or business policy is inferred. Keep the corresponding UI actions unavailable until a separately approved contract defines them.
+
+### BACKEND CONTRACT GAP
+
+- No invoice payment endpoint exists. The frontend does not treat invoice existence as payment.
+- No invoice cancellation endpoint exists.
+- No invoice download, PDF, CSV, or export endpoint exists.
+- No billing summary endpoint exists beyond invoice pagination and current subscription data.
+- No invoice status enum, tax, discount, subtotal, balance, or payment relation is exposed by the Invoice model.
+- No platform invoice filtering by tenant, subscription, status, or date is exposed.
+- No platform billing history, reconciliation, refund, cancellation, export, or PDF contract is exposed.
+- No platform-safe execute-billing or renewal endpoint exists; tenant billing endpoints must remain tenant-scoped.
+
+### FINANCIAL SAFETY GAP
+
+- Billing execute and renewal have no visible idempotency-key contract. The frontend uses mutation retry `0` and warns when a failed request may have an unknown result.
+- Invoice number generation is backend-owned and now uses a PostgreSQL-backed transactional counter in the same database transaction as invoice creation. This closes the previous count-based race and preserves the existing global `INV-YYYYMM-######` format with database-level uniqueness enforcement.
+
+### SECURITY GAP
+
+- SEC-001 is resolved for the integrated Xendit Payments API v3 Payment Request webhook contract. Xendit documents `x-callback-token` as the webhook origin-verification token and recommends comparing it with the secret from Dashboard webhook settings. `WebhookController` verifies this header before invoking billing processing, and missing or invalid configuration/header values fail closed.
+- The documented contract does not specify HMAC verification or a signed timestamp. Duplicate/replayed delivery is handled by the existing payment/capture-derived idempotency key and unique durable receipt; event timestamps are payload data, not an authentication mechanism.
+- The platform read surface continues not to expose payment-provider payloads, credentials, or mutation controls.
+
+Official contract references: [Create a payment request](https://docs.xendit.co/apidocs/create-payment-request) (`POST /v3/payment_requests`, Payments API v3); [Payment webhook notification](https://docs.xendit.co/apidocs/payment-webhook-notification) (`POST /your_payment_webhook_url`, `x-callback-token`, event and payment payload); and [Integration security](https://docs.xendit.co/docs/integration-security) (verify the callback token and validate payment IDs, amount, and status). The production deployment must configure `XENDIT_WEBHOOK_TOKEN` to the token registered in Xendit Dashboard.
+
+### ARCHITECTURE GAP
+
+- The billing domain has tenant-scoped services and repositories only. A future platform billing mutation workflow needs an explicit cross-tenant authorization and transaction boundary rather than passing a platform-supplied `tenantId` into tenant billing services.
+
+### REALTIME INFRASTRUCTURE GAP
+
+- No frontend billing realtime contract is exposed; billing realtime remains deferred.
+
+### TEST INFRASTRUCTURE GAP
+
+- No dedicated frontend Billing test harness is currently present.

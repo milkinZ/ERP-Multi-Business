@@ -131,7 +131,7 @@ export function superAdminActorFixture(
   return {
     userId: testIds.user,
     tenantId: testIds.tenant,
-    permissions: ['super_admin.read'],
+    permissions: ['super-admin.read'],
     ...overrides,
   };
 }

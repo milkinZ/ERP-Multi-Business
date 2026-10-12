@@ -4,7 +4,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
-import { Response } from 'express';
+import { Request, Response } from 'express';
+import { TenantStatus } from '@prisma/client';
 
 import { UsersService } from '../users/users.service';
 import { PrismaService } from '../../core/database/prisma.service';
@@ -15,6 +16,7 @@ import { SessionsService } from './services/sessions.service';
 import { RefreshRotationService } from './services/refresh-rotation.service';
 import { RefreshTokenSelectorsService } from './services/refresh-token-selectors.service';
 import { RefreshSecretHashService } from './services/refresh-secret-hash.service';
+import { requestContext } from '../../core/request-context/request-context';
 
 import {
   CSRF_COOKIE_NAME,
@@ -41,6 +43,8 @@ export class AuthService {
     roleId: string;
     outletId?: string | null;
   }) {
+    requestContext.set({ tenantId: data.tenantId });
+    await this.assertTenantActive(data.tenantId);
     const hashedPassword = await bcrypt.hash(data.password, 10);
 
     // Follow the same security conventions as login:
@@ -79,8 +83,34 @@ export class AuthService {
     return user;
   }
 
+  issueCsrfToken(req: Request, res: Response) {
+    const cookies = req.cookies as Record<string, unknown> | undefined;
+    const existingToken = cookies?.[CSRF_COOKIE_NAME];
+    const csrfToken =
+      typeof existingToken === 'string' && existingToken
+        ? existingToken
+        : this.authTokens.createRefreshTokenPlain();
+
+    res.clearCookie(CSRF_COOKIE_NAME, { path: '/' });
+    res.clearCookie(CSRF_COOKIE_NAME, { path: '/auth' });
+    res.cookie(CSRF_COOKIE_NAME, csrfToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/auth',
+      maxAge: 1000 * 60 * 60 * 24 * 30,
+    });
+
+    return { csrfToken };
+  }
+
   async login(email: string, password: string, res: Response) {
+    requestContext.set({ allowPreAuthUserLookup: true });
     const user = await this.usersService.findByEmail(email);
+    requestContext.set({
+      allowPreAuthUserLookup: false,
+      tenantId: user?.tenantId,
+    });
 
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
@@ -91,6 +121,7 @@ export class AuthService {
     if (!validPassword) {
       throw new UnauthorizedException('Invalid credentials');
     }
+    await this.assertTenantActive(user.tenantId);
 
     const roleRow = await this.prisma.userRole.findFirst({
       where: { userId: user.id, tenantId: user.tenantId, deletedAt: null },
@@ -149,6 +180,8 @@ export class AuthService {
       maxAge: 1000 * 60 * 60 * 24 * 30,
     });
 
+    res.clearCookie(CSRF_COOKIE_NAME, { path: '/' });
+    res.clearCookie(CSRF_COOKIE_NAME, { path: '/auth' });
     res.cookie(CSRF_COOKIE_NAME, csrfToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -170,15 +203,34 @@ export class AuthService {
       : null;
 
     if (parsed?.selector) {
-      const tokenRow = await this.refreshTokens.getBySelector(parsed.selector);
+      const tokenRow = parsed.rest
+        ? await this.refreshTokens.getBySelectorForAuthentication(
+            parsed.selector,
+          )
+        : null;
 
-      if (tokenRow?.id) {
-        const revokedAt = new Date();
-        await this.refreshTokens.revokeById(tokenRow.id, revokedAt);
+      if (tokenRow && !tokenRow.revokedAt && parsed.rest) {
+        const secretMatches = await this.secretHasher.verifySecret(
+          parsed.rest,
+          tokenRow.tokenHash,
+        );
+
+        if (secretMatches) {
+          await requestContext.run(
+            {
+              ...requestContext.get(),
+              userId: tokenRow.userId,
+              tenantId: tokenRow.tenantId,
+              outletId: tokenRow.outletId,
+            },
+            () => this.refreshTokens.revokeById(tokenRow.id, new Date()),
+          );
+        }
       }
     }
 
     res.clearCookie(REFRESH_COOKIE_NAME, { path: '/auth' });
+    res.clearCookie(CSRF_COOKIE_NAME, { path: '/' });
     res.clearCookie(CSRF_COOKIE_NAME, { path: '/auth' });
 
     return { success: true };
@@ -208,9 +260,15 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token format');
     }
 
-    const tokenRow = await this.refreshTokens.getBySelector(parsed.selector);
+    const tokenRow = await this.refreshTokens.getBySelectorForAuthentication(
+      parsed.selector,
+    );
 
-    if (!tokenRow || tokenRow.revokedAt) {
+    if (
+      !tokenRow ||
+      tokenRow.revokedAt ||
+      tokenRow.expiresAt.getTime() <= Date.now()
+    ) {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
@@ -219,39 +277,67 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    const accessPayload = await this.authTokens.buildAccessPayload({
-      userId: tokenRow.userId,
-      tenantId: tokenRow.tenantId,
-      outletId: tokenRow.outletId,
-    });
+    const secretMatches = await this.secretHasher.verifySecret(
+      parsed.rest,
+      tokenRow.tokenHash,
+    );
+    if (!secretMatches) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
 
-    const accessToken = await this.authTokens.issueAccessToken(accessPayload);
-
-    const newPlain = this.authTokens.createRefreshTokenPlain();
-    const newExpiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30);
-
-    const rotated = await this.refreshRotation.rotate({
-      userId: tokenRow.userId,
-      tenantId: tokenRow.tenantId,
-      oldTokenSelector: tokenRow.tokenSelector,
-      oldTokenSecret: parsed.rest,
-      newTokenPlain: newPlain,
-      newExpiresAt,
-    });
-
-    // Rotation should also update CSRF token; current design keeps CSRF cookie stable for 30 days.
-    res.cookie(
-      REFRESH_COOKIE_NAME,
-      `${rotated.newTokenSelector}.${rotated.newTokenPlain}`,
+    return requestContext.run(
       {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/auth',
-        maxAge: 1000 * 60 * 60 * 24 * 30,
+        ...requestContext.get(),
+        userId: tokenRow.userId,
+        tenantId: tokenRow.tenantId,
+        outletId: tokenRow.outletId,
+      },
+      async () => {
+        await this.assertTenantActive(tokenRow.tenantId);
+        const accessPayload = await this.authTokens.buildAccessPayload({
+          userId: tokenRow.userId,
+          tenantId: tokenRow.tenantId,
+          outletId: tokenRow.outletId,
+        });
+
+        const accessToken =
+          await this.authTokens.issueAccessToken(accessPayload);
+        const newPlain = this.authTokens.createRefreshTokenPlain();
+        const newExpiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30);
+
+        const rotated = await this.refreshRotation.rotate({
+          userId: tokenRow.userId,
+          tenantId: tokenRow.tenantId,
+          oldTokenSelector: tokenRow.tokenSelector,
+          oldTokenSecret: parsed.rest,
+          newTokenPlain: newPlain,
+          newExpiresAt,
+        });
+
+        res.cookie(
+          REFRESH_COOKIE_NAME,
+          `${rotated.newTokenSelector}.${rotated.newTokenPlain}`,
+          {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            path: '/auth',
+            maxAge: 1000 * 60 * 60 * 24 * 30,
+          },
+        );
+
+        return { accessToken };
       },
     );
+  }
 
-    return { accessToken };
+  private async assertTenantActive(tenantId: string): Promise<void> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { status: true },
+    });
+    if (!tenant || tenant.status !== TenantStatus.ACTIVE) {
+      throw new UnauthorizedException('Tenant is not active');
+    }
   }
 }
