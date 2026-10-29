@@ -1,7 +1,8 @@
 export type PlatformAuditLogResponse = {
   id: string;
-  actorUserId: string;
-  actorTenantId: string;
+  actorUserId: string | null;
+  actorTenantId: string | null;
+  actorPlatformIdentityId: string | null;
   actorType: string;
   action: string;
   resourceType: string;

@@ -5,7 +5,7 @@ import {
 import { DOMAIN_EVENTS } from '../../../core/events/domain-events';
 
 describe('SuperAdminAggregate', () => {
-  const actor = { userId: 'user-1', tenantId: 'tenant-superadmin' };
+  const actor = { platformIdentityId: 'platform-identity-1' };
 
   const makeTarget = (
     status = SuperAdminTargetStatus.ACTIVE,
@@ -24,8 +24,7 @@ describe('SuperAdminAggregate', () => {
   describe('activate', () => {
     it('should emit SUPER_ADMIN_TENANT_ACTIVATED', () => {
       const aggregate = SuperAdminAggregate.forTarget(
-        actor.userId,
-        actor.tenantId,
+        actor.platformIdentityId,
         suspendedTarget(),
       );
 
@@ -35,16 +34,15 @@ describe('SuperAdminAggregate', () => {
       expect(events).toHaveLength(1);
       expect(events[0].type).toBe(DOMAIN_EVENTS.SUPER_ADMIN_TENANT_ACTIVATED);
       expect(events[0].payload).toMatchObject({
-        tenantId: actor.tenantId,
+        tenantId: 'tenant-1',
         targetTenantId: 'tenant-1',
-        actionedByUserId: actor.userId,
+        actionedByPlatformIdentityId: actor.platformIdentityId,
       });
     });
 
     it('should throw when target is already active', () => {
       const aggregate = SuperAdminAggregate.forTarget(
-        actor.userId,
-        actor.tenantId,
+        actor.platformIdentityId,
         activeTarget(),
       );
 
@@ -57,8 +55,7 @@ describe('SuperAdminAggregate', () => {
   describe('suspend', () => {
     it('should emit SUPER_ADMIN_TENANT_SUSPENDED with reason', () => {
       const aggregate = SuperAdminAggregate.forTarget(
-        actor.userId,
-        actor.tenantId,
+        actor.platformIdentityId,
         activeTarget(),
       );
 
@@ -72,8 +69,7 @@ describe('SuperAdminAggregate', () => {
 
     it('should throw when target is already suspended', () => {
       const aggregate = SuperAdminAggregate.forTarget(
-        actor.userId,
-        actor.tenantId,
+        actor.platformIdentityId,
         suspendedTarget(),
       );
 
@@ -86,8 +82,7 @@ describe('SuperAdminAggregate', () => {
   describe('deactivate', () => {
     it('should emit SUPER_ADMIN_TENANT_DEACTIVATED and set deletedAt', () => {
       const aggregate = SuperAdminAggregate.forTarget(
-        actor.userId,
-        actor.tenantId,
+        actor.platformIdentityId,
         activeTarget(),
       );
 
@@ -103,8 +98,7 @@ describe('SuperAdminAggregate', () => {
 
     it('should throw when target is already deactivated', () => {
       const aggregate = SuperAdminAggregate.forTarget(
-        actor.userId,
-        actor.tenantId,
+        actor.platformIdentityId,
         deactivatedTarget(),
       );
 
@@ -117,8 +111,7 @@ describe('SuperAdminAggregate', () => {
   describe('restore', () => {
     it('should emit SUPER_ADMIN_TENANT_RESTORED', () => {
       const aggregate = SuperAdminAggregate.forTarget(
-        actor.userId,
-        actor.tenantId,
+        actor.platformIdentityId,
         deactivatedTarget(),
       );
 
@@ -133,8 +126,7 @@ describe('SuperAdminAggregate', () => {
 
     it('should throw when target is not deactivated', () => {
       const aggregate = SuperAdminAggregate.forTarget(
-        actor.userId,
-        actor.tenantId,
+        actor.platformIdentityId,
         activeTarget(),
       );
 
@@ -145,10 +137,9 @@ describe('SuperAdminAggregate', () => {
   });
 
   describe('changePlan', () => {
-    it('should emit SUPER_ADMIN_PLAN_CHANGED with old/new plan ids', () => {
+    it('should emit a scheduled plan-change event with old/new plan ids', () => {
       const aggregate = SuperAdminAggregate.forTarget(
-        actor.userId,
-        actor.tenantId,
+        actor.platformIdentityId,
         activeTarget(),
       );
 
@@ -158,7 +149,9 @@ describe('SuperAdminAggregate', () => {
       );
 
       const events = aggregate.pullDomainEvents();
-      expect(events[0].type).toBe(DOMAIN_EVENTS.SUPER_ADMIN_PLAN_CHANGED);
+      expect(events[0].type).toBe(
+        DOMAIN_EVENTS.SUPER_ADMIN_PLAN_CHANGE_SCHEDULED,
+      );
       expect(events[0].payload).toMatchObject({
         oldPlanId: 'plan-1',
         newPlanId: 'plan-2',
@@ -167,8 +160,7 @@ describe('SuperAdminAggregate', () => {
 
     it('should throw when plan is unchanged', () => {
       const aggregate = SuperAdminAggregate.forTarget(
-        actor.userId,
-        actor.tenantId,
+        actor.platformIdentityId,
         activeTarget(),
       );
 
@@ -184,8 +176,7 @@ describe('SuperAdminAggregate', () => {
   describe('changeSubscription', () => {
     it('should emit SUPER_ADMIN_SUBSCRIPTION_CHANGED', () => {
       const aggregate = SuperAdminAggregate.forTarget(
-        actor.userId,
-        actor.tenantId,
+        actor.platformIdentityId,
         activeTarget(),
       );
 

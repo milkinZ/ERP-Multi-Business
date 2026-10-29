@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from "@nestjs/common";
 import type { Job } from "bullmq";
 import { Queue, QueueEvents } from "bullmq";
 
@@ -26,6 +31,8 @@ export class JobExecutionHistoryService
       correlationId: string | null;
     }
   >();
+  private readonly attemptNumbers = new Map<string, number>();
+  private readonly eventTasks = new Map<string, Promise<void>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -33,7 +40,7 @@ export class JobExecutionHistoryService
     private readonly workerRegistry: WorkerRegistryService,
   ) {}
 
-  async onModuleInit() {
+  onModuleInit() {
     for (const queueName of Object.values(QUEUE_NAMES)) {
       this.attachQueue(queueName);
     }
@@ -51,6 +58,9 @@ export class JobExecutionHistoryService
     this.queueEvents.clear();
     this.queues.clear();
     this.jobSnapshots.clear();
+    this.attemptNumbers.clear();
+    await Promise.all(this.eventTasks.values());
+    this.eventTasks.clear();
   }
 
   private attachQueue(queueName: QueueName) {
@@ -59,15 +69,21 @@ export class JobExecutionHistoryService
     const events = new QueueEvents(queueName, { connection });
 
     events.on("active", ({ jobId }) => {
-      void this.handleActive(queueName, jobId);
+      this.dispatchEvent("active", queueName, jobId, () =>
+        this.handleActive(queueName, jobId),
+      );
     });
 
     events.on("completed", ({ jobId }) => {
-      void this.handleCompleted(queueName, jobId);
+      this.dispatchEvent("completed", queueName, jobId, () =>
+        this.handleCompleted(queueName, jobId),
+      );
     });
 
     events.on("failed", ({ jobId, failedReason }) => {
-      void this.handleFailed(queueName, jobId, failedReason);
+      this.dispatchEvent("failed", queueName, jobId, () =>
+        this.handleFailed(queueName, jobId, failedReason),
+      );
     });
 
     this.queues.set(queueName, queue);
@@ -80,11 +96,38 @@ export class JobExecutionHistoryService
       return;
     }
 
-    const attemptNumber = this.resolveAttemptNumber(job);
+    const key = this.toSnapshotKey(queueName, jobId);
+    const previousSnapshot = this.jobSnapshots.get(key);
+    const attemptNumber = (this.attemptNumbers.get(key) ?? 0) + 1;
+    this.attemptNumbers.set(key, attemptNumber);
     const startedAt = this.resolveStartedAt(job);
     const maxAttempts = Number(job.opts?.attempts ?? 1);
     const workerId = this.workerRegistry.getCurrentWorkerId();
-    const key = this.toSnapshotKey(queueName, jobId);
+
+    if (previousSnapshot && previousSnapshot.attemptNumber < attemptNumber) {
+      const finishedAt = startedAt;
+      const { category, message } = this.sanitizeFailure(
+        job.failedReason ?? "Unknown retryable failure",
+      );
+      await this.persistExecution({
+        queueName,
+        bullmqJobId: jobId,
+        jobName: previousSnapshot.jobName,
+        attemptNumber: previousSnapshot.attemptNumber,
+        status: "RETRYING",
+        workerId,
+        startedAt: previousSnapshot.startedAt,
+        finishedAt,
+        durationMs: Math.max(
+          0,
+          finishedAt.getTime() - previousSnapshot.startedAt.getTime(),
+        ),
+        errorCategory: category,
+        errorMessage: message,
+        correlationId: previousSnapshot.correlationId,
+      });
+    }
+
     this.jobSnapshots.set(key, {
       jobName: job.name,
       attemptNumber,
@@ -106,7 +149,9 @@ export class JobExecutionHistoryService
   }
 
   private async handleCompleted(queueName: QueueName, jobId: string) {
-    const snapshot = this.jobSnapshots.get(this.toSnapshotKey(queueName, jobId));
+    const snapshot = this.jobSnapshots.get(
+      this.toSnapshotKey(queueName, jobId),
+    );
     if (!snapshot) {
       return;
     }
@@ -129,10 +174,18 @@ export class JobExecutionHistoryService
       durationMs,
       correlationId: snapshot.correlationId,
     });
+    this.jobSnapshots.delete(this.toSnapshotKey(queueName, jobId));
+    this.attemptNumbers.delete(this.toSnapshotKey(queueName, jobId));
   }
 
-  private async handleFailed(queueName: QueueName, jobId: string, failedReason: string) {
-    const snapshot = this.jobSnapshots.get(this.toSnapshotKey(queueName, jobId));
+  private async handleFailed(
+    queueName: QueueName,
+    jobId: string,
+    failedReason: string,
+  ) {
+    const snapshot = this.jobSnapshots.get(
+      this.toSnapshotKey(queueName, jobId),
+    );
     if (!snapshot) {
       return;
     }
@@ -161,9 +214,16 @@ export class JobExecutionHistoryService
       errorMessage: message,
       correlationId: snapshot.correlationId,
     });
+    if (status === "FAILED") {
+      this.jobSnapshots.delete(this.toSnapshotKey(queueName, jobId));
+      this.attemptNumbers.delete(this.toSnapshotKey(queueName, jobId));
+    }
   }
 
-  private async getJob(queueName: QueueName, jobId: string): Promise<Job | null> {
+  private async getJob(
+    queueName: QueueName,
+    jobId: string,
+  ): Promise<Job | null> {
     const queue =
       this.queues.get(queueName) ??
       new Queue(queueName, { connection: this.redis.getConnectionOptions() });
@@ -176,9 +236,26 @@ export class JobExecutionHistoryService
     return job ?? null;
   }
 
-  private resolveAttemptNumber(job: Job): number {
-    const attemptsMade = Number(job.attemptsMade ?? 1);
-    return Number.isFinite(attemptsMade) && attemptsMade > 0 ? attemptsMade : 1;
+  private dispatchEvent(
+    eventName: string,
+    queueName: QueueName,
+    jobId: string,
+    handler: () => Promise<void>,
+  ) {
+    const key = this.toSnapshotKey(queueName, jobId);
+    const previous = this.eventTasks.get(key) ?? Promise.resolve();
+    const task = previous.then(handler).catch((error: unknown) => {
+      const errorName = error instanceof Error ? error.name : "UnknownError";
+      this.logger.error(
+        `Failed to persist ${eventName} job execution for ${queueName}/${jobId} (${errorName})`,
+      );
+    });
+    this.eventTasks.set(key, task);
+    void task.then(() => {
+      if (this.eventTasks.get(key) === task) {
+        this.eventTasks.delete(key);
+      }
+    });
   }
 
   private resolveStartedAt(job: Job): Date {
@@ -205,20 +282,32 @@ export class JobExecutionHistoryService
     message: string;
   } {
     const message = failedReason
-      .replace(/(password|secret|token|api[_-]?key|authorization)=([^\s]+)/gi, "$1=[REDACTED]")
+      .replace(
+        /(password|secret|token|api[_-]?key|authorization)=([^\s]+)/gi,
+        "$1=[REDACTED]",
+      )
       .replace(/(Bearer\s+[A-Za-z0-9._-]+)/gi, "Bearer [REDACTED]")
       .replace(/\s+/g, " ")
       .trim()
       .slice(0, 500);
 
-    const lowered = message.toLowerCase();
-    if (/(database|prisma|postgres|sql|duplicate key|connection reset)/i.test(message)) {
+    if (
+      /(database|prisma|postgres|sql|duplicate key|connection reset)/i.test(
+        message,
+      )
+    ) {
       return { category: "DATABASE_ERROR", message };
     }
-    if (/(validation|zod|required|missing|invalid|bad request)/i.test(message)) {
+    if (
+      /(validation|zod|required|missing|invalid|bad request)/i.test(message)
+    ) {
       return { category: "VALIDATION_ERROR", message };
     }
-    if (/(xendit|stripe|sendgrid|external|fetch failed|provider|http status)/i.test(message)) {
+    if (
+      /(xendit|stripe|sendgrid|external|fetch failed|provider|http status)/i.test(
+        message,
+      )
+    ) {
       return { category: "EXTERNAL_PROVIDER_ERROR", message };
     }
     if (/(timeout|timed out|abort|etimedout|econnreset)/i.test(message)) {

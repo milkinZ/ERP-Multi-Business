@@ -3,6 +3,7 @@ import { BaseRepository } from '../../core/database/repositories/base.repository
 import { PrismaService } from '../../core/database/prisma.service';
 import { InventoryMovementType, Prisma } from '@prisma/client';
 import { ReservationAggregate } from './domain/reservation.aggregate';
+import { InventoryCostingService } from './inventory-costing.service';
 
 export const ACTIVE_RESERVATION_REF = 'ORDER_RESERVATION';
 export const COMMITTED_RESERVATION_REF = 'ORDER_RESERVATION_COMMITTED';
@@ -34,12 +35,8 @@ type OrderWithRelations = {
       Recipe?: {
         RecipeItem: {
           quantity: number;
-          Ingredient: {
-            name: string;
-            inventoryItemId?: string | null;
-            InventoryItem?: {
-              id: string;
-            } | null;
+          InventoryItem: {
+            id: string;
           };
         }[];
       } | null;
@@ -49,7 +46,10 @@ type OrderWithRelations = {
 
 @Injectable()
 export class ReservationRepository extends BaseRepository {
-  constructor(protected readonly prisma: PrismaService) {
+  constructor(
+    protected readonly prisma: PrismaService,
+    private readonly costing: InventoryCostingService = new InventoryCostingService(),
+  ) {
     super(prisma);
   }
 
@@ -59,11 +59,23 @@ export class ReservationRepository extends BaseRepository {
 
   async reserveStock(orderId: string, tenantId: string) {
     return this.transaction(async (tx) => {
+      const [lockedOrder] = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id"
+        FROM "SalesOrder"
+        WHERE "id" = ${orderId} AND "tenantId" = ${tenantId}
+        FOR UPDATE
+      `;
+      if (!lockedOrder) {
+        throw new Error('Order not found');
+      }
+
       const existingReservation = await tx.inventoryMovement.findFirst({
         where: {
           tenantId,
           referenceId: orderId,
-          referenceType: ACTIVE_RESERVATION_REF,
+          referenceType: {
+            in: [ACTIVE_RESERVATION_REF, COMMITTED_RESERVATION_REF],
+          },
         },
       });
 
@@ -113,56 +125,20 @@ export class ReservationRepository extends BaseRepository {
         data: { referenceType: RELEASED_RESERVATION_REF },
       });
 
+      if (claimed.count === 0) {
+        return { orderId, released: false };
+      }
       if (claimed.count !== reservations.length) {
         throw new Error('Reservation already processed');
       }
 
       for (const reservation of reservations) {
-        if (!reservation.warehouseId) {
-          throw new Error('Reservation has no warehouse');
-        }
-
-        const stock = await tx.inventoryStock.findUnique({
-          where: {
-            warehouseId_inventoryItemId: {
-              warehouseId: reservation.warehouseId,
-              inventoryItemId: reservation.inventoryItemId,
-            },
-          },
-        });
-
-        const beforeQuantity = stock?.quantity ?? 0;
-
-        if (stock) {
-          await tx.inventoryStock.update({
-            where: { id: stock.id },
-            data: { quantity: { increment: reservation.quantity } },
-          });
-        } else {
-          await tx.inventoryStock.create({
-            data: {
-              warehouseId: reservation.warehouseId,
-              inventoryItemId: reservation.inventoryItemId,
-              quantity: reservation.quantity,
-              updatedAt: new Date(),
-            },
-          });
-        }
-
-        await tx.inventoryMovement.create({
-          data: {
-            tenantId,
-            warehouseId: reservation.warehouseId,
-            inventoryItemId: reservation.inventoryItemId,
-            type: InventoryMovementType.RETURN,
-            referenceType: RELEASE_MOVEMENT_REF,
-            referenceId: orderId,
-            quantity: reservation.quantity,
-            beforeQuantity,
-            afterQuantity: beforeQuantity + reservation.quantity,
-            note: 'Released order stock reservation',
-          },
-        });
+        await this.restoreReservationMovement(
+          tx,
+          reservation,
+          orderId,
+          'Released order stock reservation',
+        );
       }
 
       return { orderId, released: true };
@@ -194,56 +170,20 @@ export class ReservationRepository extends BaseRepository {
         data: { referenceType: CANCELLED_RESERVATION_REF },
       });
 
+      if (claimed.count === 0) {
+        return { orderId, cancelled: false };
+      }
       if (claimed.count !== reservations.length) {
         throw new Error('Reservation already processed');
       }
 
       for (const reservation of reservations) {
-        if (!reservation.warehouseId) {
-          throw new Error('Reservation has no warehouse');
-        }
-
-        const stock = await tx.inventoryStock.findUnique({
-          where: {
-            warehouseId_inventoryItemId: {
-              warehouseId: reservation.warehouseId,
-              inventoryItemId: reservation.inventoryItemId,
-            },
-          },
-        });
-
-        const beforeQuantity = stock?.quantity ?? 0;
-
-        if (stock) {
-          await tx.inventoryStock.update({
-            where: { id: stock.id },
-            data: { quantity: { increment: reservation.quantity } },
-          });
-        } else {
-          await tx.inventoryStock.create({
-            data: {
-              warehouseId: reservation.warehouseId,
-              inventoryItemId: reservation.inventoryItemId,
-              quantity: reservation.quantity,
-              updatedAt: new Date(),
-            },
-          });
-        }
-
-        await tx.inventoryMovement.create({
-          data: {
-            tenantId,
-            warehouseId: reservation.warehouseId,
-            inventoryItemId: reservation.inventoryItemId,
-            type: InventoryMovementType.RETURN,
-            referenceType: RELEASE_MOVEMENT_REF,
-            referenceId: orderId,
-            quantity: reservation.quantity,
-            beforeQuantity,
-            afterQuantity: beforeQuantity + reservation.quantity,
-            note: 'Cancelled order stock reservation',
-          },
-        });
+        await this.restoreReservationMovement(
+          tx,
+          reservation,
+          orderId,
+          'Cancelled order stock reservation',
+        );
       }
 
       return { orderId, cancelled: true };
@@ -282,8 +222,26 @@ export class ReservationRepository extends BaseRepository {
         },
       });
 
+      if (committed.count === 0) {
+        return { orderId, committed: false };
+      }
       if (committed.count !== reservations.length) {
         throw new Error('Reservation already processed');
+      }
+      for (const reservation of reservations) {
+        const costAllocationCount =
+          await tx.inventoryMovementCostAllocation.count({
+            where: { movementId: reservation.id },
+          });
+        if (costAllocationCount === 0) {
+          await this.costing.issue(tx, {
+            tenantId,
+            inventoryItemId: reservation.inventoryItemId,
+            warehouseId: reservation.warehouseId,
+            quantity: reservation.quantity,
+            movementId: reservation.id,
+          });
+        }
       }
 
       return { orderId, committed: true };
@@ -313,56 +271,20 @@ export class ReservationRepository extends BaseRepository {
         data: { referenceType: EXPIRED_RESERVATION_REF },
       });
 
+      if (claimed.count === 0) {
+        return 0;
+      }
       if (claimed.count !== reservations.length) {
         throw new Error('Reservation already processed');
       }
 
       for (const reservation of reservations) {
-        if (!reservation.warehouseId) {
-          throw new Error('Reservation has no warehouse');
-        }
-
-        const stock = await tx.inventoryStock.findUnique({
-          where: {
-            warehouseId_inventoryItemId: {
-              warehouseId: reservation.warehouseId,
-              inventoryItemId: reservation.inventoryItemId,
-            },
-          },
-        });
-
-        const beforeQuantity = stock?.quantity ?? 0;
-
-        if (stock) {
-          await tx.inventoryStock.update({
-            where: { id: stock.id },
-            data: { quantity: { increment: reservation.quantity } },
-          });
-        } else {
-          await tx.inventoryStock.create({
-            data: {
-              warehouseId: reservation.warehouseId,
-              inventoryItemId: reservation.inventoryItemId,
-              quantity: reservation.quantity,
-              updatedAt: new Date(),
-            },
-          });
-        }
-
-        await tx.inventoryMovement.create({
-          data: {
-            tenantId: reservation.tenantId,
-            warehouseId: reservation.warehouseId,
-            inventoryItemId: reservation.inventoryItemId,
-            type: InventoryMovementType.RETURN,
-            referenceType: RELEASE_MOVEMENT_REF,
-            referenceId: reservation.referenceId,
-            quantity: reservation.quantity,
-            beforeQuantity,
-            afterQuantity: beforeQuantity + reservation.quantity,
-            note: 'Expired order stock reservation',
-          },
-        });
+        await this.restoreReservationMovement(
+          tx,
+          reservation,
+          reservation.referenceId,
+          'Expired order stock reservation',
+        );
       }
 
       // Write an outbox event for each expired reservation so subscribers can react after transaction commit
@@ -425,15 +347,8 @@ export class ReservationRepository extends BaseRepository {
         if (!recipe) continue;
 
         for (const recipeItem of recipe.RecipeItem) {
-          const ingredient = recipeItem.Ingredient;
-          if (!ingredient.InventoryItem?.id && !ingredient.inventoryItemId) {
-            throw new Error(
-              `Ingredient ${ingredient.name} is not linked to inventory`,
-            );
-          }
-
           addRequirement(
-            ingredient.InventoryItem?.id ?? ingredient.inventoryItemId,
+            recipeItem.InventoryItem.id,
             recipeItem.quantity * orderItem.quantity,
           );
         }
@@ -450,6 +365,16 @@ export class ReservationRepository extends BaseRepository {
     requirement: StockRequirement,
   ) {
     let remainingQuantity = requirement.quantity;
+    const itemRows = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+      FROM "InventoryItem"
+      WHERE "id" = ${requirement.inventoryItemId}
+        AND "tenantId" = ${tenantId}
+      FOR UPDATE
+    `;
+    if (itemRows.length === 0) {
+      throw new Error('Inventory item not found');
+    }
 
     const stocks = await tx.inventoryStock.findMany({
       where: {
@@ -503,12 +428,88 @@ export class ReservationRepository extends BaseRepository {
           note: 'Reserved stock for order',
         },
       });
-
       remainingQuantity -= quantityToReserve;
     }
 
     if (remainingQuantity > 0) {
       throw new Error('Insufficient stock for order reservation');
+    }
+  }
+
+  private async restoreReservationMovement(
+    tx: Prisma.TransactionClient,
+    reservation: {
+      id: string;
+      tenantId: string;
+      warehouseId: string | null;
+      inventoryItemId: string;
+      quantity: number;
+    },
+    referenceId: string | null,
+    note: string,
+  ) {
+    if (!reservation.warehouseId) {
+      throw new Error('Reservation has no warehouse');
+    }
+    const costAllocationCount = await tx.inventoryMovementCostAllocation.count({
+      where: { movementId: reservation.id },
+    });
+    if (costAllocationCount > 0) {
+      await this.costing.lockItem(
+        tx,
+        reservation.tenantId,
+        reservation.inventoryItemId,
+      );
+    }
+
+    const stock = await tx.inventoryStock.findUnique({
+      where: {
+        warehouseId_inventoryItemId: {
+          warehouseId: reservation.warehouseId,
+          inventoryItemId: reservation.inventoryItemId,
+        },
+      },
+    });
+    const beforeQuantity = stock?.quantity ?? 0;
+    if (stock) {
+      await tx.inventoryStock.update({
+        where: { id: stock.id },
+        data: { quantity: { increment: reservation.quantity } },
+      });
+    } else {
+      await tx.inventoryStock.create({
+        data: {
+          warehouseId: reservation.warehouseId,
+          inventoryItemId: reservation.inventoryItemId,
+          quantity: reservation.quantity,
+          updatedAt: new Date(),
+        },
+      });
+    }
+
+    const reversalMovement = await tx.inventoryMovement.create({
+      data: {
+        tenantId: reservation.tenantId,
+        warehouseId: reservation.warehouseId,
+        inventoryItemId: reservation.inventoryItemId,
+        type: InventoryMovementType.RETURN,
+        referenceType: RELEASE_MOVEMENT_REF,
+        referenceId,
+        quantity: reservation.quantity,
+        beforeQuantity,
+        afterQuantity: beforeQuantity + reservation.quantity,
+        note,
+      },
+    });
+    if (costAllocationCount > 0) {
+      await this.costing.restore(tx, {
+        tenantId: reservation.tenantId,
+        inventoryItemId: reservation.inventoryItemId,
+        warehouseId: reservation.warehouseId,
+        quantity: reservation.quantity,
+        sourceMovementId: reservation.id,
+        reversalMovementId: reversalMovement.id,
+      });
     }
   }
 
@@ -538,12 +539,8 @@ export class ReservationRepository extends BaseRepository {
                   include: {
                     RecipeItem: {
                       include: {
-                        Ingredient: {
-                          include: {
-                            InventoryItem: {
-                              select: { id: true },
-                            },
-                          },
+                        InventoryItem: {
+                          select: { id: true },
                         },
                       },
                     },

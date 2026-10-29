@@ -3,6 +3,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { BusinessType, InventoryMovementType, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../core/database/prisma.service';
+import { InventoryCostingService } from './inventory-costing.service';
 
 const ACTIVE_RESERVATION_REF = 'ORDER_RESERVATION';
 const COMMITTED_RESERVATION_REF = 'ORDER_RESERVATION_COMMITTED';
@@ -33,13 +34,8 @@ type OrderWithRelations = {
       Recipe?: {
         RecipeItem: {
           quantity: number;
-
-          Ingredient: {
-            inventoryItemId?: string | null;
-
-            InventoryItem?: {
-              id: string;
-            } | null;
+          InventoryItem: {
+            id: string;
           };
         }[];
       } | null;
@@ -49,16 +45,31 @@ type OrderWithRelations = {
 
 @Injectable()
 export class InventoryReservationService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly costing: InventoryCostingService = new InventoryCostingService(),
+  ) {}
 
   async reserveStock(orderId: string, tenantId: string) {
     return this.prisma.$transaction(
       async (tx) => {
+        const [lockedOrder] = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT "id"
+          FROM "SalesOrder"
+          WHERE "id" = ${orderId} AND "tenantId" = ${tenantId}
+          FOR UPDATE
+        `;
+        if (!lockedOrder) {
+          throw new BadRequestException('Order not found');
+        }
+
         const existingReservation = await tx.inventoryMovement.findFirst({
           where: {
             tenantId,
             referenceId: orderId,
-            referenceType: ACTIVE_RESERVATION_REF,
+            referenceType: {
+              in: [ACTIVE_RESERVATION_REF, COMMITTED_RESERVATION_REF],
+            },
           },
         });
 
@@ -83,12 +94,8 @@ export class InventoryReservationService {
                       include: {
                         RecipeItem: {
                           include: {
-                            Ingredient: {
-                              include: {
-                                InventoryItem: {
-                                  select: { id: true },
-                                },
-                              },
+                            InventoryItem: {
+                              select: { id: true },
                             },
                           },
                         },
@@ -113,94 +120,129 @@ export class InventoryReservationService {
 
         return { orderId, reserved: true };
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
     );
   }
 
-  async releaseReservation(orderId: string, tenantId: string) {
+  async releaseReservation(
+    orderId: string,
+    tenantId: string,
+    tx?: Prisma.TransactionClient,
+  ) {
+    if (tx) {
+      return this.releaseReservationInTransaction(tx, orderId, tenantId);
+    }
+
     return this.prisma.$transaction(
-      async (tx) => {
-        const reservations = await tx.inventoryMovement.findMany({
-          where: {
-            tenantId,
-            referenceId: orderId,
-            referenceType: ACTIVE_RESERVATION_REF,
-          },
-        });
-
-        if (reservations.length === 0) {
-          return { orderId, released: false };
-        }
-
-        const reservationIds = reservations.map((r) => r.id);
-
-        const claimed = await tx.inventoryMovement.updateMany({
-          where: {
-            id: { in: reservationIds },
-            tenantId,
-            referenceType: ACTIVE_RESERVATION_REF,
-          },
-          data: { referenceType: RELEASED_RESERVATION_REF },
-        });
-
-        if (claimed.count !== reservations.length) {
-          throw new BadRequestException('Reservation already processed');
-        }
-
-        for (const reservation of reservations) {
-          if (!reservation.warehouseId) {
-            throw new BadRequestException('Reservation has no warehouse');
-          }
-
-          const stock = await tx.inventoryStock.findUnique({
-            where: {
-              warehouseId_inventoryItemId: {
-                warehouseId: reservation.warehouseId,
-                inventoryItemId: reservation.inventoryItemId,
-              },
-            },
-          });
-
-          const beforeQuantity = stock?.quantity ?? 0;
-
-          if (stock) {
-            await tx.inventoryStock.update({
-              where: { id: stock.id },
-              data: {
-                quantity: { increment: reservation.quantity },
-              },
-            });
-          } else {
-            await tx.inventoryStock.create({
-              data: {
-                warehouseId: reservation.warehouseId,
-                inventoryItemId: reservation.inventoryItemId,
-                quantity: reservation.quantity,
-                updatedAt: new Date(),
-              },
-            });
-          }
-
-          await tx.inventoryMovement.create({
-            data: {
-              tenantId,
-              warehouseId: reservation.warehouseId,
-              inventoryItemId: reservation.inventoryItemId,
-              type: InventoryMovementType.RETURN,
-              referenceType: RELEASE_MOVEMENT_REF,
-              referenceId: orderId,
-              quantity: reservation.quantity,
-              beforeQuantity,
-              afterQuantity: beforeQuantity + reservation.quantity,
-              note: 'Released order stock reservation',
-            },
-          });
-        }
-
-        return { orderId, released: true };
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      (transaction) =>
+        this.releaseReservationInTransaction(transaction, orderId, tenantId),
+      { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
     );
+  }
+
+  private async releaseReservationInTransaction(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    tenantId: string,
+  ) {
+    const reservations = await tx.inventoryMovement.findMany({
+      where: {
+        tenantId,
+        referenceId: orderId,
+        referenceType: ACTIVE_RESERVATION_REF,
+      },
+    });
+
+    if (reservations.length === 0) {
+      return { orderId, released: false };
+    }
+
+    const reservationIds = reservations.map((r) => r.id);
+
+    const claimed = await tx.inventoryMovement.updateMany({
+      where: {
+        id: { in: reservationIds },
+        tenantId,
+        referenceType: ACTIVE_RESERVATION_REF,
+      },
+      data: { referenceType: RELEASED_RESERVATION_REF },
+    });
+
+    if (claimed.count === 0) {
+      return { orderId, released: false };
+    }
+    if (claimed.count !== reservations.length) {
+      throw new BadRequestException('Reservation already processed');
+    }
+
+    for (const reservation of reservations) {
+      if (!reservation.warehouseId) {
+        throw new BadRequestException('Reservation has no warehouse');
+      }
+      const costAllocationCount =
+        await tx.inventoryMovementCostAllocation.count({
+          where: { movementId: reservation.id },
+        });
+      if (costAllocationCount > 0) {
+        await this.costing.lockItem(tx, tenantId, reservation.inventoryItemId);
+      }
+
+      const stock = await tx.inventoryStock.findUnique({
+        where: {
+          warehouseId_inventoryItemId: {
+            warehouseId: reservation.warehouseId,
+            inventoryItemId: reservation.inventoryItemId,
+          },
+        },
+      });
+
+      const beforeQuantity = stock?.quantity ?? 0;
+
+      if (stock) {
+        await tx.inventoryStock.update({
+          where: { id: stock.id },
+          data: {
+            quantity: { increment: reservation.quantity },
+          },
+        });
+      } else {
+        await tx.inventoryStock.create({
+          data: {
+            warehouseId: reservation.warehouseId,
+            inventoryItemId: reservation.inventoryItemId,
+            quantity: reservation.quantity,
+            updatedAt: new Date(),
+          },
+        });
+      }
+
+      const reversalMovement = await tx.inventoryMovement.create({
+        data: {
+          tenantId,
+          warehouseId: reservation.warehouseId,
+          inventoryItemId: reservation.inventoryItemId,
+          type: InventoryMovementType.RETURN,
+          referenceType: RELEASE_MOVEMENT_REF,
+          referenceId: orderId,
+          quantity: reservation.quantity,
+          beforeQuantity,
+          afterQuantity: beforeQuantity + reservation.quantity,
+          note: 'Released order stock reservation',
+        },
+      });
+      if (costAllocationCount > 0) {
+        await this.costing.restore(tx, {
+          tenantId,
+          inventoryItemId: reservation.inventoryItemId,
+          warehouseId: reservation.warehouseId,
+          quantity: reservation.quantity,
+          sourceMovementId: reservation.id,
+          reversalMovementId: reversalMovement.id,
+        });
+      }
+    }
+
+    return { orderId, released: true };
   }
 
   async commitReservation(orderId: string, tenantId: string) {
@@ -240,13 +282,31 @@ export class InventoryReservationService {
           },
         });
 
+        if (committed.count === 0) {
+          return { orderId, committed: false };
+        }
         if (committed.count !== reservations.length) {
           throw new BadRequestException('Reservation already processed');
+        }
+        for (const reservation of reservations) {
+          const costAllocationCount =
+            await tx.inventoryMovementCostAllocation.count({
+              where: { movementId: reservation.id },
+            });
+          if (costAllocationCount === 0) {
+            await this.costing.issue(tx, {
+              tenantId,
+              inventoryItemId: reservation.inventoryItemId,
+              warehouseId: reservation.warehouseId,
+              quantity: reservation.quantity,
+              movementId: reservation.id,
+            });
+          }
         }
 
         return { orderId, committed: true };
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
     );
   }
 
@@ -284,8 +344,7 @@ export class InventoryReservationService {
 
         for (const recipeItem of recipe.RecipeItem) {
           addRequirement(
-            recipeItem.Ingredient.InventoryItem?.id ??
-              recipeItem.Ingredient.inventoryItemId,
+            recipeItem.InventoryItem.id,
             recipeItem.quantity * orderItem.quantity,
           );
         }
@@ -302,6 +361,16 @@ export class InventoryReservationService {
     requirement: StockRequirement,
   ) {
     let remainingQuantity = requirement.quantity;
+    const itemRows = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+      FROM "InventoryItem"
+      WHERE "id" = ${requirement.inventoryItemId}
+        AND "tenantId" = ${tenantId}
+      FOR UPDATE
+    `;
+    if (itemRows.length === 0) {
+      throw new BadRequestException('Inventory item not found');
+    }
 
     const stocks = await tx.inventoryStock.findMany({
       where: {
@@ -357,7 +426,6 @@ export class InventoryReservationService {
           note: 'Reserved stock for order',
         },
       });
-
       remainingQuantity -= quantityToReserve;
     }
 

@@ -10,8 +10,14 @@ import { hasPermission } from "@/lib/permissions"
 import { useAuthStore } from "@/stores/auth.store"
 import { getPayments, paymentKeys, type PaymentStatus } from "@/features/erp/payments/api/queries"
 
-function formatAmount(value: number) {
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value)
+function formatAmount(value: number, currencyCode?: string | null) {
+  return currencyCode
+    ? new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: currencyCode,
+        maximumFractionDigits: 0,
+      }).format(value)
+    : new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value)
 }
 
 function paymentTone(status: PaymentStatus) {
@@ -112,7 +118,7 @@ export function PaymentWorkspace() {
                       {payment.SalesOrder?.orderNumber ?? payment.orderId}
                     </td>
                     <td className="px-4 py-4 font-medium text-[var(--foreground)]">{payment.method}</td>
-                    <td className="px-4 py-4 font-medium text-[var(--foreground)]">{formatAmount(payment.amount)}</td>
+                    <td className="px-4 py-4 font-medium text-[var(--foreground)]">{formatAmount(payment.amount, payment.SalesOrder?.currencyCode)}</td>
                     <td className="px-4 py-4">
                       <StatusBadge tone={paymentTone(payment.status)}>{payment.status}</StatusBadge>
                     </td>

@@ -7,8 +7,7 @@ import { ListPlatformAuditLogsDto } from './dto/list-platform-audit-logs.dto';
 import type { PlatformAuditLogResponse } from './dto/platform-audit-log-response.dto';
 
 export type PlatformAuditActor = {
-  userId: string;
-  tenantId: string;
+  platformIdentityId: string;
 };
 
 export type CreatePlatformAuditLogInput = {
@@ -32,8 +31,10 @@ export class PlatformAuditLogService {
     const context = requestContext.get();
     const record = await client.platformAuditLog.create({
       data: {
-        actorUserId: input.actor.userId,
-        actorTenantId: input.actor.tenantId,
+        actorPlatformIdentityId: input.actor.platformIdentityId,
+        actorUserId: null,
+        actorTenantId: null,
+        actorType: 'PLATFORM_IDENTITY',
         action: input.action,
         resourceType: input.resourceType,
         resourceId: input.resourceId,
@@ -56,6 +57,9 @@ export class PlatformAuditLogService {
       ...(dto.resourceType ? { resourceType: dto.resourceType } : {}),
       ...(dto.resourceId ? { resourceId: dto.resourceId } : {}),
       ...(dto.actorUserId ? { actorUserId: dto.actorUserId } : {}),
+      ...(dto.actorPlatformIdentityId
+        ? { actorPlatformIdentityId: dto.actorPlatformIdentityId }
+        : {}),
       ...(dto.targetTenantId ? { targetTenantId: dto.targetTenantId } : {}),
     };
 
@@ -90,8 +94,9 @@ export class PlatformAuditLogService {
 
   private toResponse(record: {
     id: string;
-    actorUserId: string;
-    actorTenantId: string;
+    actorUserId: string | null;
+    actorTenantId: string | null;
+    actorPlatformIdentityId: string | null;
     actorType: string;
     action: string;
     resourceType: string;

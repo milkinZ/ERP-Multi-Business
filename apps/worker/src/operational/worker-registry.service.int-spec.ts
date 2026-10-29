@@ -1,6 +1,12 @@
 import { WorkerRegistryService } from "./worker-registry.service";
+import { PrismaService } from "../shared/prisma.service";
 
 describe("WorkerRegistryService", () => {
+  const createService = (prisma: unknown) =>
+    new WorkerRegistryService(prisma as PrismaService, {
+      workerName: "queue-worker",
+    });
+
   it("registers a worker and keeps it ACTIVE while heartbeat is fresh", async () => {
     const prisma = {
       workerInstance: {
@@ -22,13 +28,7 @@ describe("WorkerRegistryService", () => {
       },
     };
 
-    const service = new WorkerRegistryService(
-      prisma as any,
-      {
-        workerName: "queue-worker",
-        repository: undefined,
-      } as any,
-    );
+    const service = createService(prisma);
 
     const record = await service.registerWorker();
 
@@ -38,13 +38,7 @@ describe("WorkerRegistryService", () => {
   });
 
   it("marks a stale worker when the heartbeat is older than the threshold", () => {
-    const service = new WorkerRegistryService(
-      {} as any,
-      {
-        workerName: "queue-worker",
-        repository: undefined,
-      } as any,
-    );
+    const service = createService({});
 
     const staleAt = new Date(Date.now() - 60_000);
     expect(service.deriveStatus(staleAt, 30_000)).toBe("STALE");

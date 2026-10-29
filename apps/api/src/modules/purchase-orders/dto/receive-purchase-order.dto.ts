@@ -1,8 +1,10 @@
 import {
+  ArrayMinSize,
   IsArray,
   IsNumber,
   IsOptional,
   IsString,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -10,7 +12,7 @@ import { Type } from 'class-transformer';
 
 export class ReceivePurchaseOrderItemDto {
   @IsString()
-  inventoryItemId!: string;
+  purchaseOrderItemId!: string;
 
   @IsNumber()
   @Min(0.1)
@@ -18,13 +20,14 @@ export class ReceivePurchaseOrderItemDto {
 }
 
 export class ReceivePurchaseOrderDto {
-  // incremental receive request: apply +receivedQuantity deltas
   @IsArray()
+  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => ReceivePurchaseOrderItemDto)
   items!: ReceivePurchaseOrderItemDto[];
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   note?: string;
 }

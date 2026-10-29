@@ -114,11 +114,13 @@ export class NotificationService {
     };
   }
 
-  async markAsRead(id: string, tenantId: string) {
+  async markAsRead(id: string, userId: string, tenantId: string) {
     return this.prisma.notification.updateMany({
       where: {
         id,
+        userId,
         tenantId,
+        deletedAt: null,
       },
       data: {
         readAt: new Date(),
@@ -132,6 +134,7 @@ export class NotificationService {
         userId,
         tenantId,
         readAt: null,
+        deletedAt: null,
       },
       data: {
         readAt: new Date(),
@@ -139,11 +142,13 @@ export class NotificationService {
     });
   }
 
-  async deleteNotification(id: string, tenantId: string) {
+  async deleteNotification(id: string, userId: string, tenantId: string) {
     return this.prisma.notification.updateMany({
       where: {
         id,
+        userId,
         tenantId,
+        deletedAt: null,
       },
       data: {
         deletedAt: new Date(),

@@ -7,7 +7,7 @@ import { useAuthStore } from "@/stores/auth.store"
 import type { InventoryItem } from "@/features/erp/inventory/api/queries"
 import type { Product } from "@/features/erp/products/api/queries"
 import type { SalesOrder } from "@/features/erp/orders/api/queries"
-import { getInventoryItems } from "@/features/erp/inventory/api/queries"
+import { getAllInventoryItems } from "@/features/erp/inventory/api/queries"
 import { getOrders } from "@/features/erp/orders/api/queries"
 import { getProducts } from "@/features/erp/products/api/queries"
 
@@ -34,7 +34,7 @@ export function ResourceList({ kind }: { kind: "products" | "orders" | "inventor
     queryFn: async () => {
       if (kind === "products") return getProducts(token as string)
       if (kind === "orders") return getOrders(token as string)
-      return getInventoryItems(token as string)
+      return getAllInventoryItems(token as string)
     },
     enabled: Boolean(token),
   })

@@ -6,12 +6,16 @@ export type Outlet = {
   name: string
   createdAt: string
   updatedAt: string
+  isActive: boolean
 }
 
 export type OutletInput = { name: string }
+export type OutletListQuery = { page?: number; limit?: number; search?: string; sortBy?: "name" | "createdAt"; sortOrder?: "asc" | "desc"; status?: "ACTIVE" | "DELETED" | "ALL" }
+export type PaginatedOutlets = { data: Outlet[]; pagination: { page: number; limit: number; total: number; totalPages: number } }
 
 export const outletKeys = {
   all: (tenantId: string) => ["outlets", tenantId] as const,
+  list: (tenantId: string, query: OutletListQuery) => ["outlets", tenantId, "list", query] as const,
   detail: (tenantId: string, outletId: string) => ["outlets", tenantId, outletId] as const,
 }
 
@@ -19,8 +23,12 @@ function authHeaders(accessToken: string) {
   return { Authorization: `Bearer ${accessToken}` }
 }
 
-export function getOutlets(accessToken: string) {
-  return apiRequest<Outlet[]>("/outlets", { headers: authHeaders(accessToken) })
+export function getOutlets(accessToken: string, query: OutletListQuery = {}) {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== "") params.set(key, String(value))
+  }
+  return apiRequest<PaginatedOutlets>(`/outlets${params.size ? `?${params}` : ""}`, { headers: authHeaders(accessToken) })
 }
 
 export function getOutlet(accessToken: string, outletId: string) {

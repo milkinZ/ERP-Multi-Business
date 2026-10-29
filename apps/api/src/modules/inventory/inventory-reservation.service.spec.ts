@@ -5,57 +5,71 @@ import { InventoryReservationService } from './inventory-reservation.service';
 
 describe('InventoryReservationService', () => {
   const transaction = jest.fn();
+  const rowLock = jest.fn();
   const prisma = { $transaction: transaction };
+  const costing = {
+    lockItem: jest.fn().mockResolvedValue({}),
+    issue: jest.fn(),
+    restore: jest.fn(),
+  };
   let service: InventoryReservationService;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    rowLock.mockResolvedValue([{ id: 'order-a' }]);
     transaction.mockImplementation((callback: (tx: unknown) => unknown) =>
-      Promise.resolve(callback({})),
+      Promise.resolve(callback({ $queryRaw: rowLock })),
     );
-    service = new InventoryReservationService(prisma as never);
+    service = new InventoryReservationService(
+      prisma as never,
+      costing as never,
+    );
   });
 
-  it('returns idempotently when an active reservation already exists', async () => {
-    const findFirst = jest.fn().mockResolvedValue({ id: 'reservation-a' });
-    transaction.mockImplementationOnce((callback: (tx: unknown) => unknown) =>
-      Promise.resolve(callback({ inventoryMovement: { findFirst } })),
-    );
+  it.each(['ORDER_RESERVATION', 'ORDER_RESERVATION_COMMITTED'])(
+    'returns idempotently when a %s reservation already exists',
+    async (referenceType) => {
+      const findFirst = jest
+        .fn()
+        .mockResolvedValue({ id: 'reservation-a', referenceType });
+      transaction.mockImplementationOnce((callback: (tx: unknown) => unknown) =>
+        Promise.resolve(
+          callback({
+            $queryRaw: rowLock,
+            inventoryMovement: { findFirst },
+          }),
+        ),
+      );
 
-    await expect(service.reserveStock('order-a', 'tenant-a')).resolves.toEqual({
-      orderId: 'order-a',
-      reserved: true,
-    });
-    expect(findFirst).toHaveBeenCalledWith({
-      where: {
-        tenantId: 'tenant-a',
-        referenceId: 'order-a',
-        referenceType: 'ORDER_RESERVATION',
-      },
-    });
-  });
+      await expect(
+        service.reserveStock('order-a', 'tenant-a'),
+      ).resolves.toEqual({
+        orderId: 'order-a',
+        reserved: true,
+      });
+      expect(findFirst).toHaveBeenCalledWith({
+        where: {
+          tenantId: 'tenant-a',
+          referenceId: 'order-a',
+          referenceType: {
+            in: ['ORDER_RESERVATION', 'ORDER_RESERVATION_COMMITTED'],
+          },
+        },
+      });
+      expect(rowLock).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('rejects orders missing from the trusted tenant scope', async () => {
-    const findFirst = jest
-      .fn()
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null);
+    rowLock.mockResolvedValueOnce([]);
     transaction.mockImplementationOnce((callback: (tx: unknown) => unknown) =>
-      Promise.resolve(
-        callback({
-          inventoryMovement: { findFirst },
-          salesOrder: { findFirst },
-        }),
-      ),
+      Promise.resolve(callback({ $queryRaw: rowLock })),
     );
 
     await expect(service.reserveStock('order-a', 'tenant-a')).rejects.toThrow(
       new BadRequestException('Order not found'),
     );
-    const orderLookup = expect.objectContaining({
-      where: { id: 'order-a', tenantId: 'tenant-a' },
-    }) as unknown as Record<string, unknown>;
-    expect(findFirst).toHaveBeenNthCalledWith(2, orderLookup);
+    expect(rowLock).toHaveBeenCalledTimes(1);
   });
 
   it('returns false when releasing or committing has no active reservation', async () => {
@@ -84,6 +98,24 @@ describe('InventoryReservationService', () => {
     ).resolves.toEqual({ orderId: 'order-a', committed: false });
   });
 
+  it('releases through the supplied transaction without opening a nested transaction', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const tx = { inventoryMovement: { findMany } };
+
+    await expect(
+      service.releaseReservation('order-a', 'tenant-a', tx as never),
+    ).resolves.toEqual({ orderId: 'order-a', released: false });
+
+    expect(findMany).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant-a',
+        referenceId: 'order-a',
+        referenceType: 'ORDER_RESERVATION',
+      },
+    });
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
   it('fails the transaction when stock cannot satisfy a reservation', async () => {
     const findFirst = jest.fn().mockResolvedValue(null);
     const order = {
@@ -106,6 +138,7 @@ describe('InventoryReservationService', () => {
     transaction.mockImplementationOnce((callback: (tx: unknown) => unknown) =>
       Promise.resolve(
         callback({
+          $queryRaw: rowLock,
           inventoryMovement: { findFirst },
           salesOrder: { findFirst: orderFindFirst },
           inventoryStock: { findMany: stockFindMany },

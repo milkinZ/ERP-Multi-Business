@@ -28,21 +28,12 @@ export class TenantsService {
     return this.tenantsRepository.findOne(id);
   }
 
-  create(data: {
-    name: string;
-    businessType?: import('@prisma/client').BusinessType;
-  }) {
-    return this.tenantsRepository.create({
-      name: data.name,
-      businessType: data.businessType ?? null,
-    });
-  }
-
   update(
     id: string,
     data: {
       name?: string;
       businessType?: import('@prisma/client').BusinessType;
+      currencyCode?: string;
     },
   ) {
     const tenantId = this.tenantContext.requireTenant();
@@ -53,6 +44,7 @@ export class TenantsService {
     return this.tenantsRepository.update(id, {
       name: data.name,
       businessType: data.businessType ?? null,
+      currencyCode: data.currencyCode,
     });
   }
 

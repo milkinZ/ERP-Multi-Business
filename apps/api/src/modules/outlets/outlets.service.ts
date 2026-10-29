@@ -2,7 +2,10 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../core/database/prisma.service';
 import { TenantContextService } from '../tenants/tenant-context.service';
-import { OutletsRepository } from './outlets.repository';
+import {
+  OutletsRepository,
+  type OutletQueryOptions,
+} from './outlets.repository';
 
 @Injectable()
 export class OutletsService {
@@ -12,9 +15,18 @@ export class OutletsService {
     private readonly outletsRepository: OutletsRepository,
   ) {}
 
-  findAll() {
+  async findAll(options: OutletQueryOptions) {
     const tenantId = this.tenantContext.requireTenant();
-    return this.outletsRepository.findAll(tenantId);
+    const result = await this.outletsRepository.findAll(tenantId, options);
+    return {
+      data: result.data,
+      pagination: {
+        page: options.page,
+        limit: options.limit,
+        total: result.total,
+        totalPages: Math.ceil(result.total / options.limit),
+      },
+    };
   }
 
   findOne(id: string) {
@@ -24,7 +36,9 @@ export class OutletsService {
 
   create(data: { name: string }) {
     const tenantId = this.tenantContext.requireTenant();
-    return this.outletsRepository.create({ tenantId, name: data.name });
+    return this.outletsRepository
+      .create({ tenantId, name: data.name })
+      .then((outlet) => ({ ...outlet, isActive: true }));
   }
 
   update(id: string, data: { name?: string }) {

@@ -20,6 +20,7 @@ export class RefreshRotationService {
     oldTokenSecret: string;
     newTokenPlain: string;
     newExpiresAt: Date;
+    outletId?: string | null;
   }) {
     const {
       userId,
@@ -37,6 +38,10 @@ export class RefreshRotationService {
     if (!oldTokenRow || oldTokenRow.revokedAt) {
       throw new UnauthorizedException('Invalid refresh token');
     }
+    if (!oldTokenRow.sessionId) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+    const sessionId = oldTokenRow.sessionId;
 
     if (oldTokenRow.userId !== userId || oldTokenRow.tenantId !== tenantId) {
       throw new UnauthorizedException('Invalid refresh token');
@@ -73,6 +78,21 @@ export class RefreshRotationService {
         throw new UnauthorizedException('Invalid refresh token');
       }
 
+      const outletId =
+        params.outletId === undefined ? oldTokenRow.outletId : params.outletId;
+      const updatedSession = await transaction.session.updateMany({
+        where: {
+          sessionId,
+          userId,
+          tenantId,
+          deletedAt: null,
+        },
+        data: { outletId },
+      });
+      if (updatedSession.count !== 1) {
+        throw new UnauthorizedException('Tenant session is not active');
+      }
+
       return transaction.refreshToken.create({
         data: {
           tokenSelector: newSelector,
@@ -80,7 +100,8 @@ export class RefreshRotationService {
           userId: oldTokenRow.userId,
           tenantId: oldTokenRow.tenantId,
           roleId: oldTokenRow.roleId,
-          outletId: oldTokenRow.outletId ?? null,
+          outletId: outletId ?? null,
+          sessionId,
           expiresAt: newExpiresAt,
           rotatedFromId: oldTokenRow.id,
         },

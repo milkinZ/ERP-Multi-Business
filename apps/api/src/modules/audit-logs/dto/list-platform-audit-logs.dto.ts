@@ -33,5 +33,9 @@ export class ListPlatformAuditLogsDto {
 
   @IsOptional()
   @IsString()
+  actorPlatformIdentityId?: string;
+
+  @IsOptional()
+  @IsString()
   targetTenantId?: string;
 }

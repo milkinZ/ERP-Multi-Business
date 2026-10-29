@@ -5,9 +5,10 @@ import { QueueService } from '../../queue/queue.service';
 import { MetricsModule } from '../metrics/metrics.module';
 import { MetricsService } from '../metrics/metrics.service';
 import { RedisModule } from '../../redis/redis.module';
+import { TelemetryModule } from '../telemetry/telemetry.module';
 
 @Module({
-  imports: [MetricsModule, RedisModule],
+  imports: [MetricsModule, RedisModule, TelemetryModule],
   controllers: [AdminController],
   providers: [PrismaService, QueueService, MetricsService],
 })

@@ -2,9 +2,11 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Param,
   Post,
   Query,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -13,6 +15,7 @@ import { Permissions } from '../../common/decorator/permissions.decorator';
 import { PERMISSIONS } from '../rbac/permissions';
 import { BillingService } from './billing.service';
 import { CreateXenditPaymentRequestDto } from './dto/create-xendit-payment-request.dto';
+import { InvoiceExportQueryDto } from './dto/invoice-export-query.dto';
 
 @Controller('billing')
 @UseGuards(JwtAuthGuard, PermissionGuard)
@@ -28,6 +31,14 @@ export class BillingController {
     );
   }
 
+  @Get('invoices-export.csv')
+  @Permissions(PERMISSIONS.INVOICE_READ)
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="invoices.csv"')
+  exportInvoices(@Query() query: InvoiceExportQueryDto) {
+    return new StreamableFile(this.billingService.exportInvoices(query));
+  }
+
   @Get('invoices/:id')
   @Permissions(PERMISSIONS.INVOICE_READ)
   getInvoice(@Param('id') id: string) {
@@ -41,6 +52,12 @@ export class BillingController {
     @Body() body: CreateXenditPaymentRequestDto,
   ) {
     return this.billingService.createXenditPaymentRequest(id, body.channelCode);
+  }
+
+  @Post('invoices/:id/cancel')
+  @Permissions(PERMISSIONS.BILLING_EXECUTE)
+  cancelPendingInvoice(@Param('id') id: string) {
+    return this.billingService.cancelPendingInvoice(id);
   }
 
   @Post('execute/:subscriptionId')

@@ -88,12 +88,16 @@ describe('RealtimeDomainEventsSubscription', () => {
     expect(subscribed).toContain(DOMAIN_EVENTS.SUBSCRIPTION_CANCELLED);
     expect(subscribed).toContain(DOMAIN_EVENTS.SUBSCRIPTION_EXPIRED);
     expect(subscribed).toContain(DOMAIN_EVENTS.SUBSCRIPTION_PLAN_CHANGED);
+    expect(subscribed).toContain(
+      DOMAIN_EVENTS.SUBSCRIPTION_PLAN_CHANGE_SCHEDULED,
+    );
     expect(subscribed).toContain(DOMAIN_EVENTS.SUBSCRIPTION_SUSPENDED);
     expect(subscribed).toContain(DOMAIN_EVENTS.SUBSCRIPTION_PAST_DUE);
     expect(subscribed).toContain(DOMAIN_EVENTS.PAYMENT_REQUIRED);
     expect(subscribed).toContain(DOMAIN_EVENTS.INVOICE_CREATED);
     expect(subscribed).toContain(DOMAIN_EVENTS.INVOICE_PAID);
     expect(subscribed).toContain(DOMAIN_EVENTS.INVOICE_FAILED);
+    expect(subscribed).toContain(DOMAIN_EVENTS.INVOICE_CANCELLED);
 
     // Auth / User
     expect(subscribed).toContain(DOMAIN_EVENTS.USER_LOGIN);

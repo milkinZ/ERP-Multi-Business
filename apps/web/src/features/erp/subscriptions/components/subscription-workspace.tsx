@@ -1,14 +1,14 @@
 "use client"
 
-import React from "react"
+import React, { useState } from "react"
 import Link from "next/link"
 import { useQuery } from "@tanstack/react-query"
 
-import { EmptyState, StatusBadge, UnavailableState } from "@/components/data-display/states"
+import { EmptyState, SectionHeader, StatusBadge, UnavailableState } from "@/components/data-display/states"
 import { ApiError } from "@/lib/api/client"
 import { hasPermission } from "@/lib/permissions"
 import { useAuthStore } from "@/stores/auth.store"
-import { billingKeys, getCurrentSubscription } from "@/features/erp/billing/api/queries"
+import { billingKeys, getCurrentSubscription, getSubscriptionHistory } from "@/features/erp/billing/api/queries"
 
 function statusTone(status: string) {
   if (status === "ACTIVE") return "success" as const
@@ -22,6 +22,7 @@ function formatDate(value?: string | null) {
 }
 
 export function SubscriptionWorkspace() {
+  const [historySkip, setHistorySkip] = useState(0)
   const token = useAuthStore((state) => state.accessToken)
   const session = useAuthStore((state) => state.session)
   const tenantId = session?.tenantId
@@ -32,6 +33,15 @@ export function SubscriptionWorkspace() {
     queryFn: () => getCurrentSubscription(token as string),
     enabled: Boolean(token && tenantId && canRead),
     staleTime: 60_000,
+  })
+  const historyQuery = useQuery({
+    queryKey: ["subscription-history", tenantId, query.data?.id, historySkip],
+    queryFn: () => {
+      if (!token || !query.data?.id) throw new Error("Subscription is unavailable")
+      return getSubscriptionHistory(token, query.data.id, historySkip, 50)
+    },
+    enabled: Boolean(token && tenantId && canRead && query.data?.id),
+    staleTime: 30_000,
   })
 
   if (!canRead) {
@@ -84,6 +94,33 @@ export function SubscriptionWorkspace() {
         <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Invoices and billing actions</h2>
         <p className="mt-2 text-sm text-[var(--muted-foreground)]">Invoice records and supported billing actions remain in the Billing module. No unsupported plan-management controls are shown here.</p>
         <Link href="/app/billing" className="mt-4 inline-flex rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--foreground)]">Open billing</Link>
+      </section>
+
+      <section className="rounded-[24px] border border-[var(--border)] bg-[var(--panel)] p-5">
+        <SectionHeader eyebrow="Lifecycle history" title="Subscription changes" />
+        <p className="mt-2 text-sm text-[var(--muted-foreground)]">A tenant-scoped record of lifecycle and plan events, including timestamp, actor type, and safe event metadata.</p>
+        {historyQuery.isPending ? <div className="mt-4 h-24 animate-pulse rounded-2xl bg-[var(--muted)]" /> : historyQuery.isError ? <UnavailableState title="Subscription history unavailable" description="The history API could not be reached. Current subscription state remains available above." /> : !historyQuery.data?.data.length ? <EmptyState title="No history recorded" description="No subscription lifecycle events have been recorded for this subscription." /> : (
+          <>
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead><tr className="border-b border-[var(--border)] text-xs uppercase tracking-[0.16em] text-[var(--muted-foreground)]">{["Event", "Actor", "Occurred", "Safe metadata"].map((heading) => <th key={heading} className="px-3 py-3">{heading}</th>)}</tr></thead>
+                <tbody>{historyQuery.data.data.map((event) => <tr key={event.id} className="border-b border-[var(--border)] last:border-0">
+                  <th scope="row" className="px-3 py-3 font-medium text-[var(--foreground)]">{event.eventType}</th>
+                  <td className="px-3 py-3 text-[var(--muted-foreground)]">{event.actorType}{event.actorUserId ? ` · ${event.actorUserId}` : ""}</td>
+                  <td className="px-3 py-3 text-[var(--muted-foreground)]">{formatDate(event.createdAt)}</td>
+                  <td className="max-w-sm px-3 py-3 text-[var(--muted-foreground)]">{Object.entries(event.metadata).map(([key, value]) => `${key}: ${String(value)}`).join(" · ") || "-"}</td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+            <div className="mt-3 flex items-center justify-between text-sm text-[var(--muted-foreground)]">
+              <span>{historySkip + 1}-{Math.min(historySkip + historyQuery.data.data.length, historyQuery.data.total)} of {historyQuery.data.total}</span>
+              <div className="flex gap-2">
+                <button type="button" disabled={historySkip === 0} onClick={() => setHistorySkip((value) => Math.max(0, value - 50))} className="rounded-lg border border-[var(--border)] px-3 py-1.5 disabled:opacity-40">Previous</button>
+                <button type="button" disabled={historySkip + historyQuery.data.data.length >= historyQuery.data.total} onClick={() => setHistorySkip((value) => value + 50)} className="rounded-lg border border-[var(--border)] px-3 py-1.5 disabled:opacity-40">Next</button>
+              </div>
+            </div>
+          </>
+        )}
       </section>
     </div>
   )

@@ -1,0 +1,20 @@
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.3
+    container_name: erp-sec004-keycloak-compose-local
+    command:
+      - start-dev
+      - --features=step-up-authentication
+      - --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME:?Set KC_BOOTSTRAP_ADMIN_USERNAME in .env.keycloak.local}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:?Set KC_BOOTSTRAP_ADMIN_PASSWORD in .env.keycloak.local}
+    ports:
+      - "127.0.0.1:8180:8080"
+    volumes:
+      - keycloak-local-data:/opt/keycloak/data
+      - ./src/modules/auth/platform-keycloak.local-realm.json:/opt/keycloak/data/import/erp-platform-dev-realm.json:ro
+    restart: unless-stopped
+
+volumes:
+  keycloak-local-data:

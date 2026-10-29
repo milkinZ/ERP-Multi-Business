@@ -9,20 +9,26 @@ import { OutboxPublisher } from '../../infrastructure/events/outbox.publisher';
 import { PrismaService } from '../../core/database/prisma.service';
 import { PlatformAuditLogService } from '../audit-logs/platform-audit-log.service';
 import { ListPlatformAuditLogsDto } from '../audit-logs/dto/list-platform-audit-logs.dto';
+import { DOMAIN_EVENTS } from '../../core/events/domain-events';
+import {
+  createInvoiceCsvStream,
+  invoiceExportDateBounds,
+} from '../billing/invoice-export';
+import type { InvoiceExportFilters } from '../billing/dto/invoice-export-query.dto';
 
 import { SuperAdminRepository } from './super-admin.repository';
 import type { PlatformBillingAggregateResponse } from './dto/platform-billing-aggregate-response.dto';
 import type { PlatformInvoiceResponse } from './dto/platform-invoice-response.dto';
 import type { PlatformSubscriptionResponse } from './dto/platform-subscription-response.dto';
 import type { PlatformWorkerResponse } from './dto/platform-worker-response.dto';
+import { ListPlatformJobExecutionsDto } from './dto/list-platform-job-executions.dto';
 import {
   SuperAdminAggregate,
   SuperAdminTargetStatus,
 } from './domain/super-admin.aggregate';
 
 export type SuperAdminActor = {
-  userId: string;
-  tenantId: string;
+  platformIdentityId: string;
 };
 
 @Injectable()
@@ -65,8 +71,7 @@ export class SuperAdminService {
 
     return this.prisma.$transaction(async (tx) => {
       const aggregate = SuperAdminAggregate.forTarget(
-        actor.userId,
-        actor.tenantId,
+        actor.platformIdentityId,
         {
           tenantId,
           status: this.toAggregateStatus(tenant.status),
@@ -118,8 +123,7 @@ export class SuperAdminService {
 
     return this.prisma.$transaction(async (tx) => {
       const aggregate = SuperAdminAggregate.forTarget(
-        actor.userId,
-        actor.tenantId,
+        actor.platformIdentityId,
         {
           tenantId,
           status: this.toAggregateStatus(tenant.status),
@@ -177,8 +181,7 @@ export class SuperAdminService {
 
     return this.prisma.$transaction(async (tx) => {
       const aggregate = SuperAdminAggregate.forTarget(
-        actor.userId,
-        actor.tenantId,
+        actor.platformIdentityId,
         {
           tenantId,
           status: this.toAggregateStatus(tenant.status),
@@ -233,8 +236,7 @@ export class SuperAdminService {
 
     return this.prisma.$transaction(async (tx) => {
       const aggregate = SuperAdminAggregate.forTarget(
-        actor.userId,
-        actor.tenantId,
+        actor.platformIdentityId,
         {
           tenantId,
           status: this.toAggregateStatus(tenant.status),
@@ -390,6 +392,61 @@ export class SuperAdminService {
     };
   }
 
+  async listJobExecutions(query: ListPlatformJobExecutionsDto) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 25;
+    const where: Prisma.JobExecutionWhereInput = {
+      ...(query.queueName ? { queueName: query.queueName } : {}),
+      ...(query.status ? { status: query.status } : {}),
+    };
+    const [records, total] = await Promise.all([
+      this.prisma.jobExecution.findMany({
+        where,
+        take: limit,
+        skip: (page - 1) * limit,
+        orderBy: [{ startedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+        select: {
+          id: true,
+          queueName: true,
+          jobName: true,
+          workerId: true,
+          attemptNumber: true,
+          status: true,
+          startedAt: true,
+          finishedAt: true,
+          durationMs: true,
+          errorCategory: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+      this.prisma.jobExecution.count({ where }),
+    ]);
+
+    return {
+      data: records.map((record) => ({
+        id: record.id,
+        queueName: record.queueName,
+        jobName: record.jobName,
+        workerId: record.workerId,
+        attemptNumber: record.attemptNumber,
+        status: record.status,
+        startedAt: record.startedAt,
+        finishedAt: record.finishedAt,
+        durationMs: record.durationMs,
+        errorCategory: record.errorCategory,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
   async changeTenantPlan(
     actor: SuperAdminActor,
     tenantId: string,
@@ -413,11 +470,19 @@ export class SuperAdminService {
     if (!oldPlan) {
       throw new NotFoundException('Old plan not found');
     }
+    const pendingPlanId = newPlan.id === oldPlan.id ? null : newPlan.id;
+    if (pendingPlanId === subscription.pendingPlanId) {
+      return {
+        tenantId,
+        newPlanId,
+        pendingPlanId,
+        effectiveAt: 'NEXT_RENEWAL' as const,
+      };
+    }
 
     return this.prisma.$transaction(async (tx) => {
       const aggregate = SuperAdminAggregate.forTarget(
-        actor.userId,
-        actor.tenantId,
+        actor.platformIdentityId,
         {
           tenantId,
           status: SuperAdminTargetStatus.ACTIVE,
@@ -425,44 +490,91 @@ export class SuperAdminService {
         },
       );
 
-      aggregate.changePlan(
-        {
-          id: newPlan.id,
-          type: newPlan.type,
-          name: newPlan.name,
-          priceCents: newPlan.priceCents,
-        },
-        {
-          id: oldPlan.id,
-          type: oldPlan.type,
-          name: oldPlan.name,
-          priceCents: oldPlan.priceCents,
-        },
-      );
+      if (newPlan.id !== oldPlan.id) {
+        aggregate.changePlan(
+          {
+            id: newPlan.id,
+            type: newPlan.type,
+            name: newPlan.name,
+            priceCents: newPlan.priceCents,
+          },
+          {
+            id: oldPlan.id,
+            type: oldPlan.type,
+            name: oldPlan.name,
+            priceCents: oldPlan.priceCents,
+          },
+        );
+      }
 
       const updated = await tx.subscription.updateMany({
-        where: { id: subscription.id, planId: oldPlan.id },
-        data: { planId: newPlan.id },
+        where: {
+          id: subscription.id,
+          planId: oldPlan.id,
+          pendingPlanId: subscription.pendingPlanId,
+        },
+        data: {
+          pendingPlanId,
+        },
       });
       if (updated.count !== 1) {
         throw new ConflictException(
           'Subscription plan changed; retry the action',
         );
       }
-      await this.platformAuditLog.create(
+      await this.outbox.publish(
         {
-          actor,
-          action: 'super-admin.plan.changed',
-          resourceType: 'SUBSCRIPTION',
-          resourceId: subscription.id,
-          targetTenantId: tenantId,
-          metadata: { fromPlanId: oldPlan.id, toPlanId: newPlan.id },
+          type: DOMAIN_EVENTS.SUBSCRIPTION_PLAN_CHANGE_SCHEDULED,
+          payload: {
+            subscriptionId: subscription.id,
+            tenantId,
+            currentPlanId: oldPlan.id,
+            previousPendingPlanId: subscription.pendingPlanId,
+            pendingPlanId,
+            effectiveAt: 'NEXT_RENEWAL',
+          },
         },
         tx,
       );
+      await this.platformAuditLog.create(
+        {
+          actor,
+          action: 'super-admin.plan.change-scheduled',
+          resourceType: 'SUBSCRIPTION',
+          resourceId: subscription.id,
+          targetTenantId: tenantId,
+          metadata: {
+            currentPlanId: oldPlan.id,
+            previousPendingPlanId: subscription.pendingPlanId,
+            pendingPlanId,
+            effectiveAt: 'NEXT_RENEWAL',
+          },
+        },
+        tx,
+      );
+      await tx.subscriptionHistory.create({
+        data: {
+          subscriptionId: subscription.id,
+          tenantId,
+          eventType: DOMAIN_EVENTS.SUBSCRIPTION_PLAN_CHANGE_SCHEDULED,
+          actorPlatformIdentityId: actor.platformIdentityId,
+          actorType: 'PLATFORM_IDENTITY',
+          metadata: {
+            currentPlanId: oldPlan.id,
+            previousPendingPlanId: subscription.pendingPlanId,
+            pendingPlanId,
+            effectiveAt: 'NEXT_RENEWAL',
+          },
+        },
+      });
       await this.persistAggregateEvents(aggregate, tx);
 
-      return { tenantId, newPlanId };
+      return {
+        tenantId,
+        newPlanId,
+        pendingPlanId,
+        effectiveAt: 'NEXT_RENEWAL' as const,
+      };
     });
   }
 
@@ -473,6 +585,42 @@ export class SuperAdminService {
 
   async getBillingAggregate(): Promise<PlatformBillingAggregateResponse> {
     return this.repository.getBillingAggregate();
+  }
+
+  async exportInvoices(actor: SuperAdminActor, filters: InvoiceExportFilters) {
+    const dateBounds = invoiceExportDateBounds(filters);
+    await this.platformAuditLog.create({
+      actor,
+      action: 'super-admin.invoice-export.requested',
+      resourceType: 'INVOICE_EXPORT',
+      resourceId: 'platform',
+      metadata: {
+        from: filters.from ?? null,
+        to: filters.to ?? null,
+        status: filters.status ?? null,
+      },
+    });
+
+    return createInvoiceCsvStream(
+      (cursor, take) =>
+        this.repository.findInvoiceExportPage(
+          {
+            deletedAt: null,
+            ...(filters.status ? { status: filters.status } : {}),
+            ...(dateBounds.from || dateBounds.to
+              ? {
+                  createdAt: {
+                    ...(dateBounds.from ? { gte: dateBounds.from } : {}),
+                    ...(dateBounds.to ? { lte: dateBounds.to } : {}),
+                  },
+                }
+              : {}),
+          },
+          cursor,
+          take,
+        ),
+      true,
+    );
   }
 
   async listPlatformAuditLogs(query: ListPlatformAuditLogsDto) {
@@ -527,6 +675,7 @@ export class SuperAdminService {
     id: string;
     tenantId: string;
     planId: string;
+    pendingPlanId: string | null;
     status: PlatformSubscriptionResponse['status'];
     startedAt: Date;
     endedAt: Date | null;
@@ -537,6 +686,10 @@ export class SuperAdminService {
       id: subscription.id,
       tenantId: subscription.tenantId,
       planId: subscription.planId,
+      pendingPlanId: subscription.pendingPlanId,
+      pendingPlanEffectiveAt: subscription.pendingPlanId
+        ? 'NEXT_RENEWAL'
+        : null,
       status: subscription.status,
       planType: subscription.plan.type,
       priceCents: subscription.plan.priceCents,

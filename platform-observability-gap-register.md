@@ -1,51 +1,50 @@
 # Platform Observability Gap Register
 
+## Current Status: HISTORICAL REQUEST TELEMETRY IMPLEMENTED; EXTERNAL MONITORING GAPS REMAIN
+
+Readiness, liveness, fixed queue snapshots, persisted worker status, and bounded job attempts are available through existing contracts. OBS-001 now includes a `super-admin.read`-protected API and UI for aggregated request metrics and redacted 5xx/slow-response event summaries, with selectable 1-hour, 24-hour, and 7-day windows inside the 30-day retention limit. UI timestamps are explicitly displayed in UTC. Raw stdout logs, external Prometheus history, CPU/memory, and alerting remain external. This corresponds to OBS-001 and FE-002 (Resolved with Gap), OPS-001 / OBS-002 (Resolved with Gap).
+
 ## Contract Matrix
 
-| Signal | Existing source | Scope / permission | Authoritative | Implemented |
-| --- | --- | --- | --- | --- |
-| Database readiness | `GET /health/readiness` → `database.ok` | System; existing public health contract | Yes | Yes |
-| Redis readiness | `GET /health/readiness` → `redis.ok` | System; existing public health contract | Yes | Yes |
-| BullMQ readiness | `GET /health/readiness` → `bullmq.ok/status` | System; existing public health contract | Yes | Yes |
-| Application liveness | `GET /health/liveness` → `success/message/timestamp` | System; existing public health contract | Yes | Yes |
-| Queue snapshots | `GET /admin/queues` → bounded fixed queue list | `super-admin.read` | Yes | Yes |
-| Worker identity/status | `GET /super-admin/workers` and `GET /super-admin/workers/:id` | `super-admin.read` | Yes for persisted worker identity and heartbeat | API implemented; Workers UI does not consume it |
-| Prometheus metrics | `GET /metrics` text exposition | Operational infrastructure; no platform UI contract | Yes for external monitoring | No |
-| Request/error/latency metrics | Prometheus registry and interceptor | External monitoring only | Yes for external monitoring | No |
-| Structured logs | Application stdout/logger infrastructure | Operational infrastructure; no secure log-query API | Yes for runtime logs | No |
-| Audit activity | Tenant-scoped `/audit-logs` only | Tenant scope | Yes for tenants, not platform | No |
-| CPU/memory/uptime/history | No platform response contract | N/A | No | No |
+| Signal                                    | Existing source                                                | Scope / permission                                                                                       | Authoritative                                                                     | Implemented                                                               |
+| ----------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Database readiness                        | `GET /health/readiness` → `database.ok`                        | System; platform UI requires platform session                                                            | Yes                                                                               | Yes                                                                       |
+| Redis readiness                           | `GET /health/readiness` → `redis.ok`                           | System; platform UI requires platform session                                                            | Yes                                                                               | Yes                                                                       |
+| BullMQ readiness                          | `GET /health/readiness` → `bullmq.ok/status`                   | System; platform UI requires platform session                                                            | Yes                                                                               | Yes                                                                       |
+| Application liveness                      | `GET /health/liveness` → `success/message/timestamp`           | System; platform UI requires platform session                                                            | Yes                                                                               | Yes                                                                       |
+| Queue snapshots                           | `GET /admin/queues` → bounded fixed queue list                 | `super-admin.read`                                                                                       | Yes                                                                               | Yes                                                                       |
+| Worker identity/status                    | `GET /super-admin/workers` and `GET /super-admin/workers/:id`  | `super-admin.read`                                                                                       | Persisted worker identity and heartbeat                                           | API and Workers UI                                                        |
+| Job attempt history                       | `GET /super-admin/job-executions`                              | `super-admin.read`                                                                                       | Bounded metadata projection, no payload/error/correlation data                    | API and Workers UI                                                        |
+| Prometheus metrics                        | `GET /metrics` text exposition                                 | Operational infrastructure                                                                               | External monitoring source                                                        | Not surfaced in platform UI                                               |
+| Request/error/latency metrics             | Prometheus registry/interceptor plus persisted minute buckets  | API: `GET /super-admin/operational/telemetry`, `super-admin.read`, selectable 1h/24h/7d windows, max 30d | Aggregated database buckets                                                       | Platform UI shows request count, error count, mean latency, and UTC range |
+| Operational error/slow-response summaries | HTTP interceptor; only 5xx or >=2s                             | Same API permission and date bounds                                                                      | Redacted event rows; 30-day retention; route template/method/status/duration only | Platform UI; no request body, user/tenant ID, IP, or exception text       |
+| Structured application logs               | Application stdout/logger infrastructure                       | Operational infrastructure; no raw log-query API                                                         | Runtime output only                                                               | Not surfaced in platform UI                                               |
+| Audit activity                            | Tenant-scoped `/audit-logs`; platform audit reads are separate | Tenant or explicit platform scope                                                                        | Yes for their own scope                                                           | Not included on observability page                                        |
+| CPU/memory/uptime/history                 | No browser-safe platform contract                              | N/A                                                                                                      | No                                                                                | No                                                                        |
 
-## Confirmed Gaps
+## Remaining Gaps
 
 ### BACKEND CONTRACT GAP
 
-- Platform-authorized worker list/detail endpoints exist, but the Workers page does not consume them.
-- No secure platform log-query endpoint exists; application logs remain runtime output.
-- No platform audit activity read contract exists.
-- No historical request rate, error rate, latency, CPU, memory, uptime, or incident API exists for the UI.
-- Queue snapshots expose counts only. Durable job-attempt history exists in PostgreSQL but has no platform read contract; raw job payloads and stalled-job details remain unavailable.
+- No raw secure platform log-query endpoint exists; logs remain runtime output.
+- No CPU, memory, uptime-history, incident, or platform alert API exists.
+- Scheduler execution history, alert policy, and dead-letter queue (DLQ) semantics are not persisted or exposed.
 
 ### FRONTEND GAP
 
-- The observability page intentionally omits logs, audit activity, Prometheus metrics, and historical telemetry because no safe frontend contracts exist. Worker detail is exposed through separate authenticated API endpoints but is not consumed by the current Workers page.
+- Observability displays readiness, liveness, bounded queue snapshots, historical request aggregates with selectable time windows, and redacted operational event summaries. The Workers page separately displays authorized worker identity/heartbeat and safe bounded job attempts.
+- The UI intentionally omits raw logs, audit activity, external Prometheus history, failed-job payloads, and DLQ controls.
 
 ### REALTIME INFRASTRUCTURE GAP
 
-- No platform observability realtime contract exists. The UI uses request-time TanStack Query reads with a short stale time and no automatic polling or WebSocket additions.
+- The UI uses request-time TanStack Query reads. No realtime or automatic-polling contract has been introduced.
 
 ### SECURITY GAP
 
-- `/health`, `/health/readiness`, and `/health/liveness` are existing public operational endpoints. They expose only dependency status, not tenant records or secrets, and the platform UI still requires an authenticated `super-admin.read` session.
-- Any future worker, log, audit, or metrics UI must add explicit platform authorization and redact job payloads, request bodies, tokens, credentials, and provider secrets.
+- Health endpoints expose dependency status only; the platform UI still requires an authenticated `super-admin.read` session.
+- Worker/job reads use explicit platform authorization and avoid frontend-supplied tenant scope.
+- Raw log, audit, or additional metrics UI requires authorization, redaction of request bodies/tokens/credentials/provider secrets, and a defined retention policy.
 
 ### OPERATIONAL GAP
 
-- External Prometheus/Grafana and alerting infrastructure exist, but their historical data is not surfaced through the platform UI. Operational dashboards remain external to this module.
-
-## Security Review
-
-- Queue reads use `JwtAuthGuard`, `PermissionGuard`, and `super-admin.read`.
-- No frontend-controlled `tenantId` is accepted for observability scope.
-- No raw job payloads, logs, tokens, credentials, or tenant analytics are returned by the implemented observability UI.
-- Readiness and liveness remain separate signals.
+- External monitoring remains authoritative for raw logs, system metrics, and alerts. In-app request telemetry is best-effort buffered and may drop data at bounded-buffer capacity; scheduler run history and DLQ procedures remain outside this application contract.

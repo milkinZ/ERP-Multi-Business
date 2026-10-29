@@ -28,6 +28,7 @@ export const PERMISSIONS = {
   INGREDIENT_CREATE: 'ingredient.create',
   INGREDIENT_READ: 'ingredient.read',
   INGREDIENT_UPDATE: 'ingredient.update',
+  INGREDIENT_DELETE: 'ingredient.delete',
 
   WAREHOUSE_READ: 'warehouse.read',
   WAREHOUSE_UPDATE: 'warehouse.update',
@@ -65,6 +66,7 @@ export const PERMISSIONS = {
   USER_ROLE_MANAGE: 'rbac.user.role.manage',
   USER_OUTLET_MANAGE: 'rbac.user.outlet.manage',
   USER_READ: 'user.read',
+  USER_MANAGE: 'user.manage',
 
   OUTLET_READ: 'outlet.read',
   OUTLET_CREATE: 'outlet.create',
@@ -86,6 +88,7 @@ export const PERMISSIONS = {
   BUSINESS_DELETE: 'business.delete',
   BUSINESS_MANAGE: 'business.manage',
   BUSINESS_RESTORE: 'business.restore',
+  AUDIT_LOG_READ: 'audit-log.read',
 
   // Subscription & Billing
   SUBSCRIPTION_READ: 'subscription.read',

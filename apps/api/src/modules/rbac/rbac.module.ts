@@ -15,6 +15,7 @@ import { UserRolesService } from './services/user-roles.service';
 
 import { UserOutletsController } from './controllers/user-outlets.controller';
 import { UserOutletsService } from './services/user-outlets.service';
+import { TenantRolePolicyService } from './services/tenant-role-policy.service';
 
 import { RBACPermissionsSeeder } from './seeders/rbac-permissions.seeder';
 
@@ -33,8 +34,9 @@ import { RBACPermissionsSeeder } from './seeders/rbac-permissions.seeder';
     RolePermissionsService,
     UserRolesService,
     UserOutletsService,
+    TenantRolePolicyService,
     RBACPermissionsSeeder,
   ],
-  exports: [],
+  exports: [TenantRolePolicyService],
 })
 export class RBACModule {}

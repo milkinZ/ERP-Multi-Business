@@ -23,6 +23,9 @@ export class UserResponseDto {
   @ApiProperty()
   email!: string;
 
+  @ApiProperty()
+  isActive!: boolean;
+
   @ApiProperty({ type: [UserRoleSummaryDto] })
   roles!: UserRoleSummaryDto[];
 

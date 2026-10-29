@@ -45,7 +45,7 @@ export default function SubscriptionDetailPage() {
   })
 
   useEffect(() => {
-    if (subscriptionQuery.data) setSelectedPlanId(subscriptionQuery.data.planId)
+    if (subscriptionQuery.data) setSelectedPlanId(subscriptionQuery.data.pendingPlanId ?? subscriptionQuery.data.planId)
   }, [subscriptionQuery.data])
 
   const planMutation = useMutation({
@@ -56,7 +56,7 @@ export default function SubscriptionDetailPage() {
     retry: 0,
     onSuccess: async () => {
       setMutationError(null)
-      setSuccessMessage("The plan change was accepted by the platform API.")
+      setSuccessMessage("The plan change is scheduled to take effect at the next renewal.")
       await queryClient.invalidateQueries({ queryKey: ["platform-subscription", subscriptionId] })
       await queryClient.invalidateQueries({ queryKey: ["platform-subscriptions"] })
     },
@@ -85,10 +85,10 @@ export default function SubscriptionDetailPage() {
       <section className="rounded-[24px] border border-[var(--border)] bg-[var(--panel)] p-5">
         <SectionHeader eyebrow="Record" title="Subscription details" />
         <dl className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {[['Subscription ID', subscription.id], ['Tenant ID', subscription.tenantId], ['Plan ID', subscription.planId], ['Plan type', subscription.planType], ['Price cents', subscription.priceCents.toLocaleString('en-US')], ['Started', formatDate(subscription.startedAt)], ['Ended', formatDate(subscription.endedAt)]].map(([label, value]) => <div key={label}><dt className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted-foreground)]">{label}</dt><dd className="mt-2 break-all text-sm text-[var(--foreground)]">{value}</dd></div>)}
+          {[['Subscription ID', subscription.id], ['Tenant ID', subscription.tenantId], ['Plan ID', subscription.planId], ['Pending plan ID', subscription.pendingPlanId ?? "-"], ['Plan type', subscription.planType], ['Price cents', subscription.priceCents.toLocaleString('en-US')], ['Started', formatDate(subscription.startedAt)], ['Ended', formatDate(subscription.endedAt)]].map(([label, value]) => <div key={label}><dt className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted-foreground)]">{label}</dt><dd className="mt-2 break-all text-sm text-[var(--foreground)]">{value}</dd></div>)}
         </dl>
       </section>
-      {canManage ? <section className="mt-6 rounded-[24px] border border-[var(--border)] bg-[var(--panel)] p-5"><SectionHeader eyebrow="Supported mutation" title="Change plan" /><div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end"><label className="flex-1 text-sm text-[var(--muted-foreground)]">Plan<select value={selectedPlanId} onChange={(event) => setSelectedPlanId(event.target.value)} disabled={plansQuery.isPending || planMutation.isPending} className="mt-2 block w-full rounded-xl border border-[var(--border)] bg-[var(--panel-alt)] px-3 py-2 text-sm text-[var(--foreground)]"><option value="">Select a plan</option>{plansQuery.data?.map((plan) => <option key={plan.id} value={plan.id}>{plan.name} ({plan.type}) · {plan.priceCents.toLocaleString('en-US')} cents</option>)}</select></label><button type="button" disabled={!selectedPlanId || selectedPlanId === subscription.planId || planMutation.isPending} onClick={() => planMutation.mutate()} className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--panel-alt)] disabled:opacity-50">{planMutation.isPending ? "Submitting..." : "Change plan"}</button></div>{plansQuery.isError ? <p className="mt-3 text-sm text-[var(--muted-foreground)]">The plan catalog could not be loaded.</p> : null}</section> : null}
+      {canManage ? <section className="mt-6 rounded-[24px] border border-[var(--border)] bg-[var(--panel)] p-5"><SectionHeader eyebrow="Supported mutation" title="Schedule plan change" /><p className="mt-2 text-sm text-[var(--muted-foreground)]">Changes take effect at the next renewal. Select the current plan to cancel a pending change.</p><div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end"><label className="flex-1 text-sm text-[var(--muted-foreground)]">Plan<select value={selectedPlanId} onChange={(event) => setSelectedPlanId(event.target.value)} disabled={plansQuery.isPending || planMutation.isPending} className="mt-2 block w-full rounded-xl border border-[var(--border)] bg-[var(--panel-alt)] px-3 py-2 text-sm text-[var(--foreground)]"><option value="">Select a plan</option>{plansQuery.data?.map((plan) => <option key={plan.id} value={plan.id}>{plan.name} ({plan.type}) · {plan.priceCents.toLocaleString('en-US')} cents</option>)}</select></label><button type="button" disabled={!selectedPlanId || selectedPlanId === (subscription.pendingPlanId ?? subscription.planId) || planMutation.isPending} onClick={() => planMutation.mutate()} className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--panel-alt)] disabled:opacity-50">{planMutation.isPending ? "Submitting..." : "Schedule change"}</button></div>{plansQuery.isError ? <p className="mt-3 text-sm text-[var(--muted-foreground)]">The plan catalog could not be loaded.</p> : null}</section> : null}
       <Link href="/platform/subscriptions" className="mt-6 inline-flex text-sm font-semibold text-[var(--primary)] hover:underline">Back to subscriptions</Link>
     </>
   )

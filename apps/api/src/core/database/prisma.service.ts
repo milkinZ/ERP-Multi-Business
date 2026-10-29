@@ -29,6 +29,12 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
           ctx?.allowPreAuthRefreshTokenLookup === true &&
           typeof where?.tokenSelector === 'string' &&
           Object.keys(where).length === 1;
+        const isPreAuthInvitationLookup =
+          model === 'UserInvitation' &&
+          params.action === 'findUnique' &&
+          ctx?.allowPreAuthInvitationLookup === true &&
+          typeof where?.tokenHash === 'string' &&
+          Object.keys(where).length === 1;
         const isOutboxSystemOperation =
           model === 'OutboxEvent' && ctx?.systemOperation === 'outbox-dispatch';
         const isXenditInvoiceCorrelationLookup =
@@ -46,8 +52,10 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
 
         if (
           !ctx?.tenantId &&
+          !ctx?.platformIdentityId &&
           !isPreAuthUserLookup &&
           !isPreAuthRefreshTokenLookup &&
+          !isPreAuthInvitationLookup &&
           !isOutboxSystemOperation &&
           !isXenditInvoiceCorrelationLookup
         ) {

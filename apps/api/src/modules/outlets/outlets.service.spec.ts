@@ -32,11 +32,21 @@ describe('OutletsService', () => {
   });
 
   it('reads only through the authenticated tenant context', async () => {
-    findAll.mockResolvedValue([]);
+    findAll.mockResolvedValue({ data: [], total: 0 });
 
-    await service.findAll();
+    const options = {
+      page: 1,
+      limit: 20,
+      sortBy: 'name' as const,
+      sortOrder: 'asc' as const,
+      status: 'ACTIVE' as const,
+    };
 
-    expect(findAll).toHaveBeenCalledWith('tenant-a');
+    await expect(service.findAll(options)).resolves.toEqual({
+      data: [],
+      pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+    });
+    expect(findAll).toHaveBeenCalledWith('tenant-a', options);
   });
 
   it('never accepts a client tenant id when creating an outlet', async () => {

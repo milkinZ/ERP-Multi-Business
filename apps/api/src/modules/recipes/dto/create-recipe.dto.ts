@@ -4,7 +4,7 @@ import { Type } from 'class-transformer';
 
 class RecipeItemDto {
   @IsString()
-  ingredientId!: string;
+  inventoryItemId!: string;
 
   @IsNumber()
   quantity!: number;

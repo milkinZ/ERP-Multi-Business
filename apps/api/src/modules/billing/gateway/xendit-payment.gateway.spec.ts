@@ -89,6 +89,35 @@ describe('XenditPaymentGateway', () => {
     });
   });
 
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid amount %s without calling the provider',
+    async (amountCents) => {
+      const fetchMock = jest.fn<
+        Promise<Response>,
+        [RequestInfo | URL, RequestInit?]
+      >();
+      global.fetch = fetchMock;
+      const config = {
+        get: (key: string): string | undefined =>
+          key === 'XENDIT_API_KEY' ? 'xnd_test_key' : undefined,
+      };
+      const gateway = new XenditPaymentGateway(
+        config as unknown as ConfigService,
+      );
+
+      await expect(
+        gateway.charge({
+          amountCents,
+          currency: 'IDR',
+          description: 'Invalid payment amount',
+          tenantId: 'tenant-1',
+          channelCode: 'QRIS',
+        }),
+      ).rejects.toMatchObject({ outcome: 'REJECTED' });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
   it('verifies Payment Request callbacks with the configured callback token', () => {
     const config = {
       get: (key: string): string | undefined =>

@@ -4,15 +4,21 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, type Invoice } from '@prisma/client';
 import { BaseRepository } from '../../core/database/repositories/base.repository';
 import { PrismaService } from '../../core/database/prisma.service';
 import { DOMAIN_EVENTS } from '../../core/events/domain-events';
 import { requestContext } from '../../core/request-context/request-context';
+import { InvoiceExportCursor, InvoiceExportRow } from './invoice-export';
 
 export type InvoiceRecord = Prisma.InvoiceGetPayload<{
   include: { tenant: true };
 }>;
+
+type InvoiceCreateData = Omit<
+  Prisma.InvoiceUncheckedCreateInput,
+  'invoiceNumber'
+>;
 
 type XenditWebhookInput = {
   idempotencyKey: string;
@@ -486,6 +492,108 @@ export class BillingRepository extends BaseRepository {
     return { data, total, skip, take };
   }
 
+  async findInvoiceExportPage(
+    where: Prisma.InvoiceWhereInput,
+    cursor: InvoiceExportCursor | undefined,
+    take: number,
+    includeTenant = false,
+  ): Promise<InvoiceExportRow[]> {
+    const pageWhere: Prisma.InvoiceWhereInput = {
+      AND: [
+        where,
+        ...(cursor
+          ? [
+              {
+                OR: [
+                  { createdAt: { gt: cursor.createdAt } },
+                  { createdAt: cursor.createdAt, id: { gt: cursor.id } },
+                ],
+              },
+            ]
+          : []),
+      ],
+    };
+
+    if (includeTenant) {
+      const records = await this.prisma.invoice.findMany({
+        where: pageWhere,
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take,
+        include: { tenant: { select: { name: true } } },
+      });
+      return records.map((record) => ({
+        ...record,
+        tenantName: record.tenant.name,
+      }));
+    }
+
+    return this.prisma.invoice.findMany({
+      where: pageWhere,
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take,
+      select: {
+        id: true,
+        invoiceNumber: true,
+        status: true,
+        amountCents: true,
+        currency: true,
+        dueAt: true,
+        paidAt: true,
+        createdAt: true,
+      },
+    });
+  }
+
+  async cancelPendingInvoice(id: string, tenantId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.invoice.updateMany({
+        where: {
+          id,
+          tenantId,
+          deletedAt: null,
+          status: 'PENDING',
+          providerPaymentRequestId: null,
+          providerPaymentId: null,
+          OR: [
+            { xenditPaymentRequestAttempt: { is: null } },
+            {
+              xenditPaymentRequestAttempt: {
+                is: { state: 'REJECTED' },
+              },
+            },
+          ],
+        },
+        data: { status: 'CANCELLED' },
+      });
+      if (updated.count !== 1) return null;
+
+      const invoice = await tx.invoice.findFirst({
+        where: { id, tenantId, deletedAt: null },
+        select: { id: true, invoiceNumber: true },
+      });
+      if (!invoice) {
+        throw new Error('Cancelled invoice could not be reloaded');
+      }
+
+      await tx.outboxEvent.create({
+        data: {
+          tenantId,
+          type: DOMAIN_EVENTS.INVOICE_CANCELLED,
+          payload: JSON.stringify({
+            type: DOMAIN_EVENTS.INVOICE_CANCELLED,
+            payload: {
+              invoiceId: invoice.id,
+              invoiceNumber: invoice.invoiceNumber,
+              tenantId,
+            },
+          }),
+          status: 'PENDING',
+        },
+      });
+      return invoice;
+    });
+  }
+
   async createInvoice(data: {
     tenantId: string;
     subscriptionId: string | null;
@@ -494,25 +602,70 @@ export class BillingRepository extends BaseRepository {
     status: string;
     dueAt: Date | null;
   }) {
-    return this.prisma.$transaction(async (tx) => {
-      const counters = await tx.$queryRaw<Array<{ value: number }>>`
-        UPDATE "InvoiceNumberCounter"
-        SET "value" = "value" + 1, "updatedAt" = CURRENT_TIMESTAMP
-        WHERE "key" = 'global'
-        RETURNING "value"
-      `;
-      if (counters.length !== 1) {
-        throw new Error('Global invoice number counter is not initialized');
-      }
+    return this.prisma.$transaction((tx) => this.insertInvoice(tx, data));
+  }
 
-      const date = new Date();
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const sequence = String(counters[0].value).padStart(6, '0');
+  async createInvoiceForBillingPeriod(
+    data: {
+      tenantId: string;
+      subscriptionId: string;
+      amountCents: number;
+      currency: string;
+      status: string;
+      dueAt: Date;
+      billingPeriodKey: string;
+    },
+    publishEvents: (
+      tx: Prisma.TransactionClient,
+      invoice: Invoice,
+    ) => Promise<void>,
+  ) {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const existing = await tx.invoice.findUnique({
+          where: { billingPeriodKey: data.billingPeriodKey },
+        });
+        if (existing) return { invoice: existing, created: false };
 
-      return tx.invoice.create({
-        data: { ...data, invoiceNumber: `INV-${year}${month}-${sequence}` },
+        const invoice = await this.insertInvoice(tx, data);
+        await publishEvents(tx, invoice);
+        return { invoice, created: true };
       });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const existing = await this.prisma.invoice.findUnique({
+          where: { billingPeriodKey: data.billingPeriodKey },
+        });
+        if (existing) return { invoice: existing, created: false };
+      }
+      throw error;
+    }
+  }
+
+  private async insertInvoice(
+    tx: Prisma.TransactionClient,
+    data: InvoiceCreateData,
+  ) {
+    const counters = await tx.$queryRaw<Array<{ value: number }>>`
+      UPDATE "InvoiceNumberCounter"
+      SET "value" = "value" + 1, "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "key" = 'global'
+      RETURNING "value"
+    `;
+    if (counters.length !== 1) {
+      throw new Error('Global invoice number counter is not initialized');
+    }
+
+    const date = new Date();
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const sequence = String(counters[0].value).padStart(6, '0');
+
+    return tx.invoice.create({
+      data: { ...data, invoiceNumber: `INV-${year}${month}-${sequence}` },
     });
   }
 
@@ -541,48 +694,45 @@ export class BillingRepository extends BaseRepository {
   }
 
   async settlePaidInvoice(id: string, tenantId: string, paidAt: Date) {
-    return this.prisma.$transaction(
-      async (tx) => {
-        const invoice = await tx.invoice.findFirst({
-          where: { id, tenantId, deletedAt: null, status: 'PENDING' },
+    return this.prisma.$transaction(async (tx) => {
+      const invoice = await tx.invoice.findFirst({
+        where: { id, tenantId, deletedAt: null, status: 'PENDING' },
+      });
+      if (!invoice) return null;
+
+      const updated = await tx.invoice.updateMany({
+        where: { id, tenantId, deletedAt: null, status: 'PENDING' },
+        data: { status: 'PAID', paidAt },
+      });
+      if (updated.count !== 1) return null;
+
+      if (invoice.subscriptionId) {
+        await tx.subscription.updateMany({
+          where: { id: invoice.subscriptionId, tenantId },
+          data: { status: 'ACTIVE' },
         });
-        if (!invoice) return null;
+      }
 
-        const updated = await tx.invoice.updateMany({
-          where: { id, tenantId, deletedAt: null, status: 'PENDING' },
-          data: { status: 'PAID', paidAt },
-        });
-        if (updated.count !== 1) return null;
-
-        if (invoice.subscriptionId) {
-          await tx.subscription.updateMany({
-            where: { id: invoice.subscriptionId, tenantId },
-            data: { status: 'ACTIVE' },
-          });
-        }
-
-        await tx.outboxEvent.create({
-          data: {
+      await tx.outboxEvent.create({
+        data: {
+          type: DOMAIN_EVENTS.INVOICE_PAID,
+          payload: JSON.stringify({
             type: DOMAIN_EVENTS.INVOICE_PAID,
-            payload: JSON.stringify({
-              type: DOMAIN_EVENTS.INVOICE_PAID,
-              payload: {
-                invoiceId: invoice.id,
-                invoiceNumber: invoice.invoiceNumber,
-                tenantId,
-                subscriptionId: invoice.subscriptionId ?? undefined,
-                amountCents: invoice.amountCents,
-              },
-            }),
-            status: 'PENDING',
-          },
-        });
+            payload: {
+              invoiceId: invoice.id,
+              invoiceNumber: invoice.invoiceNumber,
+              tenantId,
+              subscriptionId: invoice.subscriptionId ?? undefined,
+              amountCents: invoice.amountCents,
+            },
+          }),
+          status: 'PENDING',
+        },
+      });
 
-        return tx.invoice.findFirst({
-          where: { id, tenantId, deletedAt: null },
-        });
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-    );
+      return tx.invoice.findFirst({
+        where: { id, tenantId, deletedAt: null },
+      });
+    });
   }
 }

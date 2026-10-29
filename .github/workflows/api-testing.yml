@@ -4,24 +4,28 @@ on:
   push:
     paths:
       - 'apps/api/**'
+      - 'apps/web/**'
       - 'apps/worker/**'
       - 'packages/**'
       - 'package.json'
       - 'package-lock.json'
+      - 'turbo.json'
       - '.github/workflows/api-testing.yml'
   pull_request:
     paths:
       - 'apps/api/**'
+      - 'apps/web/**'
       - 'apps/worker/**'
       - 'packages/**'
       - 'package.json'
       - 'package-lock.json'
+      - 'turbo.json'
       - '.github/workflows/api-testing.yml'
 
 jobs:
   api-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16
@@ -75,6 +79,13 @@ jobs:
       - name: Migrate test database
         run: npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
 
+      - name: Verify migration status
+        run: npx prisma migrate status --schema apps/api/prisma/schema.prisma
+
+      - name: Check migrated schema drift
+        run: |
+          node -e "const { spawnSync } = require('node:child_process'); const result = spawnSync(process.execPath, ['node_modules/prisma/build/index.js', 'migrate', 'diff', '--from-url', process.env.DATABASE_URL, '--to-schema-datamodel', 'apps/api/prisma/schema.prisma', '--exit-code'], { stdio: 'inherit' }); process.exit(result.status ?? 1);"
+
       - name: Unit tests
         run: npm run test -w apps/api -- --runInBand
 
@@ -85,13 +96,13 @@ jobs:
         run: npm run test:integration -w apps/api -- --runInBand
 
       - name: Build
-        run: npm run build -w apps/api
+        run: npm run build
 
       - name: Lint
-        run: npm run lint -w apps/api
+        run: npm run lint
 
       - name: Typecheck
-        run: npm run check-types -w apps/api
+        run: npm run check-types
 
       - name: E2E tests
         run: npm run test:e2e -w apps/api -- --runInBand

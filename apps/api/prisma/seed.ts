@@ -32,6 +32,7 @@ const permissions = [
   'ingredient.create',
   'ingredient.read',
   'ingredient.update',
+  'ingredient.delete',
 
   'warehouse.read',
   'warehouse.update',

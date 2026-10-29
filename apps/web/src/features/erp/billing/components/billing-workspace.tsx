@@ -5,11 +5,13 @@ import Link from "next/link"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { EmptyState, SectionHeader, StatusBadge, UnavailableState } from "@/components/data-display/states"
-import { ApiError } from "@/lib/api/client"
+import { ApiError, saveBlob } from "@/lib/api/client"
 import { hasPermission } from "@/lib/permissions"
 import { useAuthStore } from "@/stores/auth.store"
 import {
   billingKeys,
+  cancelInvoice,
+  downloadTenantInvoices,
   executeBilling,
   getCurrentSubscription,
   getInvoices,
@@ -36,6 +38,7 @@ function formatDate(value?: string | null) {
 
 export function BillingWorkspace() {
   const [page, setPage] = useState(0)
+  const [exportFilters, setExportFilters] = useState({ from: "", to: "", status: "" })
   const queryClient = useQueryClient()
   const token = useAuthStore((state) => state.accessToken)
   const session = useAuthStore((state) => state.session)
@@ -67,6 +70,20 @@ export function BillingWorkspace() {
         queryClient.invalidateQueries({ queryKey: tenantId ? billingKeys.all(tenantId) : ["billing"] }),
         queryClient.invalidateQueries({ queryKey: tenantId ? ["subscriptions", tenantId] : ["subscriptions"] }),
       ])
+    },
+  })
+
+  const exportMutation = useMutation({
+    mutationFn: () => downloadTenantInvoices(token as string, exportFilters),
+    retry: 0,
+    onSuccess: (blob) => saveBlob(blob, "invoices.csv"),
+  })
+
+  const cancelMutation = useMutation({
+    mutationFn: (invoiceId: string) => cancelInvoice(token as string, invoiceId),
+    retry: 0,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: tenantId ? billingKeys.all(tenantId) : ["billing"] })
     },
   })
 
@@ -114,11 +131,20 @@ export function BillingWorkspace() {
         {mutationError ? <p role="alert" className="mt-3 text-sm text-[var(--danger)]">The billing request failed or its result is unknown. Check the invoice list before retrying.</p> : null}
       </section>
 
+      <section className="flex flex-wrap items-end gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4">
+        <label className="text-xs font-semibold text-[var(--muted-foreground)]">From<input type="date" value={exportFilters.from} onChange={(event) => setExportFilters((current) => ({ ...current, from: event.target.value }))} className="mt-1 block rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] px-3 py-2 text-sm text-[var(--foreground)]" /></label>
+        <label className="text-xs font-semibold text-[var(--muted-foreground)]">To<input type="date" value={exportFilters.to} onChange={(event) => setExportFilters((current) => ({ ...current, to: event.target.value }))} className="mt-1 block rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] px-3 py-2 text-sm text-[var(--foreground)]" /></label>
+        <label className="text-xs font-semibold text-[var(--muted-foreground)]">Status<select value={exportFilters.status} onChange={(event) => setExportFilters((current) => ({ ...current, status: event.target.value }))} className="mt-1 block rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] px-3 py-2 text-sm text-[var(--foreground)]"><option value="">All statuses</option>{["PENDING", "PAID", "FAILED", "CANCELLED", "REFUNDED"].map((status) => <option key={status}>{status}</option>)}</select></label>
+        <button type="button" disabled={exportMutation.isPending} onClick={() => exportMutation.mutate()} className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--foreground)] disabled:opacity-50">{exportMutation.isPending ? "Preparing CSV..." : "Export CSV"}</button>
+        {exportMutation.isError ? <p role="alert" className="text-sm text-[var(--danger)]">{exportMutation.error instanceof ApiError ? exportMutation.error.message : "Invoice export failed."}</p> : null}
+        {cancelMutation.isError ? <p role="alert" className="text-sm text-[var(--danger)]">{cancelMutation.error instanceof ApiError ? cancelMutation.error.message : "Invoice cancellation failed."}</p> : null}
+      </section>
+
       {!invoices.length ? <EmptyState title="No invoices" description="No invoice records are currently returned for this tenant." /> : (
         <section className="overflow-hidden rounded-[24px] border border-[var(--border)] bg-[var(--panel)]">
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
-              <thead className="bg-[var(--muted)] text-[var(--muted-foreground)]"><tr>{["Invoice", "Amount", "Status", "Due", "Paid", "Created"].map((heading) => <th key={heading} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em]">{heading}</th>)}</tr></thead>
+              <thead className="bg-[var(--muted)] text-[var(--muted-foreground)]"><tr>{["Invoice", "Amount", "Status", "Due", "Paid", "Created", ...(canExecute ? ["Action"] : [])].map((heading) => <th key={heading} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em]">{heading}</th>)}</tr></thead>
               <tbody>{invoices.map((invoice) => <tr key={invoice.id} className="border-t border-[var(--border)] hover:bg-[var(--muted)]/50">
                 <td className="px-4 py-4"><Link href={`/app/billing/${invoice.id}`} className="font-semibold text-[var(--foreground)] hover:text-[var(--primary)]">{invoice.invoiceNumber}</Link><p className="mt-1 text-xs text-[var(--muted-foreground)]">{invoice.id}</p></td>
                 <td className="px-4 py-4 font-medium text-[var(--foreground)]">{formatAmount(invoice)}</td>
@@ -126,6 +152,7 @@ export function BillingWorkspace() {
                 <td className="px-4 py-4 text-[var(--muted-foreground)]">{formatDate(invoice.dueAt)}</td>
                 <td className="px-4 py-4 text-[var(--muted-foreground)]">{formatDate(invoice.paidAt)}</td>
                 <td className="px-4 py-4 text-[var(--muted-foreground)]">{formatDate(invoice.createdAt)}</td>
+                {canExecute ? <td className="px-4 py-4">{invoice.status === "PENDING" && !invoice.providerPaymentRequestId && !invoice.providerPaymentId ? <button type="button" disabled={cancelMutation.isPending} onClick={() => { if (window.confirm(`Cancel pending invoice ${invoice.invoiceNumber}?`)) cancelMutation.mutate(invoice.id) }} className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-semibold text-[var(--foreground)] disabled:opacity-50">Cancel</button> : <span className="text-xs text-[var(--muted-foreground)]">-</span>}</td> : null}
               </tr>)}</tbody>
             </table>
           </div>

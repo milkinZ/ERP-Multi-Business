@@ -1,11 +1,15 @@
-import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, MaxLength } from 'class-validator';
 
 export class CreateRoleDto {
   @IsString()
   @IsNotEmpty()
   name!: string;
 
-  // Optional: allow setting permissions by codes at creation time.
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+
   @IsOptional()
   @IsString({ each: true })
   permissionCodes?: string[];

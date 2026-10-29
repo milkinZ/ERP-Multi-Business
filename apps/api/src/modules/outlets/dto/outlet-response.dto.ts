@@ -15,4 +15,7 @@ export class OutletResponseDto {
 
   @ApiProperty()
   updatedAt!: Date;
+
+  @ApiProperty()
+  isActive!: boolean;
 }

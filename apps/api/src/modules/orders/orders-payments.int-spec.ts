@@ -2,6 +2,7 @@ import { PlanType as PrismaPlanType, PrismaClient } from '@prisma/client';
 
 import { assertSafeIntegrationEnvironment } from '../../test/integration-environment';
 import { OrdersRepository } from './orders.repository';
+import { TenantsRepository } from '../tenants/tenants.repository';
 import { PaymentsRepository } from '../payments/payments.repository';
 import { BillingRepository } from '../billing/billing.repository';
 import { SubscriptionRepository } from '../subscription/domain/subscription.repository';
@@ -15,6 +16,7 @@ import {
 
 const prisma = new PrismaClient();
 const orders = new OrdersRepository(prisma as never);
+const tenants = new TenantsRepository(prisma as never);
 const payments = new PaymentsRepository(prisma as never);
 const billing = new BillingRepository(prisma as never);
 const subscriptions = new SubscriptionRepository(prisma as never);
@@ -28,7 +30,8 @@ const productA = 'it-orders-payments-product-a';
 const productB = 'it-orders-payments-product-b';
 const orderA = 'it-orders-payments-order-a';
 const orderB = 'it-orders-payments-order-b';
-const planId = 'it-orders-payments-plan';
+let planId = 'it-orders-payments-plan';
+let ownsPlan = true;
 const subscriptionA = 'it-orders-payments-subscription-a';
 const invoiceA = 'it-orders-payments-invoice-a';
 
@@ -49,6 +52,9 @@ async function cleanup() {
   });
   await prisma.invoice.deleteMany({
     where: { id: invoiceA },
+  });
+  await prisma.subscriptionHistory.deleteMany({
+    where: { subscriptionId: subscriptionA },
   });
   await prisma.subscription.deleteMany({
     where: { id: subscriptionA },
@@ -71,7 +77,9 @@ async function cleanup() {
   await prisma.outlet.deleteMany({
     where: { id: { in: [outletA, outletB] } },
   });
-  await prisma.plan.deleteMany({ where: { id: planId } });
+  if (ownsPlan) {
+    await prisma.plan.deleteMany({ where: { id: planId } });
+  }
   await prisma.tenant.deleteMany({
     where: { id: { in: [tenantA, tenantB] } },
   });
@@ -84,8 +92,18 @@ describe('Orders, payments, billing, and subscription integration', () => {
     await cleanup();
     await prisma.tenant.createMany({
       data: [
-        { id: tenantA, name: 'Orders Tenant A', businessType: 'RETAIL' },
-        { id: tenantB, name: 'Orders Tenant B', businessType: 'RETAIL' },
+        {
+          id: tenantA,
+          name: 'Orders Tenant A',
+          businessType: 'RETAIL',
+          currencyCode: 'IDR',
+        },
+        {
+          id: tenantB,
+          name: 'Orders Tenant B',
+          businessType: 'RETAIL',
+          currencyCode: 'IDR',
+        },
       ],
     });
     await prisma.outlet.createMany({
@@ -112,14 +130,22 @@ describe('Orders, payments, billing, and subscription integration', () => {
         },
       ],
     });
-    await prisma.plan.create({
-      data: {
-        id: planId,
-        type: PrismaPlanType.BUSINESS,
-        name: 'Integration Business',
-        priceCents: 49900,
-      },
+    const businessPlan = await prisma.plan.findUnique({
+      where: { type: PrismaPlanType.BUSINESS },
     });
+    if (businessPlan) {
+      planId = businessPlan.id;
+      ownsPlan = false;
+    } else {
+      await prisma.plan.create({
+        data: {
+          id: planId,
+          type: PrismaPlanType.BUSINESS,
+          name: 'Integration Business',
+          priceCents: 49900,
+        },
+      });
+    }
   });
 
   afterEach(async () => {
@@ -138,6 +164,9 @@ describe('Orders, payments, billing, and subscription integration', () => {
       },
     });
     await prisma.invoice.deleteMany({ where: { id: invoiceA } });
+    await prisma.subscriptionHistory.deleteMany({
+      where: { subscriptionId: subscriptionA },
+    });
     await prisma.subscription.deleteMany({ where: { id: subscriptionA } });
     await prisma.payment.deleteMany({
       where: { orderId: { in: [orderA, orderB] } },
@@ -147,6 +176,10 @@ describe('Orders, payments, billing, and subscription integration', () => {
     });
     await prisma.salesOrder.deleteMany({
       where: { id: { in: [orderA, orderB] } },
+    });
+    await prisma.tenant.updateMany({
+      where: { id: { in: [tenantA, tenantB] } },
+      data: { currencyCode: 'IDR' },
     });
   });
 
@@ -165,6 +198,12 @@ describe('Orders, payments, billing, and subscription integration', () => {
     );
 
     expect(created.id).toBeDefined();
+    expect(created.currencyCode).toBe('IDR');
+    await expect(
+      tenants.update(tenantA, { currencyCode: 'USD' }),
+    ).rejects.toThrow(
+      'Base currency cannot be changed after the first financial transaction',
+    );
     await expect(
       prisma.salesOrder.findUnique({
         where: { id: created.id },
@@ -172,6 +211,7 @@ describe('Orders, payments, billing, and subscription integration', () => {
       }),
     ).resolves.toEqual(
       expect.objectContaining({
+        currencyCode: 'IDR',
         tenantId: tenantA,
         outletId: outletA,
         totalAmount: 300,
@@ -192,6 +232,47 @@ describe('Orders, payments, billing, and subscription integration', () => {
     await expect(
       orders.findOne(created.id, tenantA, outletA),
     ).resolves.not.toBeNull();
+  });
+
+  it('requires a tenant base currency before creating a sales order', async () => {
+    await prisma.tenant.update({
+      where: { id: tenantB },
+      data: { currencyCode: null },
+    });
+
+    await expect(
+      orders.createOrder(tenantB, outletB, 'IT-ORDER-NO-CURRENCY', 0, []),
+    ).rejects.toThrow(
+      'Configure the tenant base currency before creating financial transactions',
+    );
+
+    await prisma.tenant.update({
+      where: { id: tenantB },
+      data: { currencyCode: 'IDR' },
+    });
+  });
+
+  it('allows initial currency configuration without rewriting legacy orders', async () => {
+    await prisma.tenant.update({
+      where: { id: tenantB },
+      data: { currencyCode: null },
+    });
+    await prisma.salesOrder.create({
+      data: {
+        id: orderB,
+        orderNumber: 'IT-ORDER-LEGACY',
+        status: 'PENDING',
+        totalAmount: 100,
+        tenantId: tenantB,
+      },
+    });
+
+    const tenant = await tenants.update(tenantB, { currencyCode: 'USD' });
+
+    expect(tenant.currencyCode).toBe('USD');
+    await expect(
+      prisma.salesOrder.findUnique({ where: { id: orderB } }),
+    ).resolves.toEqual(expect.objectContaining({ currencyCode: null }));
   });
 
   it('persists payment only for the tenant-owned order and isolates payment reads', async () => {
@@ -277,7 +358,60 @@ describe('Orders, payments, billing, and subscription integration', () => {
     ).resolves.toHaveLength(1);
     await expect(
       prisma.salesOrder.findUnique({ where: { id: orderB } }),
-    ).resolves.toEqual(expect.objectContaining({ status: 'PAID' }));
+    ).resolves.toEqual(
+      expect.objectContaining({
+        status: 'PENDING',
+        paymentStatus: 'PAID',
+        paidAmount: 100,
+      }),
+    );
+  });
+
+  it('tracks partial open-bill payments until the outstanding balance is settled', async () => {
+    await prisma.salesOrder.create({
+      data: {
+        id: orderA,
+        orderNumber: 'IT-OPEN-BILL',
+        tenantId: tenantA,
+        outletId: outletA,
+        orderMode: 'OPEN_BILL',
+        totalAmount: 100,
+        SalesOrderItem: {
+          create: {
+            productId: productA,
+            quantity: 1,
+            price: 100,
+            subtotal: 100,
+          },
+        },
+      },
+    });
+
+    const firstPayment = await payments.createPayment(
+      orderA,
+      tenantA,
+      35,
+      'CASH',
+    );
+    expect(firstPayment?.SalesOrder).toEqual(
+      expect.objectContaining({
+        paidAmount: 35,
+        paymentStatus: 'PENDING',
+      }),
+    );
+
+    const finalPayment = await payments.createPayment(
+      orderA,
+      tenantA,
+      65,
+      'CASH',
+    );
+    expect(finalPayment?.SalesOrder).toEqual(
+      expect.objectContaining({
+        paidAmount: 100,
+        paymentStatus: 'PAID',
+      }),
+    );
   });
 
   it('persists subscription events and prevents cross-tenant billing updates', async () => {

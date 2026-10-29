@@ -2,10 +2,12 @@ import { PrismaClient } from '@prisma/client';
 
 import { assertSafeIntegrationEnvironment } from '../../test/integration-environment';
 import { InventoryRepository } from './inventory.repository';
+import { InventoryReservationService } from './inventory-reservation.service';
 
 describe('InventoryRepository fulfillment integration', () => {
   const prisma = new PrismaClient();
   const repository = new InventoryRepository(prisma as never);
+  const reservations = new InventoryReservationService(prisma as never);
   const tenantA = 'it-fulfillment-tenant-a';
   const tenantB = 'it-fulfillment-tenant-b';
   const warehouseA = 'it-fulfillment-warehouse-a';
@@ -68,6 +70,8 @@ describe('InventoryRepository fulfillment integration', () => {
         name: 'Product Stock A',
         type: 'PRODUCT',
         tenantId: tenantA,
+        valuationMethod: 'STANDARD_COST',
+        standardCost: 1,
       },
     });
     await prisma.inventoryItem.create({
@@ -77,6 +81,8 @@ describe('InventoryRepository fulfillment integration', () => {
         name: 'Product Stock B',
         type: 'PRODUCT',
         tenantId: tenantA,
+        valuationMethod: 'STANDARD_COST',
+        standardCost: 1,
       },
     });
     await prisma.product.create({
@@ -121,20 +127,20 @@ describe('InventoryRepository fulfillment integration', () => {
     await prisma.$disconnect();
   });
 
-  async function createPaidOrder(id: string, tenantId: string) {
+  async function createPaidOrder(id: string, tenantId: string, quantity = 3) {
     await prisma.salesOrder.create({
       data: {
         id,
         orderNumber: id,
         status: 'PAID',
-        totalAmount: 100,
+        totalAmount: quantity * 100,
         tenantId,
         SalesOrderItem: {
           create: {
             productId: productA,
-            quantity: 3,
+            quantity,
             price: 100,
-            subtotal: 300,
+            subtotal: quantity * 100,
           },
         },
       },
@@ -180,6 +186,94 @@ describe('InventoryRepository fulfillment integration', () => {
     await expect(
       prisma.salesOrder.findUnique({ where: { id: orderA } }),
     ).resolves.toEqual(expect.objectContaining({ status: 'COMPLETED' }));
+  });
+
+  it('commits a valued reservation without deducting stock a second time', async () => {
+    await prisma.inventoryStock.create({
+      data: {
+        warehouseId: warehouseA,
+        inventoryItemId: itemA,
+        quantity: 10,
+        updatedAt: new Date(),
+      },
+    });
+    await createPaidOrder(orderA, tenantA);
+
+    await reservations.reserveStock(orderA, tenantA);
+    await reservations.commitReservation(orderA, tenantA);
+    await reservations.reserveStock(orderA, tenantA);
+    await repository.fulfillRetail(orderA, tenantA);
+
+    await expect(
+      prisma.inventoryStock.findUnique({
+        where: {
+          warehouseId_inventoryItemId: {
+            warehouseId: warehouseA,
+            inventoryItemId: itemA,
+          },
+        },
+      }),
+    ).resolves.toEqual(expect.objectContaining({ quantity: 7 }));
+    await expect(
+      prisma.inventoryMovement.count({
+        where: {
+          referenceId: orderA,
+          referenceType: 'ORDER_RESERVATION',
+        },
+      }),
+    ).resolves.toBe(0);
+    await expect(
+      prisma.inventoryMovement.count({
+        where: {
+          referenceId: orderA,
+          referenceType: 'ORDER_RESERVATION_COMMITTED',
+        },
+      }),
+    ).resolves.toBe(1);
+    await expect(
+      prisma.inventoryMovement.count({
+        where: { referenceId: orderA, referenceType: 'ORDER' },
+      }),
+    ).resolves.toBe(0);
+  });
+
+  it('releases an unconsumed reservation without creating cost of goods sold', async () => {
+    await prisma.inventoryStock.create({
+      data: {
+        warehouseId: warehouseA,
+        inventoryItemId: itemA,
+        quantity: 10,
+        updatedAt: new Date(),
+      },
+    });
+    await createPaidOrder(orderA, tenantA);
+
+    await reservations.reserveStock(orderA, tenantA);
+    await reservations.releaseReservation(orderA, tenantA);
+
+    await expect(
+      prisma.inventoryStock.findUnique({
+        where: {
+          warehouseId_inventoryItemId: {
+            warehouseId: warehouseA,
+            inventoryItemId: itemA,
+          },
+        },
+      }),
+    ).resolves.toEqual(expect.objectContaining({ quantity: 10 }));
+    const releaseMovement = await prisma.inventoryMovement.findFirst({
+      where: {
+        referenceId: orderA,
+        referenceType: 'ORDER_RESERVATION_RELEASE',
+      },
+    });
+    expect(releaseMovement?.unitCost).toBeNull();
+    expect(releaseMovement?.totalCost).toBeNull();
+    await expect(
+      prisma.inventoryMovementCostAllocation.count({
+        where: { movementId: releaseMovement?.id },
+      }),
+    ).resolves.toBe(0);
   });
 
   it('rolls back earlier inventory mutations when a later item fails', async () => {
@@ -338,6 +432,160 @@ describe('InventoryRepository fulfillment integration', () => {
           tenantId: tenantA,
           referenceType: 'ORDER',
           referenceId: { in: [orderA, orderB] },
+        },
+      }),
+    ).resolves.toBe(1);
+  });
+
+  it('does not oversell when two orders each request seven units from stock of ten', async () => {
+    await prisma.inventoryStock.create({
+      data: {
+        warehouseId: warehouseA,
+        inventoryItemId: itemA,
+        quantity: 10,
+        updatedAt: new Date(),
+      },
+    });
+    await createPaidOrder(orderA, tenantA, 7);
+    await createPaidOrder(orderB, tenantA, 7);
+
+    const results = await Promise.allSettled([
+      repository.fulfillRetail(orderA, tenantA),
+      repository.fulfillRetail(orderB, tenantA),
+    ]);
+    const successfulFulfillments = results.filter(
+      (result) => result.status === 'fulfilled' && result.value === true,
+    );
+
+    expect(successfulFulfillments).toHaveLength(1);
+    await expect(
+      prisma.inventoryStock.findUnique({
+        where: {
+          warehouseId_inventoryItemId: {
+            warehouseId: warehouseA,
+            inventoryItemId: itemA,
+          },
+        },
+      }),
+    ).resolves.toEqual(expect.objectContaining({ quantity: 3 }));
+    await expect(
+      prisma.inventoryMovement.aggregate({
+        where: {
+          tenantId: tenantA,
+          referenceType: 'ORDER',
+          referenceId: { in: [orderA, orderB] },
+        },
+        _sum: { quantity: true },
+      }),
+    ).resolves.toEqual({ _sum: { quantity: 7 } });
+  });
+
+  it('applies same-order concurrent fulfillment at most once', async () => {
+    await prisma.inventoryStock.create({
+      data: {
+        warehouseId: warehouseA,
+        inventoryItemId: itemA,
+        quantity: 10,
+        updatedAt: new Date(),
+      },
+    });
+    await createPaidOrder(orderA, tenantA);
+
+    const results = await Promise.allSettled([
+      repository.fulfillRetail(orderA, tenantA),
+      repository.fulfillRetail(orderA, tenantA),
+    ]);
+    const successfulFulfillments = results.filter(
+      (result) => result.status === 'fulfilled' && result.value === true,
+    );
+
+    expect(successfulFulfillments).toHaveLength(1);
+    await expect(
+      prisma.inventoryStock.findUnique({
+        where: {
+          warehouseId_inventoryItemId: {
+            warehouseId: warehouseA,
+            inventoryItemId: itemA,
+          },
+        },
+      }),
+    ).resolves.toEqual(expect.objectContaining({ quantity: 7 }));
+    await expect(
+      prisma.inventoryMovement.count({
+        where: {
+          tenantId: tenantA,
+          referenceType: 'ORDER',
+          referenceId: orderA,
+        },
+      }),
+    ).resolves.toBe(1);
+  });
+
+  it('serializes same-order reservations and duplicate releases without double-changing stock', async () => {
+    await prisma.inventoryStock.create({
+      data: {
+        warehouseId: warehouseA,
+        inventoryItemId: itemA,
+        quantity: 10,
+        updatedAt: new Date(),
+      },
+    });
+    await createPaidOrder(orderA, tenantA, 3);
+
+    const reserveResults = await Promise.allSettled([
+      reservations.reserveStock(orderA, tenantA),
+      reservations.reserveStock(orderA, tenantA),
+    ]);
+    const reserveSuccesses = reserveResults.filter(
+      (result) => result.status === 'fulfilled' && result.value.reserved,
+    );
+
+    expect(reserveSuccesses).toHaveLength(2);
+    await expect(
+      prisma.inventoryStock.findUnique({
+        where: {
+          warehouseId_inventoryItemId: {
+            warehouseId: warehouseA,
+            inventoryItemId: itemA,
+          },
+        },
+      }),
+    ).resolves.toEqual(expect.objectContaining({ quantity: 7 }));
+    await expect(
+      prisma.inventoryMovement.count({
+        where: {
+          tenantId: tenantA,
+          referenceId: orderA,
+          referenceType: 'ORDER_RESERVATION',
+        },
+      }),
+    ).resolves.toBe(1);
+
+    const releaseResults = await Promise.allSettled([
+      reservations.releaseReservation(orderA, tenantA),
+      reservations.releaseReservation(orderA, tenantA),
+    ]);
+    const releaseValues = releaseResults.flatMap((result) =>
+      result.status === 'fulfilled' ? [result.value.released] : [],
+    );
+
+    expect(releaseValues.sort()).toEqual([false, true]);
+    await expect(
+      prisma.inventoryStock.findUnique({
+        where: {
+          warehouseId_inventoryItemId: {
+            warehouseId: warehouseA,
+            inventoryItemId: itemA,
+          },
+        },
+      }),
+    ).resolves.toEqual(expect.objectContaining({ quantity: 10 }));
+    await expect(
+      prisma.inventoryMovement.count({
+        where: {
+          tenantId: tenantA,
+          referenceId: orderA,
+          referenceType: 'ORDER_RESERVATION_RELEASE',
         },
       }),
     ).resolves.toBe(1);

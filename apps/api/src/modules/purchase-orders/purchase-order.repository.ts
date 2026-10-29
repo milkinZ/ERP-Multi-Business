@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { BaseRepository } from '../../core/database/repositories/base.repository';
 import { PrismaService } from '../../core/database/prisma.service';
 import {
@@ -53,29 +53,47 @@ export class PurchaseOrderRepository extends BaseRepository {
       updatedAt: new Date(),
     });
 
-    const persisted = await this.prisma.purchaseOrder.create({
-      data: {
-        poNumber: aggregate.poNumber,
-        status: aggregate.status,
-        supplierId: aggregate.supplierId,
-        tenantId: aggregate.tenantId,
-        warehouseId: aggregate.warehouseId ?? undefined,
-        expectedDeliveryDate: aggregate.expectedDeliveryDate,
-        totalAmount: aggregate.totalAmount,
-        notes: aggregate.notes,
-        updatedAt: new Date(),
-        PurchaseOrderItem: {
-          create: aggregate.items.map((item) => ({
-            inventoryItemId: item.inventoryItemId,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            subtotal: item.subtotal,
-          })),
+    const persisted = await this.prisma.$transaction(async (tx) => {
+      const tenants = await tx.$queryRaw<
+        Array<{ currencyCode: string | null }>
+      >`
+        SELECT "currencyCode"
+        FROM "Tenant"
+        WHERE "id" = ${aggregate.tenantId} AND "deletedAt" IS NULL
+        FOR SHARE
+      `;
+      const currencyCode = tenants[0]?.currencyCode?.trim();
+      if (!currencyCode) {
+        throw new BadRequestException(
+          'Configure the tenant base currency before creating financial transactions',
+        );
+      }
+
+      return tx.purchaseOrder.create({
+        data: {
+          poNumber: aggregate.poNumber,
+          status: aggregate.status,
+          supplierId: aggregate.supplierId,
+          tenantId: aggregate.tenantId,
+          warehouseId: aggregate.warehouseId ?? undefined,
+          expectedDeliveryDate: aggregate.expectedDeliveryDate,
+          totalAmount: aggregate.totalAmount,
+          currencyCode,
+          notes: aggregate.notes,
+          updatedAt: new Date(),
+          PurchaseOrderItem: {
+            create: aggregate.items.map((item) => ({
+              inventoryItemId: item.inventoryItemId,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              subtotal: item.subtotal,
+            })),
+          },
         },
-      },
-      include: {
-        PurchaseOrderItem: true,
-      },
+        include: {
+          PurchaseOrderItem: true,
+        },
+      });
     });
 
     return PurchaseOrderAggregate.fromPersistence({
@@ -89,14 +107,72 @@ export class PurchaseOrderRepository extends BaseRepository {
     filters?: {
       status?: PurchaseOrderStatus;
       supplierId?: string;
+      search?: string;
+      fromDate?: Date;
+      toDate?: Date;
+      sortBy?:
+        | 'createdAt'
+        | 'expectedDeliveryDate'
+        | 'totalAmount'
+        | 'poNumber';
+      sortOrder?: 'asc' | 'desc';
       skip?: number;
       take?: number;
     },
   ) {
+    const toDateExclusive = filters?.toDate
+      ? new Date(filters.toDate.getTime() + 24 * 60 * 60 * 1000)
+      : undefined;
     const where: Prisma.PurchaseOrderWhereInput = {
       tenantId,
       ...(filters?.status ? { status: filters.status } : {}),
       ...(filters?.supplierId ? { supplierId: filters.supplierId } : {}),
+      AND: [
+        { Supplier: { is: { tenantId } } },
+        ...(filters?.search
+          ? [
+              {
+                OR: [
+                  {
+                    poNumber: {
+                      contains: filters.search.trim(),
+                      mode: 'insensitive' as const,
+                    },
+                  },
+                  {
+                    Supplier: {
+                      is: {
+                        tenantId,
+                        OR: [
+                          {
+                            name: {
+                              contains: filters.search.trim(),
+                              mode: 'insensitive' as const,
+                            },
+                          },
+                          {
+                            email: {
+                              contains: filters.search.trim(),
+                              mode: 'insensitive' as const,
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                ],
+              },
+            ]
+          : []),
+      ],
+      ...(filters?.fromDate || toDateExclusive
+        ? {
+            createdAt: {
+              ...(filters?.fromDate ? { gte: filters.fromDate } : {}),
+              ...(toDateExclusive ? { lt: toDateExclusive } : {}),
+            },
+          }
+        : {}),
     };
 
     const [data, total] = await Promise.all([
@@ -109,7 +185,10 @@ export class PurchaseOrderRepository extends BaseRepository {
         },
         skip: filters?.skip,
         take: filters?.take,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [
+          { [filters?.sortBy ?? 'createdAt']: filters?.sortOrder ?? 'desc' },
+          { id: filters?.sortOrder ?? 'desc' },
+        ],
       }),
       this.prisma.purchaseOrder.count({ where }),
     ]);

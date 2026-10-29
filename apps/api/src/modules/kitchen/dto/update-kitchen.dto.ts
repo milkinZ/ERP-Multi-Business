@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString, IsInt, Min } from 'class-validator';
+import { IsEnum, IsOptional, IsString, IsInt, Min, Max } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { KitchenStatus } from '../domain/kitchen-status.enum';
 
@@ -17,5 +17,6 @@ export class SetKitchenPriorityDto {
   @ApiProperty({ example: 1 })
   @IsInt()
   @Min(0)
+  @Max(2_147_483_647)
   priority!: number;
 }

@@ -33,6 +33,7 @@ const config = {
 describe('MinIO storage adapter integration', () => {
   let provider: MinioStorageProvider;
   let containerId: string | undefined;
+  let bucketCreated = false;
 
   beforeAll(async () => {
     assertSafeIntegrationEnvironment();
@@ -61,6 +62,7 @@ describe('MinIO storage adapter integration', () => {
     for (let attempt = 0; attempt < 30; attempt += 1) {
       try {
         await client.send(new CreateBucketCommand({ Bucket: bucket }));
+        bucketCreated = true;
         lastError = undefined;
         break;
       } catch (error) {
@@ -73,11 +75,13 @@ describe('MinIO storage adapter integration', () => {
         ? lastError
         : new Error('MinIO test service did not become ready');
     }
-  });
+  }, 30_000);
 
   afterAll(async () => {
     try {
-      await client.send(new DeleteBucketCommand({ Bucket: bucket }));
+      if (bucketCreated) {
+        await client.send(new DeleteBucketCommand({ Bucket: bucket }));
+      }
     } finally {
       client.destroy();
       if (containerId) {

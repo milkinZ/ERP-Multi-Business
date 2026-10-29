@@ -1,7 +1,7 @@
 import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
-import { JwtAuthGuard } from '../../../modules/auth/jwt-auth.guard';
+import { PlatformJwtAuthGuard } from '../../../modules/auth/platform-jwt-auth.guard';
 import { PermissionGuard } from '../../../modules/rbac/permission.guard';
 import { Permissions } from '../../../common/decorator/permissions.decorator';
 import { PERMISSIONS } from '../../../modules/rbac/permissions';
@@ -11,7 +11,7 @@ import { QueueMonitorService } from './queue-monitor.service';
 @ApiTags('admin/queues')
 @ApiBearerAuth()
 @Controller('admin/queues')
-@UseGuards(JwtAuthGuard, PermissionGuard)
+@UseGuards(PlatformJwtAuthGuard, PermissionGuard)
 export class QueueMonitorController {
   constructor(private readonly queueMonitor: QueueMonitorService) {}
 

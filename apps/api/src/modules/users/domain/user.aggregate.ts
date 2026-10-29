@@ -1,7 +1,7 @@
 export type UserProps = {
   id: string;
   email: string;
-  passwordHash: string;
+  passwordHash: string | null;
   tenantId: string;
   createdAt: Date;
   updatedAt: Date;

@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 
 import { RecipesService } from './recipes.service';
 
@@ -10,6 +18,7 @@ import { Permissions } from '../../common/decorator/permissions.decorator';
 import type { JwtUser } from '../../common/interfaces/jwt-user.interface';
 
 import { CreateRecipeDto } from './dto/create-recipe.dto';
+import { ListRecipesQueryDto } from './dto/list-recipes-query.dto';
 import { PermissionGuard } from '../rbac/permission.guard';
 import { PERMISSIONS } from '../rbac/permissions';
 
@@ -28,6 +37,26 @@ export class RecipesController {
     user: JwtUser,
   ) {
     return this.recipesService.create(user.tenantId, dto);
+  }
+
+  @Get()
+  @Permissions(PERMISSIONS.RECIPE_READ)
+  findAll(@Query() query: ListRecipesQueryDto, @CurrentUser() user: JwtUser) {
+    return this.recipesService.findAll(user.tenantId, query);
+  }
+
+  @Get('by-inventory-item/:inventoryItemId')
+  @Permissions(PERMISSIONS.RECIPE_READ)
+  findByInventoryItem(
+    @Param('inventoryItemId') inventoryItemId: string,
+    @Query() query: ListRecipesQueryDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.recipesService.findByInventoryItem(
+      inventoryItemId,
+      user.tenantId,
+      query,
+    );
   }
 
   @Get(':productId')

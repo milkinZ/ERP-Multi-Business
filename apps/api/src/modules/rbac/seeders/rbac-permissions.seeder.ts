@@ -22,6 +22,7 @@ export class RBACPermissionsSeeder implements OnModuleInit {
         c.startsWith('invoice.') ||
         c.startsWith('billing.') ||
         c.startsWith('feature-flag.') ||
+        c.startsWith('audit-log.') ||
         c.startsWith('super-admin.'),
     );
 

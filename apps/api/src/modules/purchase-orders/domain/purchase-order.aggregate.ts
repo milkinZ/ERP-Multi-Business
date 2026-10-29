@@ -28,7 +28,7 @@ export type PurchaseOrderProps = {
 
 type Receipt = {
   inventoryItemId: string;
-  receivedQuantity: number; // cumulative receivedQuantity after this operation
+  receivedQuantity: number;
 };
 
 type ReceivingMovementSpec = {
@@ -321,7 +321,7 @@ export class PurchaseOrderAggregate extends AggregateRoot {
   // 2) Partial receiving + idempotent incremental receiving
   /**
    * Apply incremental receives.
-   * Receipts are cumulative receivedQuantity per item AFTER this operation.
+   * receivedQuantity is the new quantity received in this operation.
    * Returns inventory movement specs for ONLY newly received quantities.
    */
   receive(receipts: Receipt[]): ReceivingMovementSpec[] {
@@ -341,14 +341,14 @@ export class PurchaseOrderAggregate extends AggregateRoot {
       throw new Error('At least one receipt item is required');
     }
 
-    // Map receipts by inventoryItemId for validation.
+    // Map incremental receipts by inventory item for validation.
     const receiptByItem = new Map<string, number>();
     for (const r of receipts) {
       if (!r.inventoryItemId.trim()) {
         throw new Error('inventoryItemId must not be empty');
       }
-      if (!Number.isFinite(r.receivedQuantity) || r.receivedQuantity < 0) {
-        throw new Error('receivedQuantity must be >= 0');
+      if (!Number.isFinite(r.receivedQuantity) || r.receivedQuantity <= 0) {
+        throw new Error('receivedQuantity must be > 0');
       }
       const existing = receiptByItem.get(r.inventoryItemId);
       if (existing !== undefined) {
@@ -367,30 +367,23 @@ export class PurchaseOrderAggregate extends AggregateRoot {
       }
     }
 
-    // Apply cumulative received quantities.
     const movements: ReceivingMovementSpec[] = [];
 
     const nextItems = this.props.items.map((item) => {
-      const nextReceived = receiptByItem.get(item.inventoryItemId);
-      if (nextReceived === undefined) {
+      const receivedIncrement = receiptByItem.get(item.inventoryItemId);
+      if (receivedIncrement === undefined) {
         return item;
       }
 
-      if (nextReceived < item.receivedQuantity) {
-        throw new Error('Cannot decrease already received quantity');
-      }
-
+      const nextReceived = item.receivedQuantity + receivedIncrement;
       if (nextReceived > item.quantity) {
         throw new Error('Cannot receive more than ordered quantity');
       }
 
-      const delta = nextReceived - item.receivedQuantity;
-      if (delta > 0) {
-        movements.push({
-          inventoryItemId: item.inventoryItemId,
-          deltaQuantity: delta,
-        });
-      }
+      movements.push({
+        inventoryItemId: item.inventoryItemId,
+        deltaQuantity: receivedIncrement,
+      });
 
       return {
         ...item,

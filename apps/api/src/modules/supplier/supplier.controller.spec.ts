@@ -40,11 +40,12 @@ describe('SupplierController', () => {
   it('keeps supplier reads tenant-scoped', async () => {
     findAll.mockResolvedValue([]);
     findOne.mockResolvedValue(null);
+    const query = { page: 2, limit: 10 } as never;
 
-    await controller.findAll(user);
+    await controller.findAll(query, user);
     await controller.findOne('supplier-b', user);
 
-    expect(findAll).toHaveBeenCalledWith('tenant-a');
+    expect(findAll).toHaveBeenCalledWith('tenant-a', query);
     expect(findOne).toHaveBeenCalledWith('supplier-b', 'tenant-a');
   });
 });

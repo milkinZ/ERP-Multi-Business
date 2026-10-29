@@ -22,6 +22,7 @@ describe('JwtAuthGuard', () => {
   it('records only trusted JWT identity fields in request context', () => {
     const guard = new JwtAuthGuard();
     const user = {
+      scope: 'tenant' as const,
       userId: 'user-a',
       tenantId: 'tenant-a',
       outletId: 'outlet-a',
@@ -36,5 +37,18 @@ describe('JwtAuthGuard', () => {
         outletId: 'outlet-a',
       });
     });
+  });
+
+  it('rejects platform identities on tenant routes', () => {
+    const guard = new JwtAuthGuard();
+
+    expect(() =>
+      guard.handleRequest(null, {
+        scope: 'platform',
+        userId: 'platform-identity-a',
+        platformIdentityId: 'platform-identity-a',
+        permissions: ['super-admin.read'],
+      }),
+    ).toThrow(new UnauthorizedException('Tenant authentication required'));
   });
 });

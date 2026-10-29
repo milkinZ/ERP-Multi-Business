@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
+import {
+  OrderMode,
+  OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
+  Prisma,
+} from '@prisma/client';
 import { BaseRepository } from '../../core/database/repositories/base.repository';
 import { PrismaService } from '../../core/database/prisma.service';
 
@@ -35,12 +41,58 @@ export class PaymentsRepository extends BaseRepository {
     method: PaymentMethod,
   ) {
     const payment = await this.prisma.$transaction(async (tx) => {
-      const claimedOrder = await tx.salesOrder.updateMany({
-        where: { id: orderId, tenantId, status: 'PENDING' },
-        data: { status: 'PAID' },
+      const [order] = await tx.$queryRaw<
+        Array<{
+          id: string;
+          totalAmount: number;
+          paidAmount: number;
+          orderMode: OrderMode;
+          paymentStatus: PaymentStatus;
+          status: OrderStatus;
+        }>
+      >`
+        SELECT "id", "totalAmount", "paidAmount", "orderMode", "paymentStatus", "status"
+        FROM "SalesOrder"
+        WHERE "id" = ${orderId} AND "tenantId" = ${tenantId}
+        FOR UPDATE
+      `;
+
+      if (
+        !order ||
+        order.status === OrderStatus.CANCELLED ||
+        order.status === OrderStatus.PAID ||
+        order.paymentStatus === PaymentStatus.PAID ||
+        (order.status === OrderStatus.COMPLETED &&
+          order.orderMode !== OrderMode.OPEN_BILL)
+      ) {
+        return null;
+      }
+
+      const outstandingAmount = order.totalAmount - order.paidAmount;
+      const newPaidAmount = order.paidAmount + amount;
+      if (
+        amount <= 0 ||
+        amount > outstandingAmount ||
+        (order.orderMode === OrderMode.REGULAR && amount !== outstandingAmount)
+      ) {
+        return null;
+      }
+
+      const fullyPaid = newPaidAmount >= order.totalAmount;
+      const updatedOrder = await tx.salesOrder.updateMany({
+        where: {
+          id: orderId,
+          tenantId,
+          paidAmount: order.paidAmount,
+          paymentStatus: { not: PaymentStatus.PAID },
+        },
+        data: {
+          paidAmount: newPaidAmount,
+          paymentStatus: fullyPaid ? PaymentStatus.PAID : PaymentStatus.PENDING,
+        },
       });
 
-      if (claimedOrder.count !== 1) {
+      if (updatedOrder.count !== 1) {
         return null;
       }
 

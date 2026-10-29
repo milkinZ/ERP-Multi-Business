@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 
@@ -18,6 +19,7 @@ import type { JwtUser } from '../../../common/interfaces/jwt-user.interface';
 import { CreateRoleDto } from '../dto/create-role.dto';
 import { UpdateRoleDto } from '../dto/update-role.dto';
 import { RolesService } from '../services/roles.service';
+import { RolesQueryDto } from '../dto/roles-query.dto';
 
 @Controller('roles')
 @UseGuards(JwtAuthGuard, PermissionGuard)
@@ -26,8 +28,8 @@ export class RolesController {
 
   @Get()
   @Permissions(PERMISSIONS.ROLE_READ)
-  getAll(@CurrentUser() user: JwtUser) {
-    return this.rolesService.getAll(user.tenantId);
+  getAll(@CurrentUser() user: JwtUser, @Query() query: RolesQueryDto) {
+    return this.rolesService.getAll(user.tenantId, query);
   }
 
   @Get(':id')
@@ -39,7 +41,7 @@ export class RolesController {
   @Post()
   @Permissions(PERMISSIONS.ROLE_CREATE)
   create(@Body() dto: CreateRoleDto, @CurrentUser() user: JwtUser) {
-    return this.rolesService.create(user.tenantId, dto);
+    return this.rolesService.create(user.tenantId, user.userId, dto);
   }
 
   @Put(':id')
@@ -49,7 +51,7 @@ export class RolesController {
     @Body() dto: UpdateRoleDto,
     @CurrentUser() user: JwtUser,
   ) {
-    return this.rolesService.update(user.tenantId, id, dto);
+    return this.rolesService.update(user.tenantId, user.userId, id, dto);
   }
 
   @Delete(':id')

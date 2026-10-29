@@ -18,6 +18,7 @@ export type Payment = {
     orderNumber?: string | null
     status?: string | null
     totalAmount?: number | null
+    currencyCode?: string | null
     tenantId?: string
     outletId?: string | null
     createdAt?: string | null

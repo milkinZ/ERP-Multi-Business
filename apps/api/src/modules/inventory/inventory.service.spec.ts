@@ -1,5 +1,3 @@
-import { InventoryItemType } from '@prisma/client';
-
 import { InventoryRepository } from './inventory.repository';
 import { InventoryService } from './inventory.service';
 
@@ -25,18 +23,18 @@ describe('InventoryService', () => {
     service = new InventoryService(repository);
   });
 
-  it('lists inventory in the authenticated tenant and requested type', async () => {
-    listInventoryItems.mockResolvedValue([
-      { id: 'inventory-a', tenantId: 'tenant-a' },
-    ]);
+  it('lists inventory in the authenticated tenant using the requested filters', async () => {
+    const result = {
+      data: [{ id: 'inventory-a', tenantId: 'tenant-a' }],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    };
+    const query = { type: 'PRODUCT', page: 1, limit: 20 } as never;
+    listInventoryItems.mockResolvedValue(result);
 
-    await expect(
-      service.listInventoryItems('tenant-a', InventoryItemType.PRODUCT),
-    ).resolves.toEqual([{ id: 'inventory-a', tenantId: 'tenant-a' }]);
-    expect(listInventoryItems).toHaveBeenCalledWith(
-      'tenant-a',
-      InventoryItemType.PRODUCT,
+    await expect(service.listInventoryItems('tenant-a', query)).resolves.toBe(
+      result,
     );
+    expect(listInventoryItems).toHaveBeenCalledWith('tenant-a', query);
   });
 
   it('passes trusted tenant and actor context to stock mutations', async () => {
@@ -64,14 +62,23 @@ describe('InventoryService', () => {
   });
 
   it('returns tenant-scoped movement history including empty results', async () => {
-    history.mockResolvedValue([]);
-    historyByItem.mockResolvedValue([]);
+    const result = {
+      data: [],
+      pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+    };
+    const query = { page: 1, limit: 20 } as never;
+    history.mockResolvedValue(result);
+    historyByItem.mockResolvedValue(result);
 
-    await expect(service.history('tenant-a')).resolves.toEqual([]);
+    await expect(service.history('tenant-a', query)).resolves.toBe(result);
     await expect(
-      service.historyByItem('tenant-a', 'inventory-a'),
-    ).resolves.toEqual([]);
-    expect(history).toHaveBeenCalledWith('tenant-a');
-    expect(historyByItem).toHaveBeenCalledWith('tenant-a', 'inventory-a');
+      service.historyByItem('tenant-a', 'inventory-a', query),
+    ).resolves.toBe(result);
+    expect(history).toHaveBeenCalledWith('tenant-a', query);
+    expect(historyByItem).toHaveBeenCalledWith(
+      'tenant-a',
+      'inventory-a',
+      query,
+    );
   });
 });

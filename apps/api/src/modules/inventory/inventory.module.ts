@@ -7,6 +7,8 @@ import { ReservationRepository } from './reservation.repository';
 import { ReservationExpirationRegistrar } from './reservation-expiration-registrar.service';
 import { PrismaModule } from '../../core/database/prisma.module';
 import { QueueModule } from '../../infrastructure/queue/queue.module';
+import { WarehouseTransferService } from './warehouse-transfer.service';
+import { InventoryCostingService } from './inventory-costing.service';
 
 @Module({
   imports: [PrismaModule, QueueModule],
@@ -14,10 +16,17 @@ import { QueueModule } from '../../infrastructure/queue/queue.module';
   providers: [
     InventoryService,
     InventoryRepository,
+    InventoryCostingService,
+    WarehouseTransferService,
     InventoryReservationService,
     ReservationRepository,
     ReservationExpirationRegistrar,
   ],
-  exports: [InventoryService, InventoryReservationService, InventoryRepository],
+  exports: [
+    InventoryService,
+    InventoryReservationService,
+    InventoryRepository,
+    InventoryCostingService,
+  ],
 })
 export class InventoryModule {}

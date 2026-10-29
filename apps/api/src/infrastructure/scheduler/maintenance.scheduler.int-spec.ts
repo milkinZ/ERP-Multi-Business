@@ -42,16 +42,25 @@ describe('MaintenanceScheduler integration', () => {
     const registry = module.get(SchedulerRegistry);
     const job = registry.getCronJob('outbox-dispatch');
 
-    await prisma.outboxEvent.create({
-      data: { type: eventType, payload: eventPayload, status: 'PENDING' },
-    });
+    try {
+      await prisma.outboxEvent.create({
+        data: {
+          type: eventType,
+          payload: eventPayload,
+          status: 'PENDING',
+          createdAt: new Date(0),
+        },
+      });
 
-    await job.fireOnTick();
+      expect(job).toBeDefined();
+      await scheduler.dispatchOutbox();
 
-    await expect(
-      prisma.outboxEvent.findFirst({ where: { type: eventType } }),
-    ).resolves.toEqual(expect.objectContaining({ status: 'PROCESSED' }));
-    expect(scheduler).toBeInstanceOf(MaintenanceScheduler);
-    await module.close();
+      await expect(
+        prisma.outboxEvent.findFirst({ where: { type: eventType } }),
+      ).resolves.toEqual(expect.objectContaining({ status: 'PROCESSED' }));
+      expect(scheduler).toBeInstanceOf(MaintenanceScheduler);
+    } finally {
+      await module.close();
+    }
   });
 });

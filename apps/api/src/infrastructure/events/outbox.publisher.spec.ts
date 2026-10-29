@@ -7,7 +7,12 @@ describe('OutboxPublisher', () => {
   const create = jest.fn();
   const prisma = { outboxEvent: { create } } as unknown as PrismaService;
   const publisher = new OutboxPublisher(prisma);
-  let persistedData: { type: string; status: string; payload: string };
+  let persistedData: {
+    tenantId: string;
+    type: string;
+    status: string;
+    payload: string;
+  };
   const event: DomainEvent = {
     type: DOMAIN_EVENTS.ORDER_CREATED,
     payload: { orderId: 'order-a', tenantId: 'tenant-a' },
@@ -57,5 +62,35 @@ describe('OutboxPublisher', () => {
       userId: 'user-a',
       outletId: 'outlet-a',
     });
+  });
+
+  it('uses the target tenant in a platform event when no tenant context exists', async () => {
+    const platformEvent: DomainEvent = {
+      type: DOMAIN_EVENTS.SUPER_ADMIN_TENANT_ACTIVATED,
+      payload: {
+        tenantId: 'target-tenant',
+        targetTenantId: 'target-tenant',
+        actionedByPlatformIdentityId: 'platform-identity-a',
+      },
+    };
+
+    await requestContext.run(
+      { platformIdentityId: 'platform-identity-a' },
+      () => publisher.publish(platformEvent),
+    );
+
+    expect(persistedData.tenantId).toBe('target-tenant');
+  });
+
+  it('rejects events without a tenant context or tenant payload', async () => {
+    const tenantlessEvent = {
+      type: 'test.tenantless',
+      payload: {},
+    } as never;
+
+    await expect(
+      requestContext.run({}, () => publisher.publish(tenantlessEvent)),
+    ).rejects.toThrow('OUTBOX_TENANT_CONTEXT_MISSING');
+    expect(create).not.toHaveBeenCalled();
   });
 });

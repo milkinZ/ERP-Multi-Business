@@ -4,31 +4,23 @@
 
 | Metric | Backend source | Permission | Scope | Implemented |
 | --- | --- | --- | --- | --- |
-| Tenant total | `GET /super-admin/tenants` response `total` | `super-admin.read` | Platform | Yes |
+| Tenant total and lifecycle distribution | `GET /super-admin/billing/aggregate` | `super-admin.read` | Platform | Yes |
+| Active user total | `GET /super-admin/billing/aggregate` | `super-admin.read` | Platform | Yes |
+| Active outlet total | `GET /super-admin/billing/aggregate` | `super-admin.read` | Platform | Yes |
+| Platform audit total and last-24-hour count | `GET /super-admin/billing/aggregate` | `super-admin.read` | Platform | Yes |
 | Recent tenant records | `GET /super-admin/tenants` bounded default page | `super-admin.read` | Platform | Yes |
-| Database readiness | `GET /health/readiness` response `database.ok` | Public health contract; platform route still requires platform access | System | Yes |
-| Redis readiness | `GET /health/readiness` response `redis.ok` | Public health contract; platform route still requires platform access | System | Yes |
-| BullMQ readiness | `GET /health/readiness` response `bullmq.ok/status` | Public health contract; platform route still requires platform access | System | Yes |
-| Subscription totals/distribution | No platform aggregate endpoint | N/A | N/A | No |
-| Invoice totals/revenue | No platform aggregate endpoint | N/A | N/A | No |
-| User or outlet totals | No platform aggregate endpoint | N/A | N/A | No |
-| Platform audit activity | Audit logs are tenant-scoped only | N/A | Tenant | No |
-| Worker/queue dashboard detail | Health exposes readiness only; no platform dashboard contract | N/A | System | No |
+| Subscription totals, statuses, and plan distribution | `GET /super-admin/billing/aggregate` | `super-admin.read` | Platform | Yes |
+| Invoice totals and amounts grouped by status/currency | `GET /super-admin/billing/aggregate` | `super-admin.read` | Platform | Yes; amounts are explicitly labeled in minor units and not as recognized revenue |
+| Payment-request attempt totals and states | `GET /super-admin/billing/aggregate` | `super-admin.read` | Platform | Yes |
+| Database, Redis, and BullMQ readiness | `GET /health/readiness` | Public health contract; platform page requires authenticated platform access | System | Yes |
+| Worker and queue detail | `/platform/workers` and `/platform/observability` use bounded authorized read contracts | `super-admin.read` | Platform | Yes on their dedicated pages; not duplicated on the dashboard |
 
-## Confirmed Gaps
-
-### BACKEND CONTRACT GAP
-
-- No platform subscription aggregate endpoint exists for lifecycle or plan distribution.
-- No platform billing aggregate endpoint exists for invoice totals, revenue, outstanding balances, or collection metrics.
-- No platform-scoped user or outlet aggregate endpoint exists.
-- No platform-scoped audit activity endpoint exists.
-- No dedicated platform worker, queue, scheduler, or job summary contract exists beyond readiness checks.
-- Tenant analytics endpoints remain tenant-scoped and cannot be reused for platform metrics.
+## Remaining Gaps
 
 ### FRONTEND GAP
 
-- The dashboard does not expose subscription, billing, user, outlet, audit, or detailed queue sections because authoritative platform sources are absent.
+- The dashboard consumes safe platform-wide user, outlet, and audit aggregates alongside the existing tenant, subscription, invoice, and payment-request summaries.
+- Tenant analytics and tenant audit endpoints are not promoted to platform scope; the aggregate derives platform scope server-side.
 
 ### REALTIME INFRASTRUCTURE GAP
 
@@ -36,8 +28,8 @@
 
 ### PERFORMANCE GAP
 
-- A future dashboard aggregate endpoint should use database counts/grouping and bounded recent-record queries. The current dashboard does not load invoices, subscriptions, or other unbounded cross-tenant collections.
+- The aggregate endpoint uses database counts/grouping and the recent-tenant query remains bounded. The dashboard does not load unbounded cross-tenant invoice or subscription collections.
 
 ### SECURITY GAP
 
-- Platform aggregate APIs must continue to use explicit `super-admin.*` authorization. Tenant-scoped analytics and audit endpoints must not be promoted to platform scope by accepting a frontend-supplied `tenantId`.
+- Platform aggregate APIs require explicit `super-admin.read` authorization; the dashboard does not accept a tenant identifier to change scope.

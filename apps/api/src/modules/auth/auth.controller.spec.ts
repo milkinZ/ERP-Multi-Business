@@ -1,36 +1,45 @@
+import { GoneException } from '@nestjs/common';
+
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { UsersInvitationsService } from '../users/users-invitations.service';
 
 describe('AuthController', () => {
-  const register = jest.fn();
   const login = jest.fn();
   const logout = jest.fn();
   const refresh = jest.fn();
-  const service = {
-    register,
-    login,
-    logout,
-    refresh,
-  } as unknown as AuthService;
+  const accept = jest.fn();
+  const service = { login, logout, refresh } as unknown as AuthService;
+  const invitations = { accept } as unknown as UsersInvitationsService;
   let controller: AuthController;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    controller = new AuthController(service);
+    controller = new AuthController(service, invitations);
   });
 
-  it('passes registration DTO to the auth service unchanged', async () => {
-    const dto = {
-      email: 'user-a@example.test',
-      password: 'test-password',
-      tenantId: 'tenant-a',
-      roleId: 'role-a',
-    } as never;
-    register.mockResolvedValue({ id: 'user-a' });
+  it('disables public registration in favor of invitations', () => {
+    expect(() => controller.register()).toThrow(
+      new GoneException(
+        'Public registration is disabled; use a tenant invitation link',
+      ),
+    );
+  });
 
-    await controller.register(dto);
+  it('accepts a user invitation with the token and password', async () => {
+    const result = { id: 'user-a' };
+    accept.mockResolvedValue(result);
 
-    expect(register).toHaveBeenCalledWith(dto);
+    await expect(
+      controller.acceptInvitation({
+        token: 'invitation-token',
+        password: 'a-long-enough-password',
+      }),
+    ).resolves.toBe(result);
+    expect(accept).toHaveBeenCalledWith(
+      'invitation-token',
+      'a-long-enough-password',
+    );
   });
 
   it('passes login credentials and response object to authentication', async () => {

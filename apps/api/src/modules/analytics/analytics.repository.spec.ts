@@ -48,7 +48,7 @@ describe('AnalyticsRepository', () => {
       where: {
         tenantId: 'tenant-1',
         outletId: 'outlet-1',
-        status: 'PAID',
+        paymentStatus: 'PAID',
       },
       select: { id: true },
     });

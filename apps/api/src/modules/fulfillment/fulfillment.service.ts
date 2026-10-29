@@ -8,6 +8,10 @@ import { InventoryRepository } from '../inventory/inventory.repository';
 export class FulfillmentService {
   constructor(private readonly inventoryRepository: InventoryRepository) {}
 
+  resolveTenantBusinessType(tenantId: string): Promise<BusinessType> {
+    return this.inventoryRepository.resolveTenantBusinessType(tenantId);
+  }
+
   async processOrder(orderId: string, tenantId: string): Promise<boolean> {
     const businessType =
       await this.inventoryRepository.resolveTenantBusinessType(tenantId);

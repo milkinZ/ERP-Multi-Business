@@ -21,6 +21,7 @@ export type SubscriptionProps = {
   id: string;
   tenantId: string;
   planId: string;
+  pendingPlanId?: string | null;
   status: SubscriptionStatus;
   startedAt: Date;
   endedAt: Date | null;
@@ -44,6 +45,7 @@ export class SubscriptionAggregate extends AggregateRoot {
   private constructor(
     private readonly props: SubscriptionProps,
     private plan: PlanProps,
+    private pendingPlan: PlanProps | null = null,
   ) {
     super();
   }
@@ -80,8 +82,9 @@ export class SubscriptionAggregate extends AggregateRoot {
   static reconstitute(
     props: SubscriptionProps,
     plan: PlanProps,
+    pendingPlan: PlanProps | null = null,
   ): SubscriptionAggregate {
-    return new SubscriptionAggregate(props, plan);
+    return new SubscriptionAggregate(props, plan, pendingPlan);
   }
 
   get id(): string {
@@ -94,6 +97,10 @@ export class SubscriptionAggregate extends AggregateRoot {
 
   get planId(): string {
     return this.props.planId;
+  }
+
+  get pendingPlanId(): string | null {
+    return this.props.pendingPlanId ?? null;
   }
 
   get status(): SubscriptionStatus {
@@ -134,9 +141,11 @@ export class SubscriptionAggregate extends AggregateRoot {
 
   canActivate(): boolean {
     return (
-      this.props.status === SubscriptionStatus.TRIAL ||
-      this.props.status === SubscriptionStatus.PAST_DUE ||
-      this.props.status === SubscriptionStatus.SUSPENDED
+      (this.props.status === SubscriptionStatus.TRIAL ||
+        this.props.status === SubscriptionStatus.PAST_DUE ||
+        this.props.status === SubscriptionStatus.SUSPENDED) &&
+      !this.props.deletedAt &&
+      !this.isExpired()
     );
   }
 
@@ -151,6 +160,9 @@ export class SubscriptionAggregate extends AggregateRoot {
     }
 
     if (this.props.status === SubscriptionStatus.EXPIRED) {
+      throw new Error('Cannot activate an expired subscription');
+    }
+    if (this.props.deletedAt || this.isExpired()) {
       throw new Error('Cannot activate an expired subscription');
     }
 
@@ -174,8 +186,43 @@ export class SubscriptionAggregate extends AggregateRoot {
       throw new Error('Cannot renew a deleted subscription');
     }
 
-    // Idempotent: if already active with future endedAt, allow but don't duplicate
+    if (billingPeriodStart >= billingPeriodEnd) {
+      throw new Error('Billing period start must be before its end');
+    }
+
+    if (
+      this.props.status === SubscriptionStatus.ACTIVE &&
+      this.props.endedAt &&
+      this.props.endedAt >= billingPeriodEnd
+    ) {
+      return;
+    }
+
+    if (this.pendingPlanId && !this.pendingPlan) {
+      throw new Error(
+        `Subscription ${this.props.id} has a pending plan ID without its plan`,
+      );
+    }
+
+    if (this.pendingPlan) {
+      const oldPlan = this.plan;
+      this.plan = this.pendingPlan;
+      this.props.planId = this.pendingPlan.id;
+      this.pendingPlan = null;
+      this.props.pendingPlanId = null;
+      this.addDomainEvent({
+        type: DOMAIN_EVENTS.SUBSCRIPTION_PLAN_CHANGED,
+        payload: {
+          subscriptionId: this.props.id,
+          tenantId: this.props.tenantId,
+          oldPlanType: oldPlan.type,
+          newPlanType: this.plan.type,
+        },
+      });
+    }
+
     this.props.status = SubscriptionStatus.ACTIVE;
+    this.props.endedAt = billingPeriodEnd;
 
     this.addDomainEvent({
       type: DOMAIN_EVENTS.SUBSCRIPTION_RENEWED,
@@ -253,24 +300,27 @@ export class SubscriptionAggregate extends AggregateRoot {
     });
   }
 
-  upgrade(newPlan: PlanProps): void {
-    const oldType = this.plan.type;
+  schedulePlanChange(newPlan: PlanProps): void {
+    const previousPendingPlanId = this.pendingPlanId;
+    const nextPendingPlan = newPlan.id === this.plan.id ? null : newPlan;
+    const nextPendingPlanId = nextPendingPlan?.id ?? null;
 
-    if (oldType === newPlan.type) {
-      // Idempotent — same plan
+    if (previousPendingPlanId === nextPendingPlanId) {
       return;
     }
 
-    this.props.planId = newPlan.id;
-    this.plan = newPlan;
+    this.pendingPlan = nextPendingPlan;
+    this.props.pendingPlanId = nextPendingPlanId;
 
     this.addDomainEvent({
-      type: DOMAIN_EVENTS.SUBSCRIPTION_PLAN_CHANGED,
+      type: DOMAIN_EVENTS.SUBSCRIPTION_PLAN_CHANGE_SCHEDULED,
       payload: {
         subscriptionId: this.props.id,
         tenantId: this.props.tenantId,
-        oldPlanType: oldType,
-        newPlanType: newPlan.type,
+        currentPlanId: this.props.planId,
+        previousPendingPlanId,
+        pendingPlanId: nextPendingPlanId,
+        effectiveAt: 'NEXT_RENEWAL',
       },
     });
   }
@@ -293,6 +343,8 @@ export class SubscriptionAggregate extends AggregateRoot {
       id: this.props.id,
       tenantId: this.props.tenantId,
       planId: this.props.planId,
+      pendingPlanId: this.pendingPlanId,
+      pendingPlanEffectiveAt: this.pendingPlanId ? 'NEXT_RENEWAL' : null,
       status: this.props.status,
       planType: this.plan.type,
       priceCents: this.plan.priceCents,

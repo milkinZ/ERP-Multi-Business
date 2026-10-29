@@ -1,0 +1,16 @@
+{
+  "realm": "erp-platform-dev",
+  "enabled": true,
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "webAuthnPolicyRpEntityName": "ERP Multi Business Local",
+  "webAuthnPolicyRpId": "localhost",
+  "webAuthnPolicySignatureAlgorithms": ["ES256", "RS256"],
+  "webAuthnPolicyAttestationConveyancePreference": "none",
+  "webAuthnPolicyAuthenticatorAttachment": "platform",
+  "webAuthnPolicyRequireResidentKey": "Yes",
+  "webAuthnPolicyUserVerificationRequirement": "required",
+  "attributes": {
+    "acr.loa.map": "{\"urn:erp-multi-business:acr:phishing-resistant-webauthn\":\"2\"}"
+  }
+}

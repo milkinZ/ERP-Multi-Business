@@ -1,25 +1,37 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { InventoryMovementType, PurchaseOrderStatus } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../core/database/prisma.service';
 import { BaseService } from '../../core/services/base.service';
-import { CreatePurchaseOrderDto, UpdatePurchaseOrderDto } from './dto';
+import {
+  CreatePurchaseOrderDto,
+  ListPurchaseOrdersQueryDto,
+  ListPriceVariancesQueryDto,
+  ReceivePurchaseOrderDto,
+  UpdatePurchaseOrderDto,
+} from './dto';
 import { PurchaseOrderItemProps } from './domain/purchase-order.aggregate';
 import { DomainEventBus } from '../../core/events/domain-event-bus.service';
 import { DOMAIN_EVENTS } from '../../core/events/domain-events';
 import { PurchaseOrderRepository } from './purchase-order.repository';
+import { InventoryCostingService } from '../inventory/inventory-costing.service';
 
 @Injectable()
 export class PurchaseOrderService extends BaseService {
+  private readonly statusTransitionLocks = new Set<string>();
+
   constructor(
     protected prisma: PrismaService,
     private readonly eventBus: DomainEventBus,
     private readonly purchaseOrderRepository: PurchaseOrderRepository,
+    private readonly costing: InventoryCostingService,
   ) {
     super(prisma);
   }
@@ -33,6 +45,26 @@ export class PurchaseOrderService extends BaseService {
 
     if (!supplier || supplier.tenantId !== tenantId) {
       throw new NotFoundException('Supplier not found');
+    }
+    if (!supplier.isActive) {
+      throw new BadRequestException(
+        'Inactive suppliers cannot be used for new purchase orders',
+      );
+    }
+
+    if (warehouseId) {
+      const warehouse = await this.prisma.warehouse.findFirst({
+        where: { id: warehouseId, tenantId },
+        select: { isActive: true },
+      });
+      if (!warehouse) {
+        throw new NotFoundException('Warehouse not found');
+      }
+      if (!warehouse.isActive) {
+        throw new BadRequestException(
+          'Inactive warehouses cannot be assigned to new purchase orders',
+        );
+      }
     }
 
     const inventoryItems = await this.prisma.inventoryItem.findMany({
@@ -89,20 +121,33 @@ export class PurchaseOrderService extends BaseService {
 
   async findAll(
     tenantId: string,
-    filters?: {
-      status?: PurchaseOrderStatus;
-      supplierId?: string;
-      skip?: number;
-      take?: number;
-    },
+    filters: Partial<ListPurchaseOrdersQueryDto> = new ListPurchaseOrdersQueryDto(),
   ) {
-    const { status, supplierId, skip, take } = filters || {};
+    const {
+      status,
+      supplierId,
+      skip,
+      take,
+      fromDate,
+      toDate,
+      search,
+      sortBy,
+      sortOrder,
+    } = filters;
+    if (fromDate && toDate && new Date(fromDate) > new Date(toDate)) {
+      throw new BadRequestException('fromDate must not be later than toDate');
+    }
     const { skip: paginationSkip, take: paginationTake } =
       this.getPaginationParams(skip, take);
 
     const result = await this.purchaseOrderRepository.findAll(tenantId, {
       status,
       supplierId,
+      search,
+      fromDate: fromDate ? new Date(fromDate) : undefined,
+      toDate: toDate ? new Date(toDate) : undefined,
+      sortBy,
+      sortOrder,
       skip: paginationSkip,
       take: paginationTake,
     });
@@ -148,6 +193,38 @@ export class PurchaseOrderService extends BaseService {
     }
 
     const { supplierId, items, ...updateData } = dto;
+    if (
+      updateData.warehouseId !== undefined &&
+      updateData.warehouseId !== po.warehouseId
+    ) {
+      const warehouse = updateData.warehouseId
+        ? await this.prisma.warehouse.findFirst({
+            where: { id: updateData.warehouseId, tenantId },
+            select: { isActive: true },
+          })
+        : null;
+      if (updateData.warehouseId && !warehouse) {
+        throw new NotFoundException('Warehouse not found');
+      }
+      if (warehouse && !warehouse.isActive) {
+        throw new BadRequestException(
+          'Inactive warehouses cannot be assigned to purchase orders',
+        );
+      }
+    }
+    if (supplierId !== undefined && supplierId !== po.supplierId) {
+      const supplier = await this.prisma.supplier.findUnique({
+        where: { id: supplierId },
+      });
+      if (!supplier || supplier.tenantId !== tenantId) {
+        throw new NotFoundException('Supplier not found');
+      }
+      if (!supplier.isActive) {
+        throw new BadRequestException(
+          'Inactive suppliers cannot be assigned to purchase orders',
+        );
+      }
+    }
 
     let totalAmount = po.totalAmount;
     let parsedItems: PurchaseOrderItemProps[] | undefined;
@@ -210,277 +287,587 @@ export class PurchaseOrderService extends BaseService {
     return updated;
   }
 
-  async updateStatus(
+  async receivePurchaseOrder(
     tenantId: string,
     id: string,
-    status: PurchaseOrderStatus,
+    userId: string,
+    idempotencyKey: string,
+    dto: ReceivePurchaseOrderDto,
   ) {
-    const po = await this.findOne(tenantId, id);
-
-    // Idempotent status transitions: if already in target status, return.
-    if (po.status === status) {
-      return po;
-    }
-
-    const validTransitions: Record<PurchaseOrderStatus, PurchaseOrderStatus[]> =
-      {
-        [PurchaseOrderStatus.DRAFT]: [
-          PurchaseOrderStatus.PENDING,
-          PurchaseOrderStatus.CANCELLED,
-        ],
-        [PurchaseOrderStatus.PENDING]: [
-          PurchaseOrderStatus.APPROVED,
-          PurchaseOrderStatus.REJECTED,
-          PurchaseOrderStatus.CANCELLED,
-        ],
-        [PurchaseOrderStatus.APPROVED]: [
-          PurchaseOrderStatus.PARTIALLY_RECEIVED,
-          PurchaseOrderStatus.RECEIVED,
-          PurchaseOrderStatus.CANCELLED,
-        ],
-        [PurchaseOrderStatus.PARTIALLY_RECEIVED]: [
-          PurchaseOrderStatus.RECEIVED,
-          PurchaseOrderStatus.CANCELLED,
-        ],
-        [PurchaseOrderStatus.RECEIVED]: [PurchaseOrderStatus.COMPLETED],
-        [PurchaseOrderStatus.REJECTED]: [PurchaseOrderStatus.CANCELLED],
-        [PurchaseOrderStatus.CANCELLED]: [],
-        [PurchaseOrderStatus.COMPLETED]: [],
-      };
-
-    if (!validTransitions[po.status]?.includes(status)) {
+    if (
+      !idempotencyKey ||
+      idempotencyKey.length > 128 ||
+      !/^[\x21-\x7e]+$/.test(idempotencyKey)
+    ) {
       throw new BadRequestException(
-        `Cannot transition from ${po.status} to ${status}`,
+        'A valid Idempotency-Key header of 1 to 128 visible ASCII characters is required',
       );
     }
 
-    // Receiving transitions must include receivedQuantity increments.
-    // Controller currently only passes status; minimal approach: require received quantities
-    // to be present in DTO for receiving endpoints by calling updateStatus with body.
+    if (!Array.isArray(dto.items) || dto.items.length === 0) {
+      throw new BadRequestException('At least one receipt item is required');
+    }
+
+    const normalizedItems = dto.items.map((item) => ({
+      purchaseOrderItemId: item.purchaseOrderItemId.trim(),
+      receivedQuantity: item.receivedQuantity,
+    }));
+    const itemIds = new Set<string>();
+
+    for (const item of normalizedItems) {
+      if (!item.purchaseOrderItemId) {
+        throw new BadRequestException('Purchase order item id is required');
+      }
+      if (
+        !Number.isFinite(item.receivedQuantity) ||
+        item.receivedQuantity < 0.1
+      ) {
+        throw new BadRequestException(
+          'Received quantity must be a finite number of at least 0.1',
+        );
+      }
+      if (itemIds.has(item.purchaseOrderItemId)) {
+        throw new BadRequestException(
+          'A purchase order item may only appear once per receipt',
+        );
+      }
+      itemIds.add(item.purchaseOrderItemId);
+    }
+
+    normalizedItems.sort((a, b) =>
+      a.purchaseOrderItemId.localeCompare(b.purchaseOrderItemId),
+    );
+    const note = dto.note?.trim() || null;
+    const requestHash = createHash('sha256')
+      .update(JSON.stringify({ items: normalizedItems, note }))
+      .digest('hex');
+
     return this.prisma.$transaction(
       async (tx) => {
-        // Re-load with items including receivedQuantity
-        const freshPo = await tx.purchaseOrder.findFirst({
-          where: { id, tenantId },
-          include: { PurchaseOrderItem: true, Warehouse: true },
-        });
+        const lockedPo = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT "id"
+          FROM "PurchaseOrder"
+          WHERE "id" = ${id} AND "tenantId" = ${tenantId}
+          FOR UPDATE
+        `;
 
-        if (!freshPo) {
+        if (!lockedPo || lockedPo.length !== 1) {
           throw new NotFoundException('Purchase Order not found');
         }
 
-        // Apply stock delta only on receiving status transitions.
-        // Determine nextReceivedQuantities using PurchaseOrderItem.receivedQuantity already persisted.
-        // Since current API doesn’t pass receiving quantities, we treat status RECEIVED/COMPLETED as:
-        // - receivedQuantity becomes full quantity
-        // This keeps backward compatibility while enabling idempotent inventory movements.
-        // Future partial receiving can pass explicit receivedQuantity via repository/DTO.
+        const po = await tx.purchaseOrder.findFirst({
+          where: { id, tenantId },
+          include: {
+            PurchaseOrderItem: true,
+            Tenant: { select: { currencyCode: true } },
+          },
+        });
+        if (!po) {
+          throw new NotFoundException('Purchase Order not found');
+        }
 
-        const warehouseId = freshPo.warehouseId;
+        const existingReceipt = await tx.purchaseOrderReceipt.findUnique({
+          where: {
+            purchaseOrderId_idempotencyKey: {
+              purchaseOrderId: id,
+              idempotencyKey,
+            },
+          },
+          include: { Items: true },
+        });
+
+        if (existingReceipt) {
+          if (existingReceipt.requestHash !== requestHash) {
+            throw new ConflictException(
+              'Idempotency-Key was already used with a different receipt request',
+            );
+          }
+          return existingReceipt;
+        }
 
         if (
-          (status === PurchaseOrderStatus.PARTIALLY_RECEIVED ||
-            status === PurchaseOrderStatus.RECEIVED ||
-            status === PurchaseOrderStatus.COMPLETED) &&
-          !warehouseId
+          po.status !== PurchaseOrderStatus.APPROVED &&
+          po.status !== PurchaseOrderStatus.PARTIALLY_RECEIVED
         ) {
+          throw new BadRequestException(
+            `Cannot receive purchase order while in ${po.status}`,
+          );
+        }
+        if (!po.warehouseId) {
           throw new BadRequestException(
             'Warehouse is required for receiving/receipting',
           );
         }
 
-        // Idempotency: compute delta and apply inventory updates only for newly received.
-        const movementsToCreate: Array<{
-          inventoryItemId: string;
-          delta: number;
-        }> = [];
+        const orderItemsById = new Map(
+          po.PurchaseOrderItem.map((item) => [item.id, item]),
+        );
+        const plannedItems = normalizedItems.map((receiptItem) => {
+          const orderItem = orderItemsById.get(receiptItem.purchaseOrderItemId);
+          if (!orderItem) {
+            throw new BadRequestException(
+              'Receipt item does not belong to this purchase order',
+            );
+          }
 
-        if (
-          status === PurchaseOrderStatus.PARTIALLY_RECEIVED ||
-          status === PurchaseOrderStatus.RECEIVED ||
-          status === PurchaseOrderStatus.COMPLETED
-        ) {
-          for (const item of freshPo.PurchaseOrderItem) {
-            const prevReceived = item.receivedQuantity ?? 0;
-            const nextReceived =
-              status === PurchaseOrderStatus.PARTIALLY_RECEIVED
-                ? prevReceived // keep as-is until explicit partial quantities are supported
-                : item.quantity; // on RECEIVED/COMPLETED treat as fully received
+          const receivedQuantity = orderItem.receivedQuantity ?? 0;
+          const nextReceived = receivedQuantity + receiptItem.receivedQuantity;
+          if (nextReceived - orderItem.quantity > 1e-9) {
+            throw new BadRequestException(
+              'Cannot receive more than the ordered quantity',
+            );
+          }
 
-            if (nextReceived < prevReceived) {
+          return {
+            orderItem,
+            delta:
+              Math.min(nextReceived, orderItem.quantity) - receivedQuantity,
+            nextReceived: Math.min(nextReceived, orderItem.quantity),
+          };
+        });
+
+        const receiptStatus = po.PurchaseOrderItem.every((item) => {
+          const receivedItem = plannedItems.find(
+            ({ orderItem }) => orderItem.id === item.id,
+          );
+          const receivedQuantity =
+            receivedItem?.nextReceived ?? item.receivedQuantity;
+          return receivedQuantity >= item.quantity - 1e-9;
+        })
+          ? PurchaseOrderStatus.RECEIVED
+          : PurchaseOrderStatus.PARTIALLY_RECEIVED;
+
+        const receipt = await tx.purchaseOrderReceipt.create({
+          data: {
+            tenantId,
+            purchaseOrderId: id,
+            createdById: userId,
+            idempotencyKey,
+            requestHash,
+            statusAfter: receiptStatus,
+            note,
+            Items: {
+              create: plannedItems.map(({ orderItem, delta }) => ({
+                tenantId,
+                purchaseOrderItemId: orderItem.id,
+                inventoryItemId: orderItem.inventoryItemId,
+                receivedQuantity: delta,
+              })),
+            },
+          },
+          include: { Items: true },
+        });
+
+        for (const { orderItem, delta, nextReceived } of plannedItems) {
+          const inventoryItem = await this.costing.lockItem(
+            tx,
+            tenantId,
+            orderItem.inventoryItemId,
+          );
+          const updatedItem = await tx.purchaseOrderItem.updateMany({
+            where: { id: orderItem.id, purchaseOrderId: id },
+            data: { receivedQuantity: nextReceived },
+          });
+          if (updatedItem.count !== 1) {
+            throw Object.assign(
+              new Error('Purchase order item changed during receiving'),
+              { code: 'P2034' },
+            );
+          }
+
+          const stock = await tx.inventoryStock.upsert({
+            where: {
+              warehouseId_inventoryItemId: {
+                warehouseId: po.warehouseId,
+                inventoryItemId: orderItem.inventoryItemId,
+              },
+            },
+            create: {
+              warehouseId: po.warehouseId,
+              inventoryItemId: orderItem.inventoryItemId,
+              quantity: delta,
+              updatedAt: new Date(),
+            },
+            update: {
+              quantity: { increment: delta },
+              updatedAt: new Date(),
+            },
+          });
+
+          const movement = await tx.inventoryMovement.create({
+            data: {
+              tenantId,
+              warehouseId: po.warehouseId,
+              inventoryItemId: orderItem.inventoryItemId,
+              type: InventoryMovementType.STOCK_IN,
+              quantity: delta,
+              beforeQuantity: stock.quantity - delta,
+              afterQuantity: stock.quantity,
+              note: note ?? `PO ${po.poNumber} receipt`,
+              createdById: userId,
+              referenceType: 'PURCHASE_ORDER_RECEIPT',
+              referenceId: receipt.id,
+            },
+          });
+          await this.costing.receive(tx, {
+            tenantId,
+            inventoryItemId: orderItem.inventoryItemId,
+            warehouseId: po.warehouseId,
+            quantity: delta,
+            unitCost: orderItem.unitPrice,
+            sourceType: 'PURCHASE_ORDER_RECEIPT',
+            sourceReferenceId: receipt.id,
+            movementId: movement.id,
+          });
+          if (
+            inventoryItem.valuationMethod === 'STANDARD_COST' &&
+            inventoryItem.standardCost !== null
+          ) {
+            const receiptItem = receipt.Items.find(
+              (item) => item.purchaseOrderItemId === orderItem.id,
+            );
+            if (!receiptItem) {
               throw new BadRequestException(
-                'Cannot decrease received quantity on receiving',
+                'Purchase order receipt item was not persisted',
               );
             }
-
-            const delta = nextReceived - prevReceived;
-            if (delta > 0) {
-              movementsToCreate.push({
-                inventoryItemId: item.inventoryItemId,
-                delta,
-              });
-            }
+            const actualUnitCost = new Prisma.Decimal(orderItem.unitPrice);
+            const standardUnitCost = inventoryItem.standardCost;
+            const varianceAmount = actualUnitCost
+              .sub(standardUnitCost)
+              .mul(delta);
+            await tx.inventoryPurchasePriceVariance.create({
+              data: {
+                tenantId,
+                receiptId: receipt.id,
+                receiptItemId: receiptItem.id,
+                purchaseOrderId: id,
+                purchaseOrderItemId: orderItem.id,
+                inventoryItemId: orderItem.inventoryItemId,
+                warehouseId: po.warehouseId,
+                quantity: new Prisma.Decimal(delta),
+                standardUnitCost,
+                actualUnitCost,
+                varianceAmount,
+                currencyCode: po.currencyCode ?? po.Tenant.currencyCode,
+              },
+            });
           }
         }
 
-        // Persist status with expected-current guard
-        const updated = await tx.purchaseOrder.updateMany({
-          where: { id, tenantId, status: freshPo.status },
+        const statusUpdate = await tx.purchaseOrder.updateMany({
+          where: { id, tenantId, status: po.status },
           data: {
-            status,
+            status: receiptStatus,
             updatedAt: new Date(),
             receivedAt:
-              status === PurchaseOrderStatus.RECEIVED ? new Date() : undefined,
-            completedAt:
-              status === PurchaseOrderStatus.COMPLETED ? new Date() : undefined,
+              receiptStatus === PurchaseOrderStatus.RECEIVED
+                ? new Date()
+                : undefined,
+          },
+        });
+        if (statusUpdate.count !== 1) {
+          throw Object.assign(
+            new Error('Purchase order changed during receiving'),
+            { code: 'P2034' },
+          );
+        }
+
+        const eventType =
+          receiptStatus === PurchaseOrderStatus.RECEIVED
+            ? DOMAIN_EVENTS.PURCHASE_ORDER_RECEIVED
+            : DOMAIN_EVENTS.PURCHASE_ORDER_PARTIALLY_RECEIVED;
+        const event = {
+          type: eventType,
+          payload: {
+            purchaseOrderId: id,
+            receiptId: receipt.id,
+            tenantId,
+          },
+          occurredAt: new Date(),
+        };
+
+        await tx.outboxEvent.create({
+          data: {
+            tenantId,
+            type: eventType,
+            payload: JSON.stringify(event),
+            status: 'PENDING',
           },
         });
 
-        if (updated.count !== 1) {
-          throw new NotFoundException('Purchase Order not found');
-        }
-
-        // Apply inventory stock + inventory movements for newly received deltas
-        if (movementsToCreate.length > 0) {
-          for (const m of movementsToCreate) {
-            const beforeQty =
-              (
-                await tx.inventoryStock.findFirst({
-                  where: { warehouseId, inventoryItemId: m.inventoryItemId },
-                })
-              )?.quantity ?? 0;
-
-            const stock = await tx.inventoryStock.findFirst({
-              where: { warehouseId, inventoryItemId: m.inventoryItemId },
-            });
-
-            if (stock) {
-              await tx.inventoryStock.update({
-                where: { id: stock.id },
-                data: {
-                  quantity: { increment: m.delta },
-                  updatedAt: new Date(),
-                },
-              });
-            } else {
-              await tx.inventoryStock.create({
-                data: {
-                  warehouseId,
-                  inventoryItemId: m.inventoryItemId,
-                  quantity: m.delta,
-                  updatedAt: new Date(),
-                },
-              });
-            }
-
-            await tx.inventoryMovement.create({
-              data: {
-                tenantId,
-                warehouseId,
-                inventoryItemId: m.inventoryItemId,
-                type: InventoryMovementType.STOCK_IN,
-                quantity: m.delta,
-                beforeQuantity: beforeQty,
-                afterQuantity: beforeQty + m.delta,
-                note: `PO ${freshPo.poNumber} ${status}`,
-                createdById: null,
-                referenceType: 'PURCHASE_ORDER',
-                referenceId: freshPo.id,
-              },
-            });
-          }
-        }
-
-        // Update receivedQuantity fields when we move to fully received/completed.
-        if (
-          status === PurchaseOrderStatus.RECEIVED ||
-          status === PurchaseOrderStatus.COMPLETED
-        ) {
-          await tx.purchaseOrderItem
-            .updateMany({
-              where: {
-                purchaseOrderId: id,
-                receivedQuantity: {
-                  lt: tx.purchaseOrderItem.fields.quantity,
-                },
-              },
-              data: {
-                receivedQuantity: tx.purchaseOrderItem.fields
-                  .quantity as unknown as number,
-              },
-            })
-            .catch(() => {
-              // Fallback: update per item to avoid Prisma field limitations in this skeleton.
-            });
-
-          for (const item of freshPo.PurchaseOrderItem) {
-            const prevReceived = item.receivedQuantity ?? 0;
-            if (prevReceived === item.quantity) continue;
-            await tx.purchaseOrderItem.update({
-              where: { id: item.id },
-              data: { receivedQuantity: item.quantity },
-            });
-          }
-        }
-
-        // Publish required domain events for lifecycle transitions
-        const publishBasePayload = {
-          purchaseOrderId: id,
-          tenantId,
-        };
-
-        if (status === PurchaseOrderStatus.PENDING) {
-          await this.eventBus.publish({
-            type: DOMAIN_EVENTS.PURCHASE_ORDER_PENDING_APPROVAL,
-            payload: publishBasePayload,
-          });
-        }
-        if (status === PurchaseOrderStatus.APPROVED) {
-          await this.eventBus.publish({
-            type: DOMAIN_EVENTS.PURCHASE_ORDER_APPROVED,
-            payload: publishBasePayload,
-          });
-        }
-        if (status === PurchaseOrderStatus.REJECTED) {
-          await this.eventBus.publish({
-            type: DOMAIN_EVENTS.PURCHASE_ORDER_REJECTED,
-            payload: publishBasePayload,
-          });
-        }
-        if (status === PurchaseOrderStatus.PARTIALLY_RECEIVED) {
-          await this.eventBus.publish({
-            type: DOMAIN_EVENTS.PURCHASE_ORDER_PARTIALLY_RECEIVED,
-            payload: publishBasePayload,
-          });
-        }
-        if (status === PurchaseOrderStatus.RECEIVED) {
-          await this.eventBus.publish({
-            type: DOMAIN_EVENTS.PURCHASE_ORDER_RECEIVED,
-            payload: publishBasePayload,
-          });
-        }
-        if (status === PurchaseOrderStatus.COMPLETED) {
-          await this.eventBus.publish({
-            type: DOMAIN_EVENTS.PURCHASE_ORDER_COMPLETED,
-            payload: publishBasePayload,
-          });
-        }
-        if (status === PurchaseOrderStatus.CANCELLED) {
-          await this.eventBus.publish({
-            type: DOMAIN_EVENTS.PURCHASE_ORDER_CANCELLED,
-            payload: publishBasePayload,
-          });
-        }
-
-        return tx.purchaseOrder.findFirst({
-          where: { id, tenantId },
-          include: { PurchaseOrderItem: true, Supplier: true, Warehouse: true },
-        });
+        return receipt;
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
     );
   }
 
+  async findReceipts(
+    tenantId: string,
+    id: string,
+    skip?: number,
+    take?: number,
+  ) {
+    await this.findOne(tenantId, id);
+
+    const pagination = this.getPaginationParams(skip, take);
+    const where = { tenantId, purchaseOrderId: id };
+    const [receipts, total] = await Promise.all([
+      this.prisma.purchaseOrderReceipt.findMany({
+        where,
+        include: {
+          User: { select: { id: true, email: true } },
+          Items: {
+            include: {
+              InventoryItem: {
+                select: { id: true, code: true, name: true, unit: true },
+              },
+            },
+          },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: pagination.skip,
+        take: pagination.take,
+      }),
+      this.prisma.purchaseOrderReceipt.count({ where }),
+    ]);
+
+    return this.formatPaginatedResponse(
+      receipts,
+      total,
+      pagination.skip,
+      pagination.take,
+    );
+  }
+
+  async findPriceVariances(
+    tenantId: string,
+    query: ListPriceVariancesQueryDto,
+  ) {
+    if (query.fromDate && query.toDate && query.fromDate > query.toDate) {
+      throw new BadRequestException(
+        'The start date must not be later than the end date',
+      );
+    }
+    const pagination = this.getPaginationParams(query.skip, query.take);
+    const toDateExclusive = query.toDate
+      ? new Date(`${query.toDate}T00:00:00.000Z`)
+      : undefined;
+    toDateExclusive?.setUTCDate(toDateExclusive.getUTCDate() + 1);
+    const where: Prisma.InventoryPurchasePriceVarianceWhereInput = {
+      tenantId,
+      ...(query.fromDate || query.toDate
+        ? {
+            createdAt: {
+              ...(query.fromDate
+                ? { gte: new Date(`${query.fromDate}T00:00:00.000Z`) }
+                : {}),
+              ...(query.toDate ? { lt: toDateExclusive } : {}),
+            },
+          }
+        : {}),
+    };
+    const [data, total, totals] = await Promise.all([
+      this.prisma.inventoryPurchasePriceVariance.findMany({
+        where,
+        include: {
+          PurchaseOrder: {
+            select: {
+              id: true,
+              poNumber: true,
+              supplierId: true,
+              Supplier: { select: { id: true, name: true } },
+            },
+          },
+          InventoryItem: {
+            select: { id: true, code: true, name: true, unit: true },
+          },
+          Warehouse: { select: { id: true, code: true, name: true } },
+          Receipt: { select: { id: true, createdAt: true, note: true } },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: pagination.skip,
+        take: pagination.take,
+      }),
+      this.prisma.inventoryPurchasePriceVariance.count({ where }),
+      this.prisma.inventoryPurchasePriceVariance.groupBy({
+        by: ['currencyCode'],
+        where,
+        _sum: { varianceAmount: true },
+        _count: { id: true },
+      }),
+    ]);
+    return {
+      data: data.map((entry) => ({
+        ...entry,
+        accountingStatus: 'NOT_POSTED' as const,
+      })),
+      pagination: {
+        ...pagination,
+        total,
+        pages: Math.ceil(total / pagination.take),
+      },
+      totals: totals.map((entry) => ({
+        currencyCode: entry.currencyCode,
+        varianceAmount: entry._sum.varianceAmount ?? new Prisma.Decimal(0),
+        count: entry._count.id,
+      })),
+      accountingStatus: 'NOT_POSTED' as const,
+    };
+  }
+
+  async updateStatus(
+    tenantId: string,
+    id: string,
+    status: PurchaseOrderStatus,
+  ) {
+    const lockKey = `${tenantId}:${id}`;
+    if (this.statusTransitionLocks.has(lockKey)) {
+      throw Object.assign(
+        new Error('Purchase order was updated by another transaction'),
+        { code: 'P2034' },
+      );
+    }
+
+    this.statusTransitionLocks.add(lockKey);
+
+    try {
+      return await this.prisma.$transaction(
+        async (tx) => {
+          const lockedPo = await tx.$queryRaw<Array<{ id: string }>>`
+            SELECT "id"
+            FROM "PurchaseOrder"
+            WHERE "id" = ${id} AND "tenantId" = ${tenantId}
+            FOR UPDATE
+          `;
+
+          if (!lockedPo || lockedPo.length !== 1) {
+            throw new NotFoundException('Purchase Order not found');
+          }
+
+          const po = await tx.purchaseOrder.findFirst({
+            where: { id, tenantId },
+            include: { PurchaseOrderItem: true, Warehouse: true },
+          });
+
+          if (!po) {
+            throw new NotFoundException('Purchase Order not found');
+          }
+
+          if (po.status === status) {
+            return po;
+          }
+
+          if (
+            (status === PurchaseOrderStatus.PARTIALLY_RECEIVED ||
+              status === PurchaseOrderStatus.RECEIVED) &&
+            (po.status === PurchaseOrderStatus.APPROVED ||
+              po.status === PurchaseOrderStatus.PARTIALLY_RECEIVED)
+          ) {
+            throw new BadRequestException(
+              'Use the purchase order receipt endpoint to receive items',
+            );
+          }
+
+          const validTransitions: Record<
+            PurchaseOrderStatus,
+            PurchaseOrderStatus[]
+          > = {
+            [PurchaseOrderStatus.DRAFT]: [
+              PurchaseOrderStatus.PENDING,
+              PurchaseOrderStatus.CANCELLED,
+            ],
+            [PurchaseOrderStatus.PENDING]: [
+              PurchaseOrderStatus.APPROVED,
+              PurchaseOrderStatus.REJECTED,
+              PurchaseOrderStatus.CANCELLED,
+            ],
+            [PurchaseOrderStatus.APPROVED]: [PurchaseOrderStatus.CANCELLED],
+            [PurchaseOrderStatus.PARTIALLY_RECEIVED]: [
+              PurchaseOrderStatus.CANCELLED,
+            ],
+            [PurchaseOrderStatus.RECEIVED]: [PurchaseOrderStatus.COMPLETED],
+            [PurchaseOrderStatus.REJECTED]: [PurchaseOrderStatus.CANCELLED],
+            [PurchaseOrderStatus.CANCELLED]: [],
+            [PurchaseOrderStatus.COMPLETED]: [],
+          };
+
+          if (!validTransitions[po.status]?.includes(status)) {
+            throw new BadRequestException(
+              `Cannot transition from ${po.status} to ${status}`,
+            );
+          }
+
+          const transitionResult = await tx.purchaseOrder.updateMany({
+            where: { id, tenantId, status: po.status },
+            data: {
+              status,
+              updatedAt: new Date(),
+              completedAt:
+                status === PurchaseOrderStatus.COMPLETED
+                  ? new Date()
+                  : undefined,
+            },
+          });
+
+          if (transitionResult.count !== 1) {
+            throw Object.assign(
+              new Error('Purchase order was updated by another transaction'),
+              { code: 'P2034' },
+            );
+          }
+
+          const publishBasePayload = {
+            purchaseOrderId: id,
+            tenantId,
+          };
+
+          if (status === PurchaseOrderStatus.PENDING) {
+            await this.eventBus.publish({
+              type: DOMAIN_EVENTS.PURCHASE_ORDER_PENDING_APPROVAL,
+              payload: publishBasePayload,
+            });
+          }
+          if (status === PurchaseOrderStatus.APPROVED) {
+            await this.eventBus.publish({
+              type: DOMAIN_EVENTS.PURCHASE_ORDER_APPROVED,
+              payload: publishBasePayload,
+            });
+          }
+          if (status === PurchaseOrderStatus.REJECTED) {
+            await this.eventBus.publish({
+              type: DOMAIN_EVENTS.PURCHASE_ORDER_REJECTED,
+              payload: publishBasePayload,
+            });
+          }
+          if (status === PurchaseOrderStatus.COMPLETED) {
+            await this.eventBus.publish({
+              type: DOMAIN_EVENTS.PURCHASE_ORDER_COMPLETED,
+              payload: publishBasePayload,
+            });
+          }
+          if (status === PurchaseOrderStatus.CANCELLED) {
+            await this.eventBus.publish({
+              type: DOMAIN_EVENTS.PURCHASE_ORDER_CANCELLED,
+              payload: publishBasePayload,
+            });
+          }
+
+          return tx.purchaseOrder.findFirst({
+            where: { id, tenantId },
+            include: {
+              PurchaseOrderItem: true,
+              Supplier: true,
+              Warehouse: true,
+            },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } finally {
+      this.statusTransitionLocks.delete(lockKey);
+    }
+  }
   async delete(tenantId: string, id: string) {
     // Schema currently does not support soft-delete fields on PurchaseOrder.
     // Keep delete behavior as a hard delete for now.

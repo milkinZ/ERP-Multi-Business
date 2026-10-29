@@ -1,4 +1,5 @@
 import { Queue, QueueEvents, Worker } from "bullmq";
+import { randomUUID } from "node:crypto";
 
 import { assertSafeIntegrationEnvironment } from "../../../api/src/test/integration-environment";
 import { QUEUE_NAMES } from "../queue/queue.constants";
@@ -15,13 +16,16 @@ describe("JobExecutionHistoryService", () => {
 
   async function waitForRows(
     queueName: string,
-    predicate: (rows: Awaited<ReturnType<typeof prisma.jobExecution.findMany>>) => boolean,
+    jobName: string,
+    predicate: (
+      rows: Awaited<ReturnType<typeof prisma.jobExecution.findMany>>,
+    ) => boolean,
   ) {
     const deadline = Date.now() + 10_000;
 
     while (Date.now() < deadline) {
       const rows = await prisma.jobExecution.findMany({
-        where: { queueName },
+        where: { queueName, jobName },
         orderBy: { createdAt: "asc" },
       });
 
@@ -32,8 +36,8 @@ describe("JobExecutionHistoryService", () => {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
 
-    return await prisma.jobExecution.findMany({
-      where: { queueName },
+    return prisma.jobExecution.findMany({
+      where: { queueName, jobName },
       orderBy: { createdAt: "asc" },
     });
   }
@@ -48,8 +52,12 @@ describe("JobExecutionHistoryService", () => {
     });
     await registry.registerWorker();
 
-    history = new JobExecutionHistoryService(prisma, new RedisService(), registry);
-    await history.onModuleInit();
+    history = new JobExecutionHistoryService(
+      prisma,
+      new RedisService(),
+      registry,
+    );
+    history.onModuleInit();
   });
 
   afterAll(async () => {
@@ -59,16 +67,12 @@ describe("JobExecutionHistoryService", () => {
     await prisma.$disconnect();
   });
 
-  beforeEach(async () => {
-    await prisma.jobExecution.deleteMany();
-  });
-
   it("records a successful job execution and associates it with the current worker", async () => {
     const queueName = QUEUE_NAMES.ORDER_QUEUE;
+    const jobName = `job-history-success-${randomUUID()}`;
     const queue = new Queue(queueName, { connection });
     const events = new QueueEvents(queueName, { connection });
     await Promise.all([queue.waitUntilReady(), events.waitUntilReady()]);
-    await queue.obliterate({ force: true });
 
     const worker = new Worker(
       queueName,
@@ -80,37 +84,38 @@ describe("JobExecutionHistoryService", () => {
 
     try {
       const job = await queue.add(
-        "job-history-success",
+        jobName,
         { tenantId: "tenant-a" },
         { attempts: 2, backoff: { type: "fixed", delay: 10 } },
       );
 
       await expect(job.waitUntilFinished(events, 15000)).resolves.toBeNull();
-      await new Promise((resolve) => setTimeout(resolve, 1500));
 
-      const rows = await waitForRows(
-        queueName,
-        (records) => records.some((row) => row.status === "COMPLETED"),
+      const rows = await waitForRows(queueName, jobName, (records) =>
+        records.some((row) => row.status === "COMPLETED"),
       );
 
-      expect(rows.length).toBeGreaterThanOrEqual(1);
-      expect(rows.some((row) => row.status === "COMPLETED")).toBe(true);
-      expect(rows.some((row) => row.jobName === "job-history-success")).toBe(true);
-      expect(rows.some((row) => row.attemptNumber === 1)).toBe(true);
-      expect(rows.some((row) => !!row.workerId)).toBe(true);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        jobName,
+        status: "COMPLETED",
+        attemptNumber: 1,
+      });
+      expect(rows[0]?.workerId).toBeTruthy();
     } finally {
       await worker.close();
       await events.close();
       await queue.close();
+      await prisma.jobExecution.deleteMany({ where: { jobName } });
     }
   }, 30000);
 
   it("records a retry attempt series with retry and completed states", async () => {
     const queueName = QUEUE_NAMES.ANALYTICS_QUEUE;
+    const jobName = `job-history-retry-${randomUUID()}`;
     const queue = new Queue(queueName, { connection });
     const events = new QueueEvents(queueName, { connection });
     await Promise.all([queue.waitUntilReady(), events.waitUntilReady()]);
-    await queue.obliterate({ force: true });
 
     let shouldFail = true;
     const worker = new Worker(
@@ -118,7 +123,7 @@ describe("JobExecutionHistoryService", () => {
       async () => {
         if (shouldFail) {
           shouldFail = false;
-          throw new Error("temporary failure");
+          throw new Error("temporary application error");
         }
 
         await Promise.resolve();
@@ -128,27 +133,46 @@ describe("JobExecutionHistoryService", () => {
 
     try {
       const job = await queue.add(
-        "job-history-retry",
+        jobName,
         { tenantId: "tenant-b" },
         { attempts: 3, backoff: { type: "fixed", delay: 10 } },
       );
 
       await expect(job.waitUntilFinished(events, 20000)).resolves.toBeNull();
-      await new Promise((resolve) => setTimeout(resolve, 2000));
 
       const rows = await waitForRows(
         queueName,
-        (records) => records.some((row) => row.status === "COMPLETED"),
+        jobName,
+        (records) =>
+          records.some(
+            (row) => row.attemptNumber === 2 && row.status === "COMPLETED",
+          ) &&
+          records.some(
+            (row) => row.attemptNumber === 1 && row.status === "RETRYING",
+          ),
       );
 
-      expect(rows.length).toBeGreaterThanOrEqual(1);
-      expect(rows.some((row) => row.jobName === "job-history-retry")).toBe(true);
-      expect(rows.some((row) => row.status === "ACTIVE")).toBe(true);
-      expect(rows.some((row) => row.status === "COMPLETED")).toBe(true);
+      expect(rows).toHaveLength(2);
+      expect(rows).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            jobName,
+            attemptNumber: 1,
+            status: "RETRYING",
+            errorCategory: "APPLICATION_ERROR",
+          }),
+          expect.objectContaining({
+            jobName,
+            attemptNumber: 2,
+            status: "COMPLETED",
+          }),
+        ]),
+      );
     } finally {
       await worker.close();
       await events.close();
       await queue.close();
+      await prisma.jobExecution.deleteMany({ where: { jobName } });
     }
   }, 30000);
 });

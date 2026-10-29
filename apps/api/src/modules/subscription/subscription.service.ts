@@ -13,7 +13,7 @@ import {
 import { SubscriptionRepository } from './domain/subscription.repository';
 import { PlanRepository } from './plans/plan.repository';
 import { TenantContextService } from '../tenants/tenant-context.service';
-import { OutboxPublisher } from '../../infrastructure/events/outbox.publisher';
+import { SubscriptionHistoryQueryDto } from './dto/subscription-history-query.dto';
 
 @Injectable()
 export class SubscriptionService {
@@ -21,7 +21,6 @@ export class SubscriptionService {
     private readonly subscriptionRepository: SubscriptionRepository,
     private readonly planRepository: PlanRepository,
     private readonly tenantContext: TenantContextService,
-    private readonly outbox: OutboxPublisher,
   ) {}
 
   async getCurrentSubscription() {
@@ -52,18 +51,45 @@ export class SubscriptionService {
     return subscription.toJSON();
   }
 
+  async getSubscriptionHistory(id: string, query: SubscriptionHistoryQueryDto) {
+    const tenantId = this.tenantContext.requireTenant();
+    const subscription = await this.subscriptionRepository.findById(
+      id,
+      tenantId,
+    );
+    if (!subscription) {
+      throw new NotFoundException('Subscription not found');
+    }
+    return this.subscriptionRepository.findHistory(
+      id,
+      tenantId,
+      query.skip,
+      query.take,
+    );
+  }
+
   async getAllSubscriptions() {
     const tenantId = this.tenantContext.requireTenant();
     const subscriptions = await this.subscriptionRepository.findAll(tenantId);
     return subscriptions.map((s) => s.toJSON());
   }
 
+  async listPlans() {
+    const plans = await this.planRepository.findAll();
+    return plans.map((plan) => ({
+      id: plan.id,
+      type: plan.type,
+      name: plan.name,
+      priceCents: plan.priceCents,
+    }));
+  }
+
   async createSubscription(planId: string) {
     const tenantId = this.tenantContext.requireTenant();
 
     const existing = await this.subscriptionRepository.findByTenantId(tenantId);
-    if (existing && existing.isActive()) {
-      throw new ConflictException('Tenant already has an active subscription');
+    if (existing) {
+      throw new ConflictException('Tenant already has a subscription');
     }
 
     const plan = await this.planRepository.findById(planId);
@@ -97,14 +123,8 @@ export class SubscriptionService {
     return subscription.toJSON();
   }
 
-  async changePlan(planId: string) {
-    const tenantId = this.tenantContext.requireTenant();
-    const subscription =
-      await this.subscriptionRepository.findByTenantId(tenantId);
-
-    if (!subscription) {
-      throw new NotFoundException('No active subscription found');
-    }
+  async changePlan(subscriptionId: string, planId: string) {
+    const subscription = await this.requireCurrentSubscription(subscriptionId);
 
     if (!subscription.isActive()) {
       throw new BadRequestException(
@@ -117,7 +137,7 @@ export class SubscriptionService {
       throw new NotFoundException('Plan not found');
     }
 
-    subscription.upgrade({
+    subscription.schedulePlanChange({
       id: newPlan.id,
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       type: newPlan.type as any,
@@ -130,14 +150,8 @@ export class SubscriptionService {
     return subscription.toJSON();
   }
 
-  async cancelSubscription(reason?: string) {
-    const tenantId = this.tenantContext.requireTenant();
-    const subscription =
-      await this.subscriptionRepository.findByTenantId(tenantId);
-
-    if (!subscription) {
-      throw new NotFoundException('No subscription found');
-    }
+  async cancelSubscription(subscriptionId: string, reason?: string) {
+    const subscription = await this.requireCurrentSubscription(subscriptionId);
 
     subscription.cancel(reason);
 
@@ -146,19 +160,23 @@ export class SubscriptionService {
     return subscription.toJSON();
   }
 
-  async suspendSubscription(reason?: string) {
-    const tenantId = this.tenantContext.requireTenant();
-    const subscription =
-      await this.subscriptionRepository.findByTenantId(tenantId);
-
-    if (!subscription) {
-      throw new NotFoundException('No subscription found');
-    }
+  async suspendSubscription(subscriptionId: string, reason?: string) {
+    const subscription = await this.requireCurrentSubscription(subscriptionId);
 
     subscription.suspend(reason);
 
     await this.subscriptionRepository.save(subscription);
 
+    return subscription.toJSON();
+  }
+
+  async resumeSubscription(subscriptionId: string) {
+    const subscription = await this.requireCurrentSubscription(subscriptionId);
+    if (!subscription.canActivate()) {
+      throw new BadRequestException('Subscription cannot be resumed');
+    }
+    subscription.activate();
+    await this.subscriptionRepository.save(subscription);
     return subscription.toJSON();
   }
 
@@ -176,5 +194,17 @@ export class SubscriptionService {
 
   async getSubscriptionByTenantId(tenantId: string) {
     return this.subscriptionRepository.findByTenantId(tenantId);
+  }
+
+  private async requireCurrentSubscription(subscriptionId: string) {
+    const tenantId = this.tenantContext.requireTenant();
+    const subscription = await this.subscriptionRepository.findById(
+      subscriptionId,
+      tenantId,
+    );
+    if (!subscription) {
+      throw new NotFoundException('Subscription not found');
+    }
+    return subscription;
   }
 }

@@ -16,6 +16,7 @@ describe('OrdersService', () => {
   const markPaidRepository = jest.fn();
   const cancelOrderRepository = jest.fn();
   const markCompletedRepository = jest.fn();
+  const releaseReservation = jest.fn();
   const repository = {
     findProductsByIds,
     createOrder,
@@ -27,14 +28,18 @@ describe('OrdersService', () => {
     markPaid: markPaidRepository,
     cancelOrder: cancelOrderRepository,
     markCompleted: markCompletedRepository,
+    releaseToKitchen: jest.fn(),
   } as unknown as OrdersRepository;
   const publish = jest.fn();
   const events = { publish } as unknown as DomainEventBus;
+  const inventoryReservations = {
+    releaseReservation,
+  } as never;
   let service: OrdersService;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new OrdersService(repository, events);
+    service = new OrdersService(repository, events, inventoryReservations);
   });
 
   it('prices order items from tenant-scoped products and emits both creation events', async () => {
@@ -65,6 +70,7 @@ describe('OrdersService', () => {
         { productId: 'product-a', quantity: 1, price: 250, subtotal: 250 },
         { productId: 'product-b', quantity: 1, price: 400, subtotal: 400 },
       ],
+      'REGULAR',
     );
     expect(publish).toHaveBeenCalledTimes(2);
     expect(publish).toHaveBeenNthCalledWith(
@@ -94,8 +100,10 @@ describe('OrdersService', () => {
 
   it('preserves authenticated tenant and outlet scope for reads', async () => {
     const user = {
+      scope: 'tenant' as const,
       userId: 'user-a',
       tenantId: 'tenant-a',
+      sessionId: 'session-a',
       outletId: 'outlet-a',
       roleId: 'role-a',
       permissions: [],
@@ -109,16 +117,14 @@ describe('OrdersService', () => {
     expect(findOne).toHaveBeenCalledWith('order-b', 'tenant-a', 'outlet-a');
   });
 
-  it('rejects kitchen workflow statuses for non-cafe tenants', async () => {
-    findTenantById.mockResolvedValue({ businessType: 'RETAIL' });
-
+  it('rejects direct kitchen workflow status changes', async () => {
     await expect(
       service.updateStatus(
         'order-a',
         { tenantId: 'tenant-a', outletId: null } as never,
         OrderStatus.COMPLETED,
       ),
-    ).rejects.toThrow('only available for CAFE');
+    ).rejects.toThrow('managed by payment and kitchen actions');
     expect(findOneAggregate).not.toHaveBeenCalled();
   });
 
@@ -148,5 +154,25 @@ describe('OrdersService', () => {
       expect.objectContaining({ status: OrderStatus.COMPLETED }),
     );
     expect(cancelOrderRepository).not.toHaveBeenCalled();
+    expect(releaseReservation).not.toHaveBeenCalled();
+  });
+
+  it('releases reserved stock when an order is cancelled', async () => {
+    findOneAggregate.mockResolvedValue({
+      cancel: jest.fn(),
+    });
+    cancelOrderRepository.mockResolvedValue({
+      id: 'order-a',
+      status: OrderStatus.CANCELLED,
+    });
+
+    await service.cancelOrder('order-a', 'tenant-a');
+
+    expect(cancelOrderRepository).toHaveBeenCalledWith(
+      'order-a',
+      'tenant-a',
+      undefined,
+      expect.any(Function),
+    );
   });
 });

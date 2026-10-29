@@ -3,8 +3,18 @@ import { apiRequest } from "@/lib/api/client"
 export type Role = {
   id: string
   name: string
+  description: string | null
+  isSystem: boolean
+  systemKey: string | null
   tenantId: string
+  createdAt: string
+  updatedAt: string
+  assignedUserCount: number
+  permissionCount: number
 }
+
+export type RoleListQuery = { page?: number; limit?: number; search?: string; sortBy?: "name" | "createdAt"; sortOrder?: "asc" | "desc" }
+export type PaginatedRoles = { data: Role[]; pagination: { page: number; limit: number; total: number; totalPages: number } }
 
 export type Permission = {
   id: string
@@ -19,11 +29,13 @@ export type RolePermissions = {
 
 export type RoleInput = {
   name: string
+  description?: string
   permissionCodes?: string[]
 }
 
 export const roleKeys = {
   all: (tenantId: string) => ["roles", tenantId] as const,
+  list: (tenantId: string, query: RoleListQuery) => ["roles", tenantId, "list", query] as const,
   detail: (tenantId: string, roleId: string) => ["roles", tenantId, roleId] as const,
   permissions: (tenantId: string) => ["permissions", tenantId] as const,
   rolePermissions: (tenantId: string, roleId: string) => ["roles", tenantId, roleId, "permissions"] as const,
@@ -33,8 +45,12 @@ function authHeaders(accessToken: string) {
   return { Authorization: `Bearer ${accessToken}` }
 }
 
-export function getRoles(accessToken: string) {
-  return apiRequest<Role[]>("/roles", { headers: authHeaders(accessToken) })
+export function getRoles(accessToken: string, query: RoleListQuery = {}) {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== "") params.set(key, String(value))
+  }
+  return apiRequest<PaginatedRoles>(`/roles${params.size ? `?${params}` : ""}`, { headers: authHeaders(accessToken) })
 }
 
 export function getRole(accessToken: string, roleId: string) {

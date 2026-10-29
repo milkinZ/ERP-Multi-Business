@@ -21,7 +21,7 @@ export function RecipeForm({ products, ingredients, onCreated }: { products: Pro
   const [serverError, setServerError] = useState<string | null>(null)
   const { register, control, handleSubmit, formState: { errors } } = useForm<RecipeFormValues>({
     resolver: zodResolver(recipeSchema),
-    defaultValues: { productId: "", items: [{ ingredientId: "", quantity: 1 }] },
+    defaultValues: { productId: "", items: [{ inventoryItemId: "", quantity: 1 }] },
   })
 
   const mutation = useMutation({

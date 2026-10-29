@@ -8,10 +8,12 @@ describe('IngredientsService', () => {
   const createIngredient = jest.fn();
   const findAll = jest.fn();
   const findOne = jest.fn();
+  const toIngredient = jest.fn((item: unknown) => item);
   const repository = {
     createIngredient,
     findAll,
     findOne,
+    toIngredient,
   } as unknown as IngredientsRepository;
   const prisma = { $transaction: transaction };
   let service: IngredientsService;
@@ -22,18 +24,17 @@ describe('IngredientsService', () => {
       Promise.resolve(
         callback({
           inventoryItem: {
-            create: jest.fn().mockResolvedValue({ id: 'inventory-a' }),
+            findFirst: jest.fn().mockResolvedValue(null),
           },
-          ingredient: { findFirst: jest.fn().mockResolvedValue(null) },
         }),
       ),
     );
     service = new IngredientsService(prisma as never, repository);
   });
 
-  it('creates an inventory item and linked ingredient in one transaction', async () => {
+  it('creates an ingredient as an inventory item in one transaction', async () => {
     createIngredient.mockResolvedValue({
-      id: 'ingredient-a',
+      id: 'inventory-a',
       tenantId: 'tenant-a',
     });
 
@@ -45,21 +46,20 @@ describe('IngredientsService', () => {
         tenantId: 'tenant-a',
         name: 'Coffee beans',
         unit: 'kg',
-        inventoryItemId: 'inventory-a',
       },
       expect.any(Object),
     );
     expect(transaction).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects duplicate ingredient names before repository persistence', async () => {
-    const inventoryCreate = jest.fn().mockResolvedValue({ id: 'inventory-a' });
-    const ingredientFindFirst = jest.fn().mockResolvedValue({ id: 'existing' });
+  it('rejects duplicate ingredient names before persistence', async () => {
+    const inventoryItemFindFirst = jest
+      .fn()
+      .mockResolvedValue({ id: 'existing' });
     transaction.mockImplementationOnce((callback: (tx: unknown) => unknown) =>
       Promise.resolve(
         callback({
-          inventoryItem: { create: inventoryCreate },
-          ingredient: { findFirst: ingredientFindFirst },
+          inventoryItem: { findFirst: inventoryItemFindFirst },
         }),
       ),
     );
@@ -71,14 +71,108 @@ describe('IngredientsService', () => {
   });
 
   it('keeps reads tenant-scoped and preserves empty results', async () => {
-    findAll.mockResolvedValue([]);
+    findAll.mockResolvedValue({ data: [], pagination: { total: 0 } });
     findOne.mockResolvedValue(null);
 
-    await expect(service.findAll('tenant-a')).resolves.toEqual([]);
+    const query = { page: 1, limit: 20 } as never;
+    await expect(service.findAll('tenant-a', query)).resolves.toEqual({
+      data: [],
+      pagination: { total: 0 },
+    });
     await expect(
-      service.findOne('ingredient-b', 'tenant-a'),
+      service.findOne('inventory-b', 'tenant-a'),
     ).resolves.toBeNull();
-    expect(findAll).toHaveBeenCalledWith('tenant-a');
-    expect(findOne).toHaveBeenCalledWith('ingredient-b', 'tenant-a');
+    expect(findAll).toHaveBeenCalledWith('tenant-a', query);
+    expect(findOne).toHaveBeenCalledWith('inventory-b', 'tenant-a');
+  });
+
+  it('updates the inventory master record without duplicated ingredient data', async () => {
+    const item = {
+      id: 'inventory-a',
+      tenantId: 'tenant-a',
+      type: 'INGREDIENT',
+      name: 'Coffee',
+      unit: 'kg',
+    };
+    const inventoryItemFindFirst = jest
+      .fn()
+      .mockResolvedValueOnce(item)
+      .mockResolvedValueOnce(null);
+    const inventoryItemUpdate = jest.fn().mockResolvedValue({
+      ...item,
+      name: 'Arabica',
+      isActive: false,
+    });
+    transaction.mockImplementationOnce(
+      (callback: (tx: unknown) => unknown, options: unknown) =>
+        Promise.resolve(
+          callback({
+            inventoryItem: {
+              findFirst: inventoryItemFindFirst,
+              update: inventoryItemUpdate,
+            },
+          }),
+        ).then((result) => {
+          expect(options).toEqual({
+            isolationLevel: 'Serializable',
+          });
+          return result;
+        }),
+    );
+
+    await service.update('inventory-a', 'tenant-a', {
+      name: 'Arabica',
+      isActive: false,
+    });
+
+    expect(inventoryItemUpdate).toHaveBeenCalledWith({
+      where: { id: 'inventory-a' },
+      data: { name: 'Arabica', isActive: false },
+    });
+    expect(toIngredient).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Arabica' }),
+    );
+  });
+
+  it('blocks unit changes when stock or movement history exists', async () => {
+    const item = {
+      id: 'inventory-a',
+      tenantId: 'tenant-a',
+      type: 'INGREDIENT',
+      name: 'Coffee',
+      unit: 'kg',
+    };
+    const inventoryItemUpdate = jest.fn();
+    transaction.mockImplementationOnce((callback: (tx: unknown) => unknown) =>
+      Promise.resolve(
+        callback({
+          inventoryItem: {
+            findFirst: jest.fn().mockResolvedValue(item),
+            update: inventoryItemUpdate,
+          },
+          inventoryStock: {
+            findFirst: jest.fn().mockResolvedValue({ id: 'stock-a' }),
+          },
+          inventoryMovement: { findFirst: jest.fn().mockResolvedValue(null) },
+          recipeItem: { findFirst: jest.fn().mockResolvedValue(null) },
+        }),
+      ),
+    );
+
+    await expect(
+      service.update('inventory-a', 'tenant-a', { unit: 'g' }),
+    ).rejects.toThrow(
+      new BadRequestException(
+        'Ingredient unit cannot change after stock, movement, or recipe usage exists',
+      ),
+    );
+    expect(inventoryItemUpdate).not.toHaveBeenCalled();
+  });
+
+  it('rejects empty updates', async () => {
+    await expect(service.update('inventory-a', 'tenant-a', {})).rejects.toThrow(
+      new BadRequestException('At least one ingredient field is required'),
+    );
+    expect(transaction).not.toHaveBeenCalled();
   });
 });

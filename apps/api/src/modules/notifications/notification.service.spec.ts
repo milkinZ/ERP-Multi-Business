@@ -10,7 +10,10 @@ describe('NotificationService', () => {
   const getEffectiveChannels = jest.fn();
   const send = jest.fn();
   const getQueue = jest.fn();
-  const prisma = {} as PrismaService;
+  const notificationUpdateMany = jest.fn();
+  const prisma = {
+    notification: { updateMany: notificationUpdateMany },
+  } as unknown as PrismaService;
   const templates = {
     buildNotification,
   } as unknown as NotificationTemplateService;
@@ -23,6 +26,7 @@ describe('NotificationService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    notificationUpdateMany.mockResolvedValue({ count: 1 });
     buildNotification.mockReturnValue({
       title: 'Order created',
       message: 'Your order was created',
@@ -81,5 +85,38 @@ describe('NotificationService', () => {
         tenantId: 'tenant-a',
       }),
     ).rejects.toThrow('email provider unavailable');
+  });
+
+  it('scopes individual read and delete mutations to the notification owner', async () => {
+    await service.markAsRead('notification-a', 'user-a', 'tenant-a');
+    await service.deleteNotification('notification-a', 'user-a', 'tenant-a');
+
+    type MutationCall = {
+      where: {
+        id: string;
+        userId: string;
+        tenantId: string;
+        deletedAt: null;
+      };
+      data: { readAt?: Date; deletedAt?: Date };
+    };
+    const calls = notificationUpdateMany.mock.calls as Array<[MutationCall]>;
+
+    expect(calls.map(([call]) => call.where)).toEqual([
+      {
+        id: 'notification-a',
+        userId: 'user-a',
+        tenantId: 'tenant-a',
+        deletedAt: null,
+      },
+      {
+        id: 'notification-a',
+        userId: 'user-a',
+        tenantId: 'tenant-a',
+        deletedAt: null,
+      },
+    ]);
+    expect(calls[0][0].data.readAt).toBeInstanceOf(Date);
+    expect(calls[1][0].data.deletedAt).toBeInstanceOf(Date);
   });
 });

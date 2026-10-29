@@ -53,6 +53,8 @@ describe('Reservation expiry business idempotency', () => {
         name: 'Expiry Item',
         type: 'PRODUCT',
         tenantId,
+        valuationMethod: 'STANDARD_COST',
+        standardCost: 1,
       },
     });
     await prisma.inventoryStock.create({
@@ -82,12 +84,21 @@ describe('Reservation expiry business idempotency', () => {
         warehouseId,
         inventoryItemId: itemId,
         type: 'STOCK_OUT',
+        unitCost: 1,
+        totalCost: 5,
         quantity: 5,
         beforeQuantity: 5,
         afterQuantity: 0,
         referenceType: ACTIVE_RESERVATION_REF,
         referenceId: 'logical-order-expiry',
         createdAt: new Date('2020-01-01T00:00:00Z'),
+      },
+    });
+    await prisma.inventoryMovementCostAllocation.create({
+      data: {
+        movementId: reservationId,
+        quantity: 5,
+        unitCost: 1,
       },
     });
   });

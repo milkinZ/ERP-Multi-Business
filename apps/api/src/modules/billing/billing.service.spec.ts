@@ -5,6 +5,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma, type Invoice } from '@prisma/client';
 
 import { BillingRepository } from './billing.repository';
 import { BillingService } from './billing.service';
@@ -32,7 +33,14 @@ function activeSubscription() {
 describe('BillingService', () => {
   const findAllInvoices = jest.fn();
   const findInvoiceById = jest.fn();
-  const createInvoice = jest.fn();
+  const cancelPendingInvoice = jest.fn();
+  const findInvoiceExportPage = jest.fn();
+  type CreateInvoiceForBillingPeriod =
+    BillingRepository['createInvoiceForBillingPeriod'];
+  const createInvoiceForBillingPeriod = jest.fn<
+    ReturnType<CreateInvoiceForBillingPeriod>,
+    Parameters<CreateInvoiceForBillingPeriod>
+  >();
   const updateInvoiceStatus = jest.fn();
   const settlePaidInvoice = jest.fn();
   const findXenditPaymentRequestAttempt = jest.fn();
@@ -54,7 +62,9 @@ describe('BillingService', () => {
   const billingRepository = {
     findAllInvoices,
     findInvoiceById,
-    createInvoice,
+    cancelPendingInvoice,
+    findInvoiceExportPage,
+    createInvoiceForBillingPeriod,
     updateInvoiceStatus,
     settlePaidInvoice,
     findXenditPaymentRequestAttempt,
@@ -85,6 +95,33 @@ describe('BillingService', () => {
     claimXenditPaymentRequest.mockResolvedValue({ claimed: true });
     completeXenditPaymentRequest.mockResolvedValue(undefined);
     recordXenditPaymentRequestOutcome.mockResolvedValue({ count: 1 });
+    cancelPendingInvoice.mockResolvedValue({ id: 'invoice-a' });
+    createInvoiceForBillingPeriod.mockImplementation(
+      async (data, publishEvents) => {
+        const invoice: Invoice = {
+          id: 'invoice-a',
+          tenantId: data.tenantId,
+          subscriptionId: data.subscriptionId,
+          invoiceNumber: 'INV-A',
+          amountCents: data.amountCents,
+          currency: data.currency,
+          status: data.status,
+          providerReferenceId: null,
+          providerPaymentRequestId: null,
+          providerPaymentId: null,
+          providerEventId: null,
+          providerStatus: null,
+          billingPeriodKey: data.billingPeriodKey,
+          dueAt: data.dueAt,
+          paidAt: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deletedAt: null,
+        };
+        await publishEvents({} as Prisma.TransactionClient, invoice);
+        return { invoice, created: true };
+      },
+    );
     service = new BillingService(
       billingRepository,
       subscriptionRepository,
@@ -95,27 +132,67 @@ describe('BillingService', () => {
     );
   });
 
-  it('creates a tenant-scoped invoice and payment-required events', async () => {
+  it('cancels only a pending invoice with no active provider payment', async () => {
+    findInvoiceById
+      .mockResolvedValueOnce({
+        id: 'invoice-a',
+        tenantId: 'tenant-a',
+        status: 'PENDING',
+        providerPaymentRequestId: null,
+        providerPaymentId: null,
+      })
+      .mockResolvedValueOnce({ id: 'invoice-a', status: 'CANCELLED' });
+    await expect(
+      service.cancelPendingInvoice('invoice-a'),
+    ).resolves.toMatchObject({
+      id: 'invoice-a',
+      status: 'CANCELLED',
+    });
+    expect(cancelPendingInvoice).toHaveBeenCalledWith('invoice-a', 'tenant-a');
+  });
+
+  it('rejects cancellation when the invoice is paid or has a provider payment request', async () => {
+    findInvoiceById.mockResolvedValueOnce({
+      id: 'invoice-a',
+      status: 'PAID',
+    });
+    await expect(
+      service.cancelPendingInvoice('invoice-a'),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    findInvoiceById.mockResolvedValueOnce({
+      id: 'invoice-a',
+      status: 'PENDING',
+      providerPaymentRequestId: 'provider-request',
+      providerPaymentId: null,
+    });
+    await expect(
+      service.cancelPendingInvoice('invoice-a'),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(cancelPendingInvoice).not.toHaveBeenCalled();
+  });
+
+  it('creates an idempotent invoice and publishes its events in the same transaction', async () => {
     const subscription = activeSubscription();
     findById.mockResolvedValue(subscription);
     settlePaidInvoice.mockResolvedValue({ id: 'invoice-a', status: 'PAID' });
-    createInvoice.mockResolvedValue({
-      id: 'invoice-a',
-      invoiceNumber: 'INV-A',
-      amountCents: 49900,
-      currency: 'IDR',
-    });
 
     await expect(
       service.executeBilling('subscription-a'),
     ).resolves.toBeUndefined();
-    expect(createInvoice).toHaveBeenCalledWith(
+    expect(createInvoiceForBillingPeriod).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: 'tenant-a',
         subscriptionId: 'subscription-a',
         amountCents: 49900,
         status: 'PENDING',
       }),
+      expect.any(Function),
+    );
+    const billingInput = createInvoiceForBillingPeriod.mock.calls[0]?.[0];
+    if (!billingInput) throw new Error('Expected billing invoice input');
+    expect(billingInput.billingPeriodKey).toMatch(
+      /^subscription-a:\d{4}-\d{2}$/,
     );
     expect(publish).toHaveBeenCalledTimes(2);
   });
@@ -133,7 +210,7 @@ describe('BillingService', () => {
     await expect(service.executeBilling('subscription-a')).rejects.toThrow(
       new BadRequestException('Cannot bill a non-active subscription'),
     );
-    expect(createInvoice).not.toHaveBeenCalled();
+    expect(createInvoiceForBillingPeriod).not.toHaveBeenCalled();
   });
 
   it('persists the exact Xendit payment request ID before returning success', async () => {

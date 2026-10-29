@@ -12,13 +12,14 @@
 | Outcome/timestamp | Backend defaults | Implemented |
 | Metadata | Minimal transition/reason/plan identifiers | Implemented |
 | Platform list/detail | `GET /super-admin/audit-logs`, `GET /super-admin/audit-logs/:id` | Implemented |
-| Tenant audit list | `GET /audit-logs` | Existing tenant scope only |
+| Tenant audit list/detail | `GET /audit-logs`, `GET /audit-logs/:id` | Tenant-scoped API and `/app/audit-logs` UI gated by `audit-log.read` |
 
 ## Confirmed Gaps
 
 ### ARCHITECTURE GAP
 
-- Platform audit records are written after existing super-admin mutations/outbox publication rather than inside one shared transaction for every mutation. A future refactor should make mutation, outbox, and audit persistence atomic where required.
+- Reviewed platform tenant-lifecycle and subscription plan-scheduling mutations persist the state change, platform audit record, and outbox event in one PostgreSQL transaction. PostgreSQL integration coverage verifies rollback on persistence failures.
+- This transactional guarantee is scoped to the reviewed operations; do not infer it for unrelated or future mutations without verifying their service implementation and tests.
 
 ### OPERATIONAL GAP
 
@@ -32,7 +33,7 @@
 
 ### FRONTEND GAP
 
-- Platform audit UI supports only backend-provided action/resource filters and pagination. No client-side filtering or mutation controls are provided.
+- Platform audit UI supports only backend-provided action/resource filters and pagination. Tenant audit records are displayed separately in the permission-gated ERP audit-log page; the platform UI never queries tenant audit records. No audit mutation controls are provided.
 
 ### REALTIME INFRASTRUCTURE GAP
 
@@ -40,7 +41,7 @@
 
 ### TEST INFRASTRUCTURE GAP
 
-- No dedicated platform audit HTTP E2E suite or frontend component test runner is configured.
+- PostgreSQL integration coverage verifies atomicity and immutable audit persistence for reviewed mutations. Dedicated platform audit HTTP E2E coverage and frontend component test runners for platform/tenant audit pages are not configured.
 
 ## Scope and Security
 

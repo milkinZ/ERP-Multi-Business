@@ -1,0 +1,29 @@
+import { PlatformAdminRole } from '@prisma/client';
+
+import { PERMISSIONS } from '../rbac/permissions';
+
+const ALL_PLATFORM_PERMISSIONS = [
+  PERMISSIONS.SUPER_ADMIN_READ,
+  PERMISSIONS.SUPER_ADMIN_MANAGE_TENANTS,
+  PERMISSIONS.SUPER_ADMIN_MANAGE_PLANS,
+  PERMISSIONS.SUPER_ADMIN_MANAGE_SUBSCRIPTIONS,
+  PERMISSIONS.SUPER_ADMIN_MANAGE_BILLING,
+  PERMISSIONS.SUPER_ADMIN_MANAGE_FEATURE_FLAGS,
+  PERMISSIONS.SUPER_ADMIN_MANAGE_SYSTEM,
+] as const;
+
+export const PLATFORM_ROLE_PERMISSIONS: Record<
+  PlatformAdminRole,
+  readonly string[]
+> = {
+  [PlatformAdminRole.READ_ONLY]: [PERMISSIONS.SUPER_ADMIN_READ],
+  [PlatformAdminRole.OPERATIONS]: [
+    PERMISSIONS.SUPER_ADMIN_READ,
+    PERMISSIONS.SUPER_ADMIN_MANAGE_TENANTS,
+  ],
+  [PlatformAdminRole.PLATFORM_ADMIN]: ALL_PLATFORM_PERMISSIONS,
+};
+
+export function permissionsForPlatformRole(role: PlatformAdminRole): string[] {
+  return [...PLATFORM_ROLE_PERMISSIONS[role]];
+}

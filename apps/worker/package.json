@@ -10,7 +10,7 @@
     "start": "nest start",
     "dev": "nest start --watch",
     "start:prod": "node dist/main",
-    "lint": "eslint src --fix",
+    "lint": "eslint src --max-warnings 0",
     "check-types": "tsc --noEmit -p tsconfig.json",
     "test": "jest --config ./test/jest-integration.json",
     "test:integration": "jest --config ./test/jest-integration.json"
@@ -48,4 +48,3 @@
     "typescript": "^5.4.5"
   }
 }
-

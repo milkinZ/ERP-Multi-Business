@@ -1,7 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
-import { PaymentMethod } from '@prisma/client';
+import { OrderMode, PaymentMethod, PaymentStatus } from '@prisma/client';
 
 import { OutboxPublisher } from '../../infrastructure/events/outbox.publisher';
+import { DOMAIN_EVENTS } from '../../core/events/domain-events';
 import { PaymentsRepository } from './payments.repository';
 import { PaymentsService } from './payments.service';
 
@@ -16,7 +17,10 @@ describe('PaymentsService', () => {
     findAll,
     findOne,
   } as unknown as PaymentsRepository;
-  const publish = jest.fn();
+  const publish = jest.fn<
+    Promise<void>,
+    [{ type: string; payload: Record<string, unknown> }]
+  >(() => Promise.resolve());
   const outbox = { publish } as unknown as OutboxPublisher;
   let service: PaymentsService;
 
@@ -29,6 +33,9 @@ describe('PaymentsService', () => {
     findOrderForPayment.mockResolvedValue({
       id: 'order-a',
       status: 'PENDING',
+      orderMode: OrderMode.REGULAR,
+      paymentStatus: PaymentStatus.PENDING,
+      paidAmount: 0,
       totalAmount: 1000,
     });
     createPayment.mockResolvedValue({
@@ -36,6 +43,7 @@ describe('PaymentsService', () => {
       orderId: 'order-a',
       tenantId: 'tenant-a',
       amount: 1000,
+      SalesOrder: { paymentStatus: PaymentStatus.PAID },
     });
 
     await expect(
@@ -58,6 +66,7 @@ describe('PaymentsService', () => {
       orderId: 'order-a',
       tenantId: 'tenant-a',
       paymentId: 'payment-a',
+      isFullyPaid: true,
     };
     expect(publish).toHaveBeenNthCalledWith(
       1,
@@ -78,13 +87,16 @@ describe('PaymentsService', () => {
       }),
     ).rejects.toThrow(new BadRequestException('Order not found'));
     expect(createPayment).not.toHaveBeenCalled();
-    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).not.toHaveBeenCalled();
   });
 
   it('rejects insufficient and duplicate payments without persistence side effects', async () => {
     findOrderForPayment.mockResolvedValueOnce({
       id: 'order-a',
       status: 'PENDING',
+      orderMode: OrderMode.REGULAR,
+      paymentStatus: PaymentStatus.PENDING,
+      paidAmount: 0,
       totalAmount: 1000,
     });
     await expect(
@@ -98,6 +110,9 @@ describe('PaymentsService', () => {
     findOrderForPayment.mockResolvedValueOnce({
       id: 'order-a',
       status: 'PAID',
+      orderMode: OrderMode.REGULAR,
+      paymentStatus: PaymentStatus.PAID,
+      paidAmount: 1000,
       totalAmount: 1000,
     });
     await expect(
@@ -114,6 +129,9 @@ describe('PaymentsService', () => {
     findOrderForPayment.mockResolvedValue({
       id: 'order-a',
       status: 'PENDING',
+      orderMode: OrderMode.REGULAR,
+      paymentStatus: PaymentStatus.PENDING,
+      paidAmount: 0,
       totalAmount: 1000,
     });
     createPayment.mockResolvedValue(null);
@@ -124,7 +142,43 @@ describe('PaymentsService', () => {
         amount: 1000,
         method: PaymentMethod.CASH,
       }),
-    ).rejects.toThrow('Order already paid');
+    ).rejects.toThrow('balance changed');
+  });
+
+  it('records partial payments for open bills without treating them as settled', async () => {
+    findOrderForPayment.mockResolvedValue({
+      id: 'order-a',
+      status: 'IN_PROGRESS',
+      orderMode: OrderMode.OPEN_BILL,
+      paymentStatus: PaymentStatus.PENDING,
+      paidAmount: 200,
+      totalAmount: 1000,
+    });
+    createPayment.mockResolvedValue({
+      id: 'payment-partial',
+      orderId: 'order-a',
+      tenantId: 'tenant-a',
+      amount: 300,
+      SalesOrder: { paymentStatus: PaymentStatus.PENDING },
+    });
+
+    await expect(
+      service.pay('tenant-a', {
+        orderId: 'order-a',
+        amount: 300,
+        method: PaymentMethod.CASH,
+      }),
+    ).resolves.toEqual(expect.objectContaining({ id: 'payment-partial' }));
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish.mock.calls[0]?.[0]).toEqual({
+      type: DOMAIN_EVENTS.ORDER_PAYMENT_SUCCESS,
+      payload: {
+        orderId: 'order-a',
+        tenantId: 'tenant-a',
+        paymentId: 'payment-partial',
+        isFullyPaid: false,
+      },
+    });
   });
 
   it('does not expose another tenant payment through findOne', async () => {

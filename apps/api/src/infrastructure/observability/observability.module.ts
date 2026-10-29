@@ -11,6 +11,7 @@ import { OpenTelemetryModule } from './opentelemetry/opentelemetry.module';
 import { BullBoardModule } from './bull-board/bull-board.module';
 import { AdminModule } from './admin/admin.module';
 import { PerformanceMonitorInterceptor } from './performance/performance-monitor.interceptor';
+import { TelemetryModule } from './telemetry/telemetry.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { PerformanceMonitorInterceptor } from './performance/performance-monitor
     OpenTelemetryModule,
     BullBoardModule,
     AdminModule,
+    TelemetryModule,
   ],
   providers: [PerformanceMonitorInterceptor],
 })

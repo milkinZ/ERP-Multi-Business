@@ -24,15 +24,19 @@ describe('OrdersController', () => {
 
     await controller.create(
       {
+        orderMode: 'OPEN_BILL',
         items: [{ productId: 'product-a', quantity: 1 }],
         tenantId: 'attacker',
       } as never,
       { tenantId: 'tenant-a', outletId: 'outlet-a' } as never,
     );
 
-    expect(create).toHaveBeenCalledWith('tenant-a', 'outlet-a', [
-      { productId: 'product-a', quantity: 1 },
-    ]);
+    expect(create).toHaveBeenCalledWith(
+      'tenant-a',
+      'outlet-a',
+      [{ productId: 'product-a', quantity: 1 }],
+      'OPEN_BILL',
+    );
   });
 
   it('passes authenticated user to tenant-scoped reads and status updates', async () => {

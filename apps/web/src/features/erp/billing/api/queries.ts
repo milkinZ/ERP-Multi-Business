@@ -1,4 +1,4 @@
-import { apiRequest } from "@/lib/api/client"
+import { apiDownload, apiRequest } from "@/lib/api/client"
 
 export type Invoice = {
   id: string
@@ -13,6 +13,8 @@ export type Invoice = {
   createdAt: string
   updatedAt: string
   deletedAt?: string | null
+  providerPaymentRequestId?: string | null
+  providerPaymentId?: string | null
 }
 
 export type InvoicePage = {
@@ -31,6 +33,22 @@ export type SubscriptionSummary = {
   priceCents: number
   startedAt: string
   endedAt?: string | null
+}
+
+export type SubscriptionHistoryEvent = {
+  id: string
+  eventType: string
+  actorUserId: string | null
+  actorType: string
+  metadata: Record<string, unknown>
+  createdAt: string
+}
+
+export type SubscriptionHistoryPage = {
+  data: SubscriptionHistoryEvent[]
+  total: number
+  skip: number
+  take: number
 }
 
 export const billingKeys = {
@@ -53,8 +71,37 @@ export function getInvoice(accessToken: string, invoiceId: string) {
   return apiRequest<Invoice>(`/billing/invoices/${encodeURIComponent(invoiceId)}`, { headers: authHeaders(accessToken) })
 }
 
+export function cancelInvoice(accessToken: string, invoiceId: string) {
+  return apiRequest<Invoice>(`/billing/invoices/${encodeURIComponent(invoiceId)}/cancel`, {
+    method: "POST",
+    headers: authHeaders(accessToken),
+  })
+}
+
+export function downloadTenantInvoices(
+  accessToken: string,
+  filters: { from?: string; to?: string; status?: string },
+) {
+  const params = new URLSearchParams()
+  if (filters.from) params.set("from", filters.from)
+  if (filters.to) params.set("to", filters.to)
+  if (filters.status) params.set("status", filters.status)
+  const query = params.size ? `?${params.toString()}` : ""
+  return apiDownload(`/billing/invoices-export.csv${query}`, {
+    headers: authHeaders(accessToken),
+  })
+}
+
 export function getCurrentSubscription(accessToken: string) {
   return apiRequest<SubscriptionSummary>("/subscriptions/current", { headers: authHeaders(accessToken) })
+}
+
+export function getSubscriptionHistory(accessToken: string, subscriptionId: string, skip = 0, take = 50) {
+  const params = new URLSearchParams({ skip: String(skip), take: String(take) })
+  return apiRequest<SubscriptionHistoryPage>(
+    `/subscriptions/${encodeURIComponent(subscriptionId)}/history?${params.toString()}`,
+    { headers: authHeaders(accessToken) },
+  )
 }
 
 export function executeBilling(accessToken: string, subscriptionId: string) {

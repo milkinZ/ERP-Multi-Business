@@ -41,6 +41,12 @@ export const DOMAIN_EVENTS = {
 
   // Inventory
   STOCK_ADJUSTED: 'stock.adjusted',
+  WAREHOUSE_TRANSFER_CREATED: 'warehouse-transfer.created',
+  WAREHOUSE_TRANSFER_SHIPPED: 'warehouse-transfer.shipped',
+  WAREHOUSE_TRANSFER_PARTIALLY_RECEIVED:
+    'warehouse-transfer.partially-received',
+  WAREHOUSE_TRANSFER_RECEIVED: 'warehouse-transfer.received',
+  WAREHOUSE_TRANSFER_CANCELLED: 'warehouse-transfer.cancelled',
 
   // Kitchen events
   KITCHEN_COOKING_STARTED: 'kitchen.cooking.started',
@@ -72,7 +78,7 @@ export const DOMAIN_EVENTS = {
   SUPER_ADMIN_TENANT_SUSPENDED: 'super-admin.tenant.suspended',
   SUPER_ADMIN_TENANT_DEACTIVATED: 'super-admin.tenant.deactivated',
   SUPER_ADMIN_TENANT_RESTORED: 'super-admin.tenant.restored',
-  SUPER_ADMIN_PLAN_CHANGED: 'super-admin.plan.changed',
+  SUPER_ADMIN_PLAN_CHANGE_SCHEDULED: 'super-admin.plan-change.scheduled',
   SUPER_ADMIN_SUBSCRIPTION_CHANGED: 'super-admin.subscription.changed',
 
   // Subscription / Billing
@@ -82,12 +88,14 @@ export const DOMAIN_EVENTS = {
   SUBSCRIPTION_CANCELLED: 'subscription.cancelled',
   SUBSCRIPTION_EXPIRED: 'subscription.expired',
   SUBSCRIPTION_PLAN_CHANGED: 'subscription.plan.changed',
+  SUBSCRIPTION_PLAN_CHANGE_SCHEDULED: 'subscription.plan-change.scheduled',
   SUBSCRIPTION_SUSPENDED: 'subscription.suspended',
   SUBSCRIPTION_PAST_DUE: 'subscription.past-due',
   PAYMENT_REQUIRED: 'billing.payment.required',
   INVOICE_CREATED: 'invoice.created',
   INVOICE_PAID: 'invoice.paid',
   INVOICE_FAILED: 'invoice.failed',
+  INVOICE_CANCELLED: 'invoice.cancelled',
 } as const;
 
 export type DomainEventName =
@@ -134,6 +142,7 @@ export type OrderPaymentSuccessEvent = BaseDomainEvent<
     orderId: string;
     tenantId: string;
     paymentId: string;
+    isFullyPaid?: boolean;
   }
 >;
 
@@ -347,6 +356,37 @@ export type StockAdjustedEvent = BaseDomainEvent<
   }
 >;
 
+type WarehouseTransferEventPayload = {
+  transferId: string;
+  tenantId: string;
+  receiptId?: string;
+};
+
+export type WarehouseTransferCreatedEvent = BaseDomainEvent<
+  typeof DOMAIN_EVENTS.WAREHOUSE_TRANSFER_CREATED,
+  WarehouseTransferEventPayload
+>;
+
+export type WarehouseTransferShippedEvent = BaseDomainEvent<
+  typeof DOMAIN_EVENTS.WAREHOUSE_TRANSFER_SHIPPED,
+  WarehouseTransferEventPayload
+>;
+
+export type WarehouseTransferPartiallyReceivedEvent = BaseDomainEvent<
+  typeof DOMAIN_EVENTS.WAREHOUSE_TRANSFER_PARTIALLY_RECEIVED,
+  WarehouseTransferEventPayload
+>;
+
+export type WarehouseTransferReceivedEvent = BaseDomainEvent<
+  typeof DOMAIN_EVENTS.WAREHOUSE_TRANSFER_RECEIVED,
+  WarehouseTransferEventPayload
+>;
+
+export type WarehouseTransferCancelledEvent = BaseDomainEvent<
+  typeof DOMAIN_EVENTS.WAREHOUSE_TRANSFER_CANCELLED,
+  WarehouseTransferEventPayload
+>;
+
 // Kitchen events
 export type KitchenCookingStartedEvent = BaseDomainEvent<
   typeof DOMAIN_EVENTS.KITCHEN_COOKING_STARTED,
@@ -536,7 +576,7 @@ export type SuperAdminTenantActivatedEvent = BaseDomainEvent<
   {
     tenantId: string;
     targetTenantId: string;
-    actionedByUserId: string;
+    actionedByPlatformIdentityId: string;
   }
 >;
 
@@ -545,7 +585,7 @@ export type SuperAdminTenantSuspendedEvent = BaseDomainEvent<
   {
     tenantId: string;
     targetTenantId: string;
-    actionedByUserId: string;
+    actionedByPlatformIdentityId: string;
     reason?: string;
   }
 >;
@@ -555,7 +595,7 @@ export type SuperAdminTenantDeactivatedEvent = BaseDomainEvent<
   {
     tenantId: string;
     targetTenantId: string;
-    actionedByUserId: string;
+    actionedByPlatformIdentityId: string;
     reason?: string;
   }
 >;
@@ -565,18 +605,18 @@ export type SuperAdminTenantRestoredEvent = BaseDomainEvent<
   {
     tenantId: string;
     targetTenantId: string;
-    actionedByUserId: string;
+    actionedByPlatformIdentityId: string;
   }
 >;
 
-export type SuperAdminPlanChangedEvent = BaseDomainEvent<
-  typeof DOMAIN_EVENTS.SUPER_ADMIN_PLAN_CHANGED,
+export type SuperAdminPlanChangeScheduledEvent = BaseDomainEvent<
+  typeof DOMAIN_EVENTS.SUPER_ADMIN_PLAN_CHANGE_SCHEDULED,
   {
     tenantId: string;
     targetTenantId: string;
     oldPlanId: string;
     newPlanId: string;
-    actionedByUserId: string;
+    actionedByPlatformIdentityId: string;
   }
 >;
 
@@ -586,7 +626,7 @@ export type SuperAdminSubscriptionChangedEvent = BaseDomainEvent<
     tenantId: string;
     targetTenantId: string;
     subscriptionId: string;
-    actionedByUserId: string;
+    actionedByPlatformIdentityId: string;
     reason?: string;
   }
 >;
@@ -645,6 +685,18 @@ export type SubscriptionPlanChangedEvent = BaseDomainEvent<
     tenantId: string;
     oldPlanType: string;
     newPlanType: string;
+  }
+>;
+
+export type SubscriptionPlanChangeScheduledEvent = BaseDomainEvent<
+  typeof DOMAIN_EVENTS.SUBSCRIPTION_PLAN_CHANGE_SCHEDULED,
+  {
+    subscriptionId: string;
+    tenantId: string;
+    currentPlanId: string;
+    previousPendingPlanId: string | null;
+    pendingPlanId: string | null;
+    effectiveAt: 'NEXT_RENEWAL';
   }
 >;
 
@@ -710,6 +762,15 @@ export type InvoiceFailedEvent = BaseDomainEvent<
   }
 >;
 
+export type InvoiceCancelledEvent = BaseDomainEvent<
+  typeof DOMAIN_EVENTS.INVOICE_CANCELLED,
+  {
+    invoiceId: string;
+    invoiceNumber: string;
+    tenantId: string;
+  }
+>;
+
 export type DomainEvent =
   | UserLoginEvent
   | UserLogoutEvent
@@ -738,6 +799,11 @@ export type DomainEvent =
   | PurchaseOrderCompletedEvent
   | PurchaseOrderCancelledEvent
   | StockAdjustedEvent
+  | WarehouseTransferCreatedEvent
+  | WarehouseTransferShippedEvent
+  | WarehouseTransferPartiallyReceivedEvent
+  | WarehouseTransferReceivedEvent
+  | WarehouseTransferCancelledEvent
   | KitchenCookingStartedEvent
   | KitchenReadyEvent
   | KitchenServedEvent
@@ -761,7 +827,7 @@ export type DomainEvent =
   | SuperAdminTenantSuspendedEvent
   | SuperAdminTenantDeactivatedEvent
   | SuperAdminTenantRestoredEvent
-  | SuperAdminPlanChangedEvent
+  | SuperAdminPlanChangeScheduledEvent
   | SuperAdminSubscriptionChangedEvent
   | SubscriptionCreatedEvent
   | SubscriptionActivatedEvent
@@ -769,9 +835,11 @@ export type DomainEvent =
   | SubscriptionCancelledEvent
   | SubscriptionExpiredEvent
   | SubscriptionPlanChangedEvent
+  | SubscriptionPlanChangeScheduledEvent
   | SubscriptionSuspendedEvent
   | SubscriptionPastDueEvent
   | PaymentRequiredEvent
   | InvoiceCreatedEvent
   | InvoicePaidEvent
-  | InvoiceFailedEvent;
+  | InvoiceFailedEvent
+  | InvoiceCancelledEvent;

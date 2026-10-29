@@ -7,6 +7,10 @@ export abstract class AggregateRoot {
     this.domainEvents.push(event);
   }
 
+  public peekDomainEvents(): readonly DomainEvent[] {
+    return this.domainEvents;
+  }
+
   public pullDomainEvents(): DomainEvent[] {
     const events = [...this.domainEvents];
     this.domainEvents.length = 0;

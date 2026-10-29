@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { BaseRepository } from '../../core/database/repositories/base.repository';
 import { PrismaService } from '../../core/database/prisma.service';
 import {
@@ -6,7 +6,7 @@ import {
   OrderAggregate,
   SalesOrderWithItems,
 } from './domain/order.aggregate';
-import { OrderStatus } from '@prisma/client';
+import { OrderMode, OrderStatus, Prisma } from '@prisma/client';
 
 @Injectable()
 export class OrdersRepository extends BaseRepository {
@@ -20,15 +20,33 @@ export class OrdersRepository extends BaseRepository {
     orderNumber: string,
     totalAmount: number,
     items: OrderItemDetails[],
+    orderMode: OrderMode = OrderMode.REGULAR,
   ): Promise<SalesOrderWithItems> {
     const created = await this.prisma.$transaction(async (tx) => {
+      const tenants = await tx.$queryRaw<
+        Array<{ currencyCode: string | null }>
+      >`
+        SELECT "currencyCode"
+        FROM "Tenant"
+        WHERE "id" = ${tenantId} AND "deletedAt" IS NULL
+        FOR SHARE
+      `;
+      const currencyCode = tenants[0]?.currencyCode?.trim();
+      if (!currencyCode) {
+        throw new BadRequestException(
+          'Configure the tenant base currency before creating financial transactions',
+        );
+      }
+
       const order = await tx.salesOrder.create({
         data: {
           orderNumber,
           status: OrderStatus.PENDING,
+          orderMode,
           tenantId,
           outletId,
           totalAmount,
+          currencyCode,
         },
       });
 
@@ -171,25 +189,64 @@ export class OrdersRepository extends BaseRepository {
     return this.findOne(id, tenantId);
   }
 
-  async cancelOrder(
+  async releaseToKitchen(
     id: string,
     tenantId: string,
   ): Promise<SalesOrderWithItems | null> {
-    const updated = await this.prisma.salesOrder.updateMany({
+    await this.prisma.salesOrder.updateMany({
       where: {
         id,
         tenantId,
+        status: { not: OrderStatus.CANCELLED },
+        kitchenReleasedAt: null,
+        OR: [{ orderMode: OrderMode.OPEN_BILL }, { paymentStatus: 'PAID' }],
       },
-      data: {
-        status: OrderStatus.CANCELLED,
-      },
+      data: { kitchenReleasedAt: new Date() },
     });
 
-    if (updated.count !== 1) {
-      return null;
-    }
-
     return this.findOne(id, tenantId);
+  }
+
+  async cancelOrder(
+    id: string,
+    tenantId: string,
+    outletId?: string | null,
+    releaseReservation?: (tx: Prisma.TransactionClient) => Promise<unknown>,
+  ): Promise<SalesOrderWithItems | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.salesOrder.updateMany({
+        where: {
+          id,
+          tenantId,
+          status: { not: OrderStatus.COMPLETED },
+          ...(outletId ? { outletId } : {}),
+        },
+        data: {
+          status: OrderStatus.CANCELLED,
+        },
+      });
+
+      if (updated.count !== 1) {
+        return null;
+      }
+
+      await releaseReservation?.(tx);
+
+      return tx.salesOrder.findFirst({
+        where: {
+          id,
+          tenantId,
+          ...(outletId ? { outletId } : {}),
+        },
+        include: {
+          SalesOrderItem: {
+            include: {
+              Product: true,
+            },
+          },
+        },
+      });
+    });
   }
 
   async markCompleted(

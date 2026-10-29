@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Post,
+  Query,
   Put,
   UseGuards,
 } from '@nestjs/common';
@@ -12,21 +13,25 @@ import { PermissionGuard } from '../rbac/permission.guard';
 import { Permissions } from '../../common/decorator/permissions.decorator';
 import { PERMISSIONS } from '../rbac/permissions';
 import { SubscriptionService } from './subscription.service';
-import { IsOptional, IsString } from 'class-validator';
+import { SubscriptionHistoryQueryDto } from './dto/subscription-history-query.dto';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 
 class CreateSubscriptionDto {
   @IsString()
+  @MaxLength(100)
   planId!: string;
 }
 
 class ChangePlanDto {
   @IsString()
+  @MaxLength(100)
   planId!: string;
 }
 
 class CancelSubscriptionDto {
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   reason?: string;
 }
 
@@ -47,6 +52,21 @@ export class SubscriptionController {
     return this.subscriptionService.getCurrentSubscription();
   }
 
+  @Get(':id/history')
+  @Permissions(PERMISSIONS.SUBSCRIPTION_READ)
+  getHistory(
+    @Param('id') id: string,
+    @Query() query: SubscriptionHistoryQueryDto,
+  ) {
+    return this.subscriptionService.getSubscriptionHistory(id, query);
+  }
+
+  @Get('plans')
+  @Permissions(PERMISSIONS.SUBSCRIPTION_READ)
+  listPlans() {
+    return this.subscriptionService.listPlans();
+  }
+
   @Get(':id')
   @Permissions(PERMISSIONS.SUBSCRIPTION_READ)
   getById(@Param('id') id: string) {
@@ -61,13 +81,25 @@ export class SubscriptionController {
 
   @Put(':id/plan')
   @Permissions(PERMISSIONS.SUBSCRIPTION_UPDATE)
-  changePlan(@Body() dto: ChangePlanDto) {
-    return this.subscriptionService.changePlan(dto.planId);
+  changePlan(@Param('id') id: string, @Body() dto: ChangePlanDto) {
+    return this.subscriptionService.changePlan(id, dto.planId);
   }
 
   @Post(':id/cancel')
   @Permissions(PERMISSIONS.SUBSCRIPTION_CANCEL)
-  cancel(@Body() dto: CancelSubscriptionDto) {
-    return this.subscriptionService.cancelSubscription(dto.reason);
+  cancel(@Param('id') id: string, @Body() dto: CancelSubscriptionDto) {
+    return this.subscriptionService.cancelSubscription(id, dto.reason);
+  }
+
+  @Post(':id/suspend')
+  @Permissions(PERMISSIONS.SUBSCRIPTION_UPDATE)
+  suspend(@Param('id') id: string, @Body() dto: CancelSubscriptionDto) {
+    return this.subscriptionService.suspendSubscription(id, dto.reason);
+  }
+
+  @Post(':id/resume')
+  @Permissions(PERMISSIONS.SUBSCRIPTION_UPDATE)
+  resume(@Param('id') id: string) {
+    return this.subscriptionService.resumeSubscription(id);
   }
 }

@@ -10,7 +10,7 @@ import type { Request, Response, NextFunction } from 'express';
 
 import { QueueService } from '../../queue/queue.service';
 import { QUEUE_NAMES, type QueueName } from '../../queue/queue.constants';
-import { JwtAuthGuard } from '../../../modules/auth/jwt-auth.guard';
+import { PlatformJwtAuthGuard } from '../../../modules/auth/platform-jwt-auth.guard';
 import { PermissionGuard } from '../../../modules/rbac/permission.guard';
 import { Permissions } from '../../../common/decorator/permissions.decorator';
 import { PERMISSIONS } from '../../../modules/rbac/permissions';
@@ -20,7 +20,7 @@ type ServerAdapterType = {
 };
 
 @Controller('admin/queues')
-@UseGuards(JwtAuthGuard, PermissionGuard)
+@UseGuards(PlatformJwtAuthGuard, PermissionGuard)
 export class BullBoardController {
   private readonly serverAdapter: ServerAdapterType;
 

@@ -8,43 +8,43 @@ describe('RecipeAggregate', () => {
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
   };
 
-  it('accepts positive unique ingredient quantities', () => {
+  it('accepts positive unique inventory item quantities', () => {
     const aggregate = RecipeAggregate.create({
       ...base,
-      items: [{ ingredientId: 'ingredient-a', quantity: 2 }],
+      items: [{ inventoryItemId: 'inventory-a', quantity: 2 }],
     });
 
     expect(aggregate.tenantId).toBe('tenant-a');
     expect(aggregate.items).toEqual([
-      { ingredientId: 'ingredient-a', quantity: 2 },
+      { inventoryItemId: 'inventory-a', quantity: 2 },
     ]);
   });
 
-  it('rejects missing product, empty items, duplicate ingredients, and invalid quantities', () => {
+  it('rejects missing product, empty items, duplicate items, and invalid quantities', () => {
     expect(() =>
       RecipeAggregate.create({
         ...base,
         productId: ' ',
-        items: [{ ingredientId: 'a', quantity: 1 }],
+        items: [{ inventoryItemId: 'a', quantity: 1 }],
       }),
     ).toThrow('Recipe product id must not be empty');
     expect(() => RecipeAggregate.create({ ...base, items: [] })).toThrow(
-      'Recipe must contain at least one ingredient',
+      'Recipe must contain at least one inventory item',
     );
     expect(() =>
       RecipeAggregate.create({
         ...base,
         items: [
-          { ingredientId: 'a', quantity: 1 },
-          { ingredientId: 'a', quantity: 2 },
+          { inventoryItemId: 'a', quantity: 1 },
+          { inventoryItemId: 'a', quantity: 2 },
         ],
       }),
-    ).toThrow('Duplicate ingredients detected');
+    ).toThrow('Duplicate inventory items detected');
     expect(() =>
       RecipeAggregate.create({
         ...base,
-        items: [{ ingredientId: 'a', quantity: 0 }],
+        items: [{ inventoryItemId: 'a', quantity: 0 }],
       }),
-    ).toThrow('Ingredient quantity must be a positive integer');
+    ).toThrow('Inventory item quantity must be a positive integer');
   });
 });

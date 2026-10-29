@@ -13,6 +13,10 @@ import { PERMISSIONS } from '../src/modules/rbac/permissions';
 const prisma = new PrismaClient();
 const tenantA = 'e2e-isolation-tenant-a';
 const tenantB = 'e2e-isolation-tenant-b';
+const userA = 'e2e-isolation-user-a';
+const userB = 'e2e-isolation-user-b';
+const roleA = 'e2e-isolation-role-a';
+const roleB = 'e2e-isolation-role-b';
 const outletA = 'e2e-isolation-outlet-a';
 const outletB = 'e2e-isolation-outlet-b';
 const productA = 'e2e-isolation-product-a';
@@ -26,6 +30,7 @@ const permissions = [
   PERMISSIONS.PRODUCT_READ,
   PERMISSIONS.ORDER_READ,
   PERMISSIONS.INVOICE_READ,
+  PERMISSIONS.AUDIT_LOG_READ,
 ];
 
 async function cleanup() {
@@ -43,6 +48,8 @@ async function cleanup() {
   await prisma.outlet.deleteMany({
     where: { id: { in: [outletA, outletB] } },
   });
+  await prisma.user.deleteMany({ where: { id: { in: [userA, userB] } } });
+  await prisma.role.deleteMany({ where: { id: { in: [roleA, roleB] } } });
   await prisma.tenant.deleteMany({
     where: { id: { in: [tenantA, tenantB] } },
   });
@@ -52,13 +59,19 @@ describe('HTTP tenant isolation matrix', () => {
   let app: INestApplication<App>;
   const secret = process.env.JWT_SECRET ?? '';
 
-  const tokenFor = (tenantId: string, outletId: string) =>
+  const tokenFor = (
+    tenantId: string,
+    outletId: string,
+    tokenPermissions = permissions,
+  ) =>
     jwt.sign(
       {
-        sub: `e2e-isolation-user-${tenantId}`,
+        sub: tenantId === tenantA ? userA : userB,
+        scope: 'tenant',
         tenantId,
+        roleId: tenantId === tenantA ? roleA : roleB,
         outletId,
-        permissions,
+        permissions: tokenPermissions,
         roles: [],
       },
       secret,
@@ -71,6 +84,28 @@ describe('HTTP tenant isolation matrix', () => {
       data: [
         { id: tenantA, name: 'Isolation Tenant A', businessType: 'RETAIL' },
         { id: tenantB, name: 'Isolation Tenant B', businessType: 'RETAIL' },
+      ],
+    });
+    await prisma.role.createMany({
+      data: [
+        { id: roleA, name: 'Isolation Role A', tenantId: tenantA },
+        { id: roleB, name: 'Isolation Role B', tenantId: tenantB },
+      ],
+    });
+    await prisma.user.createMany({
+      data: [
+        {
+          id: userA,
+          email: 'isolation-a@example.test',
+          password: 'unused-test-password-hash',
+          tenantId: tenantA,
+        },
+        {
+          id: userB,
+          email: 'isolation-b@example.test',
+          password: 'unused-test-password-hash',
+          tenantId: tenantB,
+        },
       ],
     });
     await prisma.outlet.createMany({
@@ -218,9 +253,7 @@ describe('HTTP tenant isolation matrix', () => {
       .set('Authorization', `Bearer ${tenantBToken}`)
       .expect(200)
       .expect(({ body }) => {
-        const ids = body.map(
-          (order: { id?: string }) => order.id,
-        );
+        const ids = body.map((order: { id?: string }) => order.id);
         expect(ids).toContain(orderB);
         expect(ids).not.toContain(orderA);
       });
@@ -255,5 +288,27 @@ describe('HTTP tenant isolation matrix', () => {
       .get(`/audit-logs/${auditA}`)
       .set('Authorization', `Bearer ${tenantBToken}`)
       .expect(400);
+  });
+
+  it('requires explicit operation permissions and blocks tenant creation', async () => {
+    const readOnlyToken = tokenFor(tenantA, outletA, [
+      PERMISSIONS.PRODUCT_READ,
+    ]);
+
+    await request(app.getHttpServer())
+      .get('/salesOrders')
+      .set('Authorization', `Bearer ${readOnlyToken}`)
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .get('/audit-logs')
+      .set('Authorization', `Bearer ${readOnlyToken}`)
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .post('/tenants')
+      .set('Authorization', `Bearer ${tokenFor(tenantA, outletA)}`)
+      .send({ name: 'Unauthorized Tenant' })
+      .expect(404);
   });
 });

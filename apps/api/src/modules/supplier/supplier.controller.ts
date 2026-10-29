@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 
@@ -18,6 +19,7 @@ import { SupplierService } from './supplier.service';
 
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
+import { ListSuppliersQueryDto } from './dto/list-suppliers-query.dto';
 import { PermissionGuard } from '../rbac/permission.guard';
 import { PERMISSIONS } from '../rbac/permissions';
 import type { JwtUser } from '../../common/interfaces/jwt-user.interface';
@@ -42,10 +44,13 @@ export class SupplierController {
   @Get()
   @Permissions(PERMISSIONS.SUPPLIER_READ)
   findAll(
+    @Query()
+    query: ListSuppliersQueryDto,
+
     @CurrentUser()
     user: JwtUser,
   ) {
-    return this.supplierService.findAll(user.tenantId);
+    return this.supplierService.findAll(user.tenantId, query);
   }
 
   @Get(':id')

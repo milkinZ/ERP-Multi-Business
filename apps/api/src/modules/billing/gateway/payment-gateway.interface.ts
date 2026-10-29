@@ -28,8 +28,4 @@ export abstract class PaymentGateway {
     input: PaymentGatewayChargeInput,
   ): Promise<PaymentGatewayChargeResult>;
   abstract verifyWebhookSignature(payload: unknown, signature: string): boolean;
-  abstract refund(
-    transactionId: string,
-    amountCents?: number,
-  ): Promise<PaymentGatewayChargeResult>;
 }

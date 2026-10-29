@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 
@@ -20,6 +21,7 @@ import { OutletsService } from './outlets.service';
 
 import { CreateOutletDto } from './dto/create-outlet.dto';
 import { UpdateOutletDto } from './dto/update-outlet.dto';
+import { OutletsQueryDto } from './dto/outlets-query.dto';
 
 @Controller('outlets')
 @ApiTags('Outlets')
@@ -29,9 +31,8 @@ export class OutletsController {
 
   @Get()
   @Permissions(PERMISSIONS.OUTLET_READ)
-  @ApiOkResponse({ type: [OutletResponseDto] })
-  getAll() {
-    return this.outletsService.findAll();
+  getAll(@Query() query: OutletsQueryDto) {
+    return this.outletsService.findAll(query);
   }
 
   @Get(':id')

@@ -1,13 +1,13 @@
 "use client"
 
-import React from "react"
+import React, { useState } from "react"
 import Link from "next/link"
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery } from "@tanstack/react-query"
 
 import { EmptyState, PageHeader, SectionHeader, StatusBadge, UnavailableState } from "@/components/data-display/states"
-import { ApiError } from "@/lib/api/client"
+import { ApiError, saveBlob } from "@/lib/api/client"
 import { hasPermission } from "@/lib/permissions"
-import { getPlatformInvoices, type PlatformInvoice } from "@/features/platform/api/queries"
+import { downloadPlatformInvoices, getPlatformInvoices, type PlatformInvoice } from "@/features/platform/api/queries"
 import { useAuthStore } from "@/stores/auth.store"
 
 function statusTone(status: string) {
@@ -45,10 +45,16 @@ export default function PlatformBillingPage() {
 	const token = useAuthStore((state) => state.accessToken)
 	const session = useAuthStore((state) => state.session)
 	const canRead = hasPermission(session, "super-admin.read")
+	const [filters, setFilters] = useState({ from: "", to: "", status: "" })
 	const query = useQuery({
 		queryKey: ["platform-billing-invoices"],
 		queryFn: () => getPlatformInvoices(token as string),
 		enabled: Boolean(token && canRead),
+	})
+	const exportMutation = useMutation({
+		mutationFn: () => downloadPlatformInvoices(token as string, filters),
+		retry: 0,
+		onSuccess: (blob) => saveBlob(blob, "platform-invoices.csv"),
 	})
 
 	if (!canRead) return <UnavailableState title="Billing access is restricted" description="Your platform session does not include the super-admin read permission." />
@@ -56,7 +62,14 @@ export default function PlatformBillingPage() {
 
 	return (
 		<>
-			<PageHeader eyebrow="Platform console / financial records" title="Billing" description="Read-only cross-tenant invoice records returned by the platform API." actions={<StatusBadge tone="info">Read only</StatusBadge>} />
+			<PageHeader eyebrow="Platform console / financial records" title="Billing" description="Cross-tenant invoice records and audited, filtered CSV exports." actions={<StatusBadge tone="info">Read only</StatusBadge>} />
+			<section className="mb-5 flex flex-wrap items-end gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4">
+				<label className="text-xs font-semibold text-[var(--muted-foreground)]">From<input type="date" value={filters.from} onChange={(event) => setFilters((current) => ({ ...current, from: event.target.value }))} className="mt-1 block rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] px-3 py-2 text-sm text-[var(--foreground)]" /></label>
+				<label className="text-xs font-semibold text-[var(--muted-foreground)]">To<input type="date" value={filters.to} onChange={(event) => setFilters((current) => ({ ...current, to: event.target.value }))} className="mt-1 block rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] px-3 py-2 text-sm text-[var(--foreground)]" /></label>
+				<label className="text-xs font-semibold text-[var(--muted-foreground)]">Status<select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))} className="mt-1 block rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] px-3 py-2 text-sm text-[var(--foreground)]"><option value="">All statuses</option>{["PENDING", "PAID", "FAILED", "CANCELLED", "REFUNDED"].map((status) => <option key={status}>{status}</option>)}</select></label>
+				<button type="button" disabled={exportMutation.isPending} onClick={() => exportMutation.mutate()} className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--foreground)] disabled:opacity-50">{exportMutation.isPending ? "Preparing CSV..." : "Export CSV"}</button>
+				{exportMutation.isError ? <p role="alert" className="text-sm text-[var(--danger)]">{exportMutation.error instanceof ApiError ? exportMutation.error.message : "Invoice export failed."}</p> : null}
+			</section>
 			{query.isPending ? <div className="h-56 animate-pulse rounded-3xl bg-[var(--muted)]" /> : query.isError ? (
 				<UnavailableState title="Unable to load invoices" description={query.error instanceof ApiError && query.error.status === 403 ? "This platform session is not authorized to read invoices." : "The platform invoice API could not be reached."} />
 			) : !query.data?.length ? <EmptyState title="No invoices found" description="The platform API returned an empty invoice collection." /> : (

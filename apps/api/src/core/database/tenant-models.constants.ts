@@ -3,12 +3,16 @@
 
 export const TENANT_SCOPED_MODELS = [
   // Tenant-scoped models (have tenantId field in schema)
-  'Ingredient',
   'InventoryItem',
   'InventoryMovement',
   'Product',
   'PurchaseOrder',
   'PurchaseOrderItem',
+  'PurchaseOrderReceipt',
+  'PurchaseOrderReceiptItem',
+  'WarehouseTransfer',
+  'WarehouseTransferReceipt',
+  'WarehouseTransferReceiptItem',
   'Recipe',
   'RecipeItem',
   'RefreshToken',
@@ -25,12 +29,16 @@ export const TENANT_SCOPED_MODELS = [
   'Session',
   'AuditLog',
   'Notification',
+  'Outlet',
   'FeatureFlag',
   'Subscription',
   'Invoice',
   'XenditPaymentRequestAttempt',
   'UserRole',
   'UserOutlet',
+  'UserInvitation',
+  'UserInvitationRole',
+  'UserInvitationOutlet',
 ] as const;
 
 export const OUTLET_SCOPED_MODELS = [

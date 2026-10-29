@@ -19,6 +19,7 @@ export type KitchenTicketProps = {
   items: KitchenTicketItem[];
   status: KitchenStatus;
   priority: number;
+  waitingTooLong?: boolean;
   createdById: string | null;
   createdAt: Date;
   updatedAt: Date;

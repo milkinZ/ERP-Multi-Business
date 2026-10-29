@@ -12,6 +12,7 @@ export class PurchaseOrder implements PrismaPurchaseOrder {
   warehouseId: string | null;
   expectedDeliveryDate: Date | null;
   totalAmount: number;
+  currencyCode: string | null;
   notes: string | null;
   receivedAt: Date | null;
   completedAt: Date | null;

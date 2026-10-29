@@ -2,6 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, TenantStatus } from '@prisma/client';
 import { BaseRepository } from '../../core/database/repositories/base.repository';
 import { PrismaService } from '../../core/database/prisma.service';
+import type {
+  InvoiceExportCursor,
+  InvoiceExportRow,
+} from '../billing/invoice-export';
 export type SuperAdminTenantQueryOptions = {
   page?: number;
   limit?: number;
@@ -138,11 +142,48 @@ export class SuperAdminRepository extends BaseRepository {
     });
   }
 
+  async findInvoiceExportPage(
+    where: Prisma.InvoiceWhereInput,
+    cursor: InvoiceExportCursor | undefined,
+    take: number,
+  ): Promise<InvoiceExportRow[]> {
+    const pageWhere: Prisma.InvoiceWhereInput = {
+      AND: [
+        where,
+        ...(cursor
+          ? [
+              {
+                OR: [
+                  { createdAt: { gt: cursor.createdAt } },
+                  { createdAt: cursor.createdAt, id: { gt: cursor.id } },
+                ],
+              },
+            ]
+          : []),
+      ],
+    };
+    const records = await this.prisma.invoice.findMany({
+      where: pageWhere,
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take,
+      include: { tenant: { select: { name: true } } },
+    });
+    return records.map((record) => ({
+      ...record,
+      tenantName: record.tenant.name,
+    }));
+  }
+
   async getBillingAggregate() {
+    const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
     return this.prisma.$transaction(
       async (tx) => {
         const [
           tenantGroups,
+          userCount,
+          outletCount,
+          platformAuditCount,
+          recentPlatformAuditCount,
           subscriptionStatusGroups,
           subscriptionPlanGroups,
           invoiceGroups,
@@ -153,6 +194,12 @@ export class SuperAdminRepository extends BaseRepository {
             by: ['status'],
             _count: { _all: true },
             orderBy: { status: 'asc' },
+          }),
+          tx.user.count({ where: { deletedAt: null } }),
+          tx.outlet.count({ where: { deletedAt: null } }),
+          tx.platformAuditLog.count(),
+          tx.platformAuditLog.count({
+            where: { createdAt: { gte: last24Hours } },
           }),
           tx.subscription.groupBy({
             by: ['status'],
@@ -225,6 +272,12 @@ export class SuperAdminRepository extends BaseRepository {
               status,
               count: _count._all,
             })),
+          },
+          users: { total: userCount },
+          outlets: { total: outletCount },
+          platformAudit: {
+            total: platformAuditCount,
+            last24Hours: recentPlatformAuditCount,
           },
           subscriptions: {
             total: subscriptionStatusGroups.reduce(

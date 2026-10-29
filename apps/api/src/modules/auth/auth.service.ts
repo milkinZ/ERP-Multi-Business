@@ -36,53 +36,6 @@ export class AuthService {
     private secretHasher: RefreshSecretHashService,
   ) {}
 
-  async register(data: {
-    email: string;
-    password: string;
-    tenantId: string;
-    roleId: string;
-    outletId?: string | null;
-  }) {
-    requestContext.set({ tenantId: data.tenantId });
-    await this.assertTenantActive(data.tenantId);
-    const hashedPassword = await bcrypt.hash(data.password, 10);
-
-    // Follow the same security conventions as login:
-    // - password is hashed
-    // - user lookup/creation is tenant-scoped via provided tenantId
-    // - outlet assignment is optional
-    // NOTE: UsersService currently creates only the User row.
-    const user = await this.usersService.create({
-      email: data.email,
-      password: hashedPassword,
-      tenantId: data.tenantId,
-      // roleId: data.roleId,
-    });
-
-    // If outletId is provided, the join table assignment is expected to be handled here.
-    // Currently Prisma schema includes UserOutlet and UserRole join tables.
-    if (data.outletId) {
-      await this.prisma.userOutlet.create({
-        data: {
-          userId: user.id,
-          outletId: data.outletId,
-          tenantId: data.tenantId,
-        },
-      });
-    }
-
-    // Ensure role assignment exists via join table.
-    await this.prisma.userRole.create({
-      data: {
-        userId: user.id,
-        roleId: data.roleId,
-        tenantId: data.tenantId,
-      },
-    });
-
-    return user;
-  }
-
   issueCsrfToken(req: Request, res: Response) {
     const cookies = req.cookies as Record<string, unknown> | undefined;
     const existingToken = cookies?.[CSRF_COOKIE_NAME];
@@ -112,7 +65,7 @@ export class AuthService {
       tenantId: user?.tenantId,
     });
 
-    if (!user) {
+    if (!user || !user.isActive || !user.password) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -125,6 +78,7 @@ export class AuthService {
 
     const roleRow = await this.prisma.userRole.findFirst({
       where: { userId: user.id, tenantId: user.tenantId, deletedAt: null },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
 
     if (!roleRow) {
@@ -132,14 +86,28 @@ export class AuthService {
     }
 
     const outletRow = await this.prisma.userOutlet.findFirst({
-      where: { userId: user.id, tenantId: user.tenantId, deletedAt: null },
+      where: {
+        userId: user.id,
+        tenantId: user.tenantId,
+        deletedAt: null,
+        outlet: { tenantId: user.tenantId, deletedAt: null },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
 
     const outletId = outletRow?.outletId ?? null;
+    const sessionId = this.authTokens.createRefreshTokenPlain();
+    await this.sessions.create({
+      sessionId,
+      userId: user.id,
+      tenantId: user.tenantId,
+      outletId,
+    });
 
     const accessPayload = await this.authTokens.buildAccessPayload({
       userId: user.id,
       tenantId: user.tenantId,
+      sessionId,
       outletId,
     });
 
@@ -159,17 +127,9 @@ export class AuthService {
       userId: user.id,
       tenantId: user.tenantId,
       roleId: roleRow.roleId,
+      sessionId,
       outletId,
       expiresAt,
-    });
-
-    // Session id is stored separately. We use a new sessionId distinct from refresh token id.
-    const sessionId = this.authTokens.createRefreshTokenPlain();
-    await this.sessions.create({
-      sessionId,
-      userId: user.id,
-      tenantId: user.tenantId,
-      outletId,
     });
 
     res.cookie(REFRESH_COOKIE_NAME, `${tokenSelector}.${refreshTokenPlain}`, {
@@ -221,9 +181,28 @@ export class AuthService {
               ...requestContext.get(),
               userId: tokenRow.userId,
               tenantId: tokenRow.tenantId,
+              sessionId: tokenRow.sessionId ?? undefined,
               outletId: tokenRow.outletId,
             },
-            () => this.refreshTokens.revokeById(tokenRow.id, new Date()),
+            () =>
+              this.prisma.$transaction(async (transaction) => {
+                const revokedAt = new Date();
+                await transaction.refreshToken.updateMany({
+                  where: { id: tokenRow.id, revokedAt: null },
+                  data: { revokedAt },
+                });
+                if (tokenRow.sessionId) {
+                  await transaction.session.updateMany({
+                    where: {
+                      sessionId: tokenRow.sessionId,
+                      userId: tokenRow.userId,
+                      tenantId: tokenRow.tenantId,
+                      deletedAt: null,
+                    },
+                    data: { deletedAt: revokedAt },
+                  });
+                }
+              }),
           );
         }
       }
@@ -284,20 +263,48 @@ export class AuthService {
     if (!secretMatches) {
       throw new UnauthorizedException('Invalid refresh token');
     }
+    if (!tokenRow.sessionId) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+    const sessionId = tokenRow.sessionId;
 
     return requestContext.run(
       {
         ...requestContext.get(),
         userId: tokenRow.userId,
         tenantId: tokenRow.tenantId,
-        outletId: tokenRow.outletId,
       },
       async () => {
         await this.assertTenantActive(tokenRow.tenantId);
+        const [user, session] = await Promise.all([
+          this.prisma.user.findFirst({
+            where: {
+              id: tokenRow.userId,
+              tenantId: tokenRow.tenantId,
+              deletedAt: null,
+              isActive: true,
+            },
+            select: { id: true },
+          }),
+          this.prisma.session.findFirst({
+            where: {
+              sessionId,
+              userId: tokenRow.userId,
+              tenantId: tokenRow.tenantId,
+              deletedAt: null,
+            },
+            select: { outletId: true },
+          }),
+        ]);
+        if (!user || !session) {
+          throw new UnauthorizedException('Tenant session is not active');
+        }
+        requestContext.set({ outletId: session.outletId });
         const accessPayload = await this.authTokens.buildAccessPayload({
           userId: tokenRow.userId,
           tenantId: tokenRow.tenantId,
-          outletId: tokenRow.outletId,
+          sessionId,
+          outletId: session.outletId,
         });
 
         const accessToken =
@@ -312,6 +319,7 @@ export class AuthService {
           oldTokenSecret: parsed.rest,
           newTokenPlain: newPlain,
           newExpiresAt,
+          outletId: session.outletId,
         });
 
         res.cookie(
@@ -329,6 +337,99 @@ export class AuthService {
         return { accessToken };
       },
     );
+  }
+
+  async getAccessibleOutlets(user: { userId: string; tenantId: string }) {
+    const rows = await this.prisma.userOutlet.findMany({
+      where: {
+        userId: user.userId,
+        tenantId: user.tenantId,
+        deletedAt: null,
+        outlet: { tenantId: user.tenantId, deletedAt: null },
+      },
+      select: { outlet: { select: { id: true, name: true } } },
+      orderBy: { outlet: { name: 'asc' } },
+    });
+    return rows.map(({ outlet }) => outlet);
+  }
+
+  async switchOutlet(
+    user: { userId: string; tenantId: string; sessionId: string },
+    outletId: string,
+    refreshTokenPlain: string,
+    csrfToken: string,
+    res: Response,
+  ) {
+    if (!refreshTokenPlain || !csrfToken) {
+      throw new UnauthorizedException('Invalid session credentials');
+    }
+
+    const [selector, secret] = refreshTokenPlain.split('.', 2);
+    if (!selector || !secret) {
+      throw new UnauthorizedException('Invalid refresh token format');
+    }
+
+    const tokenRow =
+      await this.refreshTokens.getBySelectorForAuthentication(selector);
+    if (
+      !tokenRow ||
+      tokenRow.revokedAt ||
+      tokenRow.expiresAt.getTime() <= Date.now() ||
+      tokenRow.userId !== user.userId ||
+      tokenRow.tenantId !== user.tenantId ||
+      tokenRow.sessionId !== user.sessionId
+    ) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+    if (!(await this.secretHasher.verifySecret(secret, tokenRow.tokenHash))) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const assignment = await this.prisma.userOutlet.findFirst({
+      where: {
+        userId: user.userId,
+        tenantId: user.tenantId,
+        outletId,
+        deletedAt: null,
+        outlet: { tenantId: user.tenantId, deletedAt: null },
+      },
+      select: { outletId: true },
+    });
+    if (!assignment) {
+      throw new UnauthorizedException('Outlet is not assigned to this user');
+    }
+
+    const newPlain = this.authTokens.createRefreshTokenPlain();
+    const newExpiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30);
+    const accessPayload = await this.authTokens.buildAccessPayload({
+      userId: user.userId,
+      tenantId: user.tenantId,
+      sessionId: user.sessionId,
+      outletId,
+    });
+    const accessToken = await this.authTokens.issueAccessToken(accessPayload);
+    const rotated = await this.refreshRotation.rotate({
+      userId: user.userId,
+      tenantId: user.tenantId,
+      oldTokenSelector: tokenRow.tokenSelector,
+      oldTokenSecret: secret,
+      newTokenPlain: newPlain,
+      newExpiresAt,
+      outletId,
+    });
+
+    res.cookie(
+      REFRESH_COOKIE_NAME,
+      `${rotated.newTokenSelector}.${rotated.newTokenPlain}`,
+      {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/auth',
+        maxAge: 1000 * 60 * 60 * 24 * 30,
+      },
+    );
+    return { accessToken };
   }
 
   private async assertTenantActive(tenantId: string): Promise<void> {

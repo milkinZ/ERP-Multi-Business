@@ -10,12 +10,18 @@ import {
 } from '@nestjs/common';
 import { BillingRepository } from './billing.repository';
 import { SubscriptionRepository } from '../subscription/domain/subscription.repository';
+import { SubscriptionAggregate } from '../subscription/domain/subscription.aggregate';
 import { PlanRepository } from '../subscription/plans/plan.repository';
 import { TenantContextService } from '../tenants/tenant-context.service';
 import { OutboxPublisher } from '../../infrastructure/events/outbox.publisher';
 import { DOMAIN_EVENTS } from '../../core/events/domain-events';
 import { requestContext } from '../../core/request-context/request-context';
 import { createHash } from 'node:crypto';
+import {
+  createInvoiceCsvStream,
+  invoiceExportDateBounds,
+} from './invoice-export';
+import type { InvoiceExportFilters } from './dto/invoice-export-query.dto';
 import {
   XenditPaymentGateway,
   XenditPaymentRequestError,
@@ -48,6 +54,62 @@ export class BillingService {
     }
 
     return invoice;
+  }
+
+  async cancelPendingInvoice(id: string) {
+    const tenantId = this.tenantContext.requireTenant();
+    const invoice = await this.billingRepository.findInvoiceById(id, tenantId);
+    if (!invoice) throw new NotFoundException('Invoice not found');
+    if (invoice.status !== 'PENDING') {
+      throw new ConflictException('Only pending invoices can be cancelled');
+    }
+    if (invoice.providerPaymentRequestId || invoice.providerPaymentId) {
+      throw new ConflictException(
+        'Invoice cannot be cancelled while a provider payment is active',
+      );
+    }
+
+    const cancelled = await this.billingRepository.cancelPendingInvoice(
+      id,
+      tenantId,
+    );
+    if (!cancelled) {
+      throw new ConflictException(
+        'Invoice has an active or unresolved provider payment attempt',
+      );
+    }
+    const cancelledInvoice = await this.billingRepository.findInvoiceById(
+      id,
+      tenantId,
+    );
+    if (!cancelledInvoice) {
+      throw new NotFoundException('Cancelled invoice could not be reloaded');
+    }
+    return cancelledInvoice;
+  }
+
+  exportInvoices(filters: InvoiceExportFilters) {
+    const tenantId = this.tenantContext.requireTenant();
+    const dateBounds = invoiceExportDateBounds(filters);
+    return createInvoiceCsvStream((cursor, take) =>
+      this.billingRepository.findInvoiceExportPage(
+        {
+          tenantId,
+          deletedAt: null,
+          ...(filters.status ? { status: filters.status } : {}),
+          ...(dateBounds.from || dateBounds.to
+            ? {
+                createdAt: {
+                  ...(dateBounds.from ? { gte: dateBounds.from } : {}),
+                  ...(dateBounds.to ? { lte: dateBounds.to } : {}),
+                },
+              }
+            : {}),
+        },
+        cursor,
+        take,
+      ),
+    );
   }
 
   async createXenditPaymentRequest(
@@ -262,60 +324,78 @@ export class BillingService {
       throw new BadRequestException('Cannot bill a non-active subscription');
     }
 
+    const period = this.getBillingPeriod(new Date());
+    await this.createInvoiceForPeriod(subscription, tenantId, period);
+  }
+
+  private async createInvoiceForPeriod(
+    subscription: SubscriptionAggregate,
+    tenantId: string,
+    period: { start: Date; end: Date },
+  ): Promise<void> {
     const amountCents = subscription.planPriceCents;
     if (amountCents <= 0) {
       this.logger.log(
-        `Free plan — no billing needed for subscription ${subscriptionId}`,
+        `Free plan — no billing needed for subscription ${subscription.id}`,
       );
       return;
     }
 
-    const now = new Date();
-    const billingPeriodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const billingPeriodEnd = new Date(
-      now.getFullYear(),
-      now.getMonth() + 1,
-      0,
-      23,
-      59,
-      59,
-      999,
-    );
-
-    const invoice = await this.billingRepository.createInvoice({
-      tenantId,
-      subscriptionId,
-      amountCents,
-      currency: 'IDR',
-      status: 'PENDING',
-      dueAt: billingPeriodEnd,
-    });
-
-    await this.outbox.publish({
-      type: DOMAIN_EVENTS.INVOICE_CREATED,
-      payload: {
-        invoiceId: invoice.id,
-        invoiceNumber: invoice.invoiceNumber,
+    const month = String(period.start.getMonth() + 1).padStart(2, '0');
+    const billingPeriodKey = `${subscription.id}:${period.start.getFullYear()}-${month}`;
+    const result = await this.billingRepository.createInvoiceForBillingPeriod(
+      {
         tenantId,
-        subscriptionId: subscriptionId ?? undefined,
-        amountCents: invoice.amountCents,
-        currency: invoice.currency,
-      },
-    });
-
-    await this.outbox.publish({
-      type: DOMAIN_EVENTS.PAYMENT_REQUIRED,
-      payload: {
-        subscriptionId,
-        tenantId,
+        subscriptionId: subscription.id,
         amountCents,
-        billingPeriod: `${billingPeriodStart.toISOString()}/${billingPeriodEnd.toISOString()}`,
+        currency: 'IDR',
+        status: 'PENDING',
+        dueAt: period.end,
+        billingPeriodKey,
       },
-    });
-
-    this.logger.log(
-      `Invoice ${invoice.invoiceNumber} created for subscription ${subscriptionId}, amount: ${amountCents} cents`,
+      async (tx, invoice) => {
+        await this.outbox.publish(
+          {
+            type: DOMAIN_EVENTS.INVOICE_CREATED,
+            payload: {
+              invoiceId: invoice.id,
+              invoiceNumber: invoice.invoiceNumber,
+              tenantId,
+              subscriptionId: subscription.id,
+              amountCents: invoice.amountCents,
+              currency: invoice.currency,
+            },
+          },
+          tx,
+        );
+        await this.outbox.publish(
+          {
+            type: DOMAIN_EVENTS.PAYMENT_REQUIRED,
+            payload: {
+              subscriptionId: subscription.id,
+              tenantId,
+              amountCents,
+              billingPeriod: `${period.start.toISOString()}/${period.end.toISOString()}`,
+            },
+          },
+          tx,
+        );
+      },
     );
+    if (result.created) {
+      this.logger.log(
+        `Invoice ${result.invoice.invoiceNumber} created for subscription ${subscription.id}, amount: ${amountCents} cents`,
+      );
+    }
+  }
+
+  private getBillingPeriod(reference: Date, monthOffset = 0) {
+    const year = reference.getFullYear();
+    const month = reference.getMonth() + monthOffset;
+    return {
+      start: new Date(year, month, 1),
+      end: new Date(year, month + 1, 0, 23, 59, 59, 999),
+    };
   }
 
   async handlePaymentSuccess(
@@ -440,25 +520,11 @@ export class BillingService {
       throw new NotFoundException('Subscription not found for renewal');
     }
 
-    const now = new Date();
-    const billingPeriodStart = new Date(
-      now.getFullYear(),
-      now.getMonth() + 1,
-      1,
-    );
-    const billingPeriodEnd = new Date(
-      now.getFullYear(),
-      now.getMonth() + 2,
-      0,
-      23,
-      59,
-      59,
-      999,
-    );
+    const period = this.getBillingPeriod(new Date(), 1);
 
-    subscription.renew(billingPeriodStart, billingPeriodEnd);
+    subscription.renew(period.start, period.end);
     await this.subscriptionRepository.save(subscription);
 
-    await this.executeBilling(subscriptionId);
+    await this.createInvoiceForPeriod(subscription, tenantId, period);
   }
 }

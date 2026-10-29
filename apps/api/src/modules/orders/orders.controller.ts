@@ -9,6 +9,9 @@ import {
 } from '@nestjs/common';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PermissionGuard } from '../rbac/permission.guard';
+import { Permissions } from '../../common/decorator/permissions.decorator';
+import { PERMISSIONS } from '../rbac/permissions';
 
 import { OrdersService } from './orders.service';
 
@@ -19,12 +22,13 @@ import { CurrentUser } from '../../common/decorator/current-user.decorator';
 import type { JwtUser } from '../../common/interfaces/jwt-user.interface';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller('salesOrders')
 export class OrdersController {
   constructor(private ordersService: OrdersService) {}
 
   @Post()
+  @Permissions(PERMISSIONS.ORDER_CREATE)
   create(
     @Body() body: CreateOrderDto,
 
@@ -35,10 +39,12 @@ export class OrdersController {
       user.tenantId,
       user.outletId || null,
       body.items,
+      body.orderMode,
     );
   }
 
   @Get()
+  @Permissions(PERMISSIONS.ORDER_READ)
   findAll(
     @CurrentUser()
     user: JwtUser,
@@ -47,6 +53,7 @@ export class OrdersController {
   }
 
   @Get(':id')
+  @Permissions(PERMISSIONS.ORDER_READ)
   findOne(
     @Param('id') id: string,
 
@@ -57,6 +64,7 @@ export class OrdersController {
   }
 
   @Patch(':id/status')
+  @Permissions(PERMISSIONS.ORDER_UPDATE)
   updateStatus(
     @Param('id') id: string,
 

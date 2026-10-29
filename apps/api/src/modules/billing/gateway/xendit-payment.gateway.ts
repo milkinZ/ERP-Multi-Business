@@ -44,6 +44,19 @@ export class XenditPaymentGateway extends PaymentGateway {
   async charge(
     input: PaymentGatewayChargeInput,
   ): Promise<PaymentGatewayChargeResult> {
+    if (!Number.isSafeInteger(input.amountCents) || input.amountCents <= 0) {
+      throw new XenditPaymentRequestError(
+        'Payment amount must be a positive safe integer in cents',
+        'REJECTED',
+      );
+    }
+    if (!input.currency.trim() || !input.channelCode.trim()) {
+      throw new XenditPaymentRequestError(
+        'Payment currency and channel are required',
+        'REJECTED',
+      );
+    }
+
     const referenceId =
       (input.metadata?.referenceId as string | undefined) ??
       (input.metadata?.orderId as string | undefined) ??
@@ -52,7 +65,7 @@ export class XenditPaymentGateway extends PaymentGateway {
     const payload = {
       reference_id: referenceId,
       type: 'PAY',
-      request_amount: Math.max(0, input.amountCents),
+      request_amount: input.amountCents,
       currency: input.currency,
       channel_code: input.channelCode,
       capture_method: 'AUTOMATIC',
@@ -159,20 +172,5 @@ export class XenditPaymentGateway extends PaymentGateway {
     void payload;
 
     return signature === token;
-  }
-
-  refund(
-    transactionId: string,
-    amountCents?: number,
-  ): Promise<PaymentGatewayChargeResult> {
-    void amountCents;
-    return Promise.resolve({
-      success: false,
-      transactionId,
-      gatewayReference: transactionId,
-      status: 'FAILED',
-      errorMessage:
-        'Xendit refund flow is not implemented in this boundary yet',
-    });
   }
 }

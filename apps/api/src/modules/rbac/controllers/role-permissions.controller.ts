@@ -34,6 +34,7 @@ export class RolePermissionsController {
   ) {
     return this.rolePermissionsService.setRolePermissions(
       user.tenantId,
+      user.userId,
       roleId,
       dto.permissionCodes,
     );

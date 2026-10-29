@@ -1,7 +1,7 @@
 import { AggregateRoot } from '../../../core/domain/aggregate-root';
 
 export type RecipeItemProps = {
-  ingredientId: string;
+  inventoryItemId: string;
   quantity: number;
 };
 
@@ -24,23 +24,23 @@ export class RecipeAggregate extends AggregateRoot {
     }
 
     if (!props.items || props.items.length === 0) {
-      throw new Error('Recipe must contain at least one ingredient');
+      throw new Error('Recipe must contain at least one inventory item');
     }
 
     const duplicateIngredientIds = new Set(
-      props.items.map((item) => item.ingredientId),
+      props.items.map((item) => item.inventoryItemId),
     );
     if (duplicateIngredientIds.size !== props.items.length) {
-      throw new Error('Duplicate ingredients detected');
+      throw new Error('Duplicate inventory items detected');
     }
 
     props.items.forEach((item) => {
-      if (!item.ingredientId.trim()) {
-        throw new Error('Ingredient id must not be empty');
+      if (!item.inventoryItemId.trim()) {
+        throw new Error('Inventory item id must not be empty');
       }
 
       if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
-        throw new Error('Ingredient quantity must be a positive integer');
+        throw new Error('Inventory item quantity must be a positive integer');
       }
     });
 

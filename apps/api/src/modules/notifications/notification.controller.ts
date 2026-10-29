@@ -89,7 +89,11 @@ export class NotificationController {
     description: 'Mark a specific notification as read',
   })
   async markAsRead(@Param('id') id: string, @CurrentUser() user: JwtUser) {
-    const result = await this.notificationService.markAsRead(id, user.tenantId);
+    const result = await this.notificationService.markAsRead(
+      id,
+      user.userId,
+      user.tenantId,
+    );
 
     if (result.count === 0) {
       throw new BadRequestException('Notification not found');
@@ -137,6 +141,7 @@ export class NotificationController {
   ) {
     const result = await this.notificationService.deleteNotification(
       id,
+      user.userId,
       user.tenantId,
     );
 

@@ -10,6 +10,9 @@ export type PlatformBillingAggregateResponse = {
     total: number;
     byStatus: Array<{ status: TenantStatus; count: number }>;
   };
+  users: { total: number };
+  outlets: { total: number };
+  platformAudit: { total: number; last24Hours: number };
   subscriptions: {
     total: number;
     byStatus: Array<{ status: SubscriptionStatus; count: number }>;

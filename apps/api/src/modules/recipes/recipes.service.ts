@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 
 import { RecipesRepository } from './recipes.repository';
 import { RecipeAggregate } from './domain/recipe.aggregate';
+import { ListRecipesQueryDto } from './dto/list-recipes-query.dto';
 
 @Injectable()
 export class RecipesService {
@@ -12,7 +13,7 @@ export class RecipesService {
     dto: {
       productId: string;
       items: {
-        ingredientId: string;
+        inventoryItemId: string;
         quantity: number;
       }[];
     },
@@ -34,5 +35,21 @@ export class RecipesService {
 
   findByProduct(productId: string, tenantId: string) {
     return this.recipesRepository.findByProduct(productId, tenantId);
+  }
+
+  findAll(tenantId: string, query: ListRecipesQueryDto) {
+    return this.recipesRepository.findAll(tenantId, query);
+  }
+
+  findByInventoryItem(
+    inventoryItemId: string,
+    tenantId: string,
+    query: ListRecipesQueryDto,
+  ) {
+    return this.recipesRepository.findByInventoryItem(
+      inventoryItemId,
+      tenantId,
+      query,
+    );
   }
 }

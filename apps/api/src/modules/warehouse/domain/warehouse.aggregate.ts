@@ -6,6 +6,7 @@ export type WarehouseProps = {
   name: string;
   code: string;
   outletId?: string | null;
+  isActive: boolean;
   createdAt: Date;
 };
 
@@ -50,6 +51,10 @@ export class WarehouseAggregate extends AggregateRoot {
     return this.props.createdAt;
   }
 
+  get isActive(): boolean {
+    return this.props.isActive;
+  }
+
   rename(name: string) {
     if (!name.trim()) {
       throw new Error('Warehouse name must not be empty');
@@ -73,6 +78,7 @@ export class WarehouseAggregate extends AggregateRoot {
       name: this.name,
       code: this.code,
       outletId: this.outletId,
+      isActive: this.isActive,
       createdAt: this.createdAt,
     };
   }

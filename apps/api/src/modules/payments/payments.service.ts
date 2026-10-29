@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
+import { OrderMode, OrderStatus, PaymentStatus } from '@prisma/client';
 
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { PaymentsRepository } from './payments.repository';
@@ -19,40 +24,31 @@ export class PaymentsService {
     );
 
     if (!order) {
-      await this.outbox.publish({
-        type: DOMAIN_EVENTS.ORDER_PAYMENT_FAILED,
-        payload: {
-          orderId: dto.orderId,
-          tenantId,
-          reason: 'Order not found',
-        },
-      });
       throw new BadRequestException('Order not found');
     }
 
-    if (order.status === 'PAID') {
-      await this.outbox.publish({
-        type: DOMAIN_EVENTS.ORDER_PAYMENT_FAILED,
-        payload: {
-          orderId: order.id,
-          tenantId,
-          paymentId: undefined,
-          reason: 'Order already paid',
-        },
-      });
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new BadRequestException('Cancelled orders cannot be paid');
+    }
+    if (
+      order.status === OrderStatus.PAID ||
+      order.paymentStatus === PaymentStatus.PAID ||
+      (order.status === OrderStatus.COMPLETED &&
+        order.orderMode !== OrderMode.OPEN_BILL)
+    ) {
       throw new BadRequestException('Order already paid');
     }
 
-    if (dto.amount < order.totalAmount) {
-      await this.outbox.publish({
-        type: DOMAIN_EVENTS.ORDER_PAYMENT_FAILED,
-        payload: {
-          orderId: order.id,
-          tenantId,
-          paymentId: undefined,
-          reason: 'Insufficient payment amount',
-        },
-      });
+    const outstandingAmount = order.totalAmount - order.paidAmount;
+    if (dto.amount > outstandingAmount) {
+      throw new BadRequestException(
+        'Payment amount exceeds the outstanding order balance',
+      );
+    }
+    if (
+      order.orderMode !== OrderMode.OPEN_BILL &&
+      dto.amount < outstandingAmount
+    ) {
       throw new BadRequestException('Insufficient payment amount');
     }
 
@@ -64,35 +60,32 @@ export class PaymentsService {
     );
 
     if (!payment) {
-      await this.outbox.publish({
-        type: DOMAIN_EVENTS.ORDER_PAYMENT_FAILED,
-        payload: {
-          orderId: order.id,
-          tenantId,
-          reason: 'Order already paid',
-        },
-      });
-      throw new BadRequestException('Order already paid');
+      throw new ConflictException(
+        'The order balance changed while recording payment; refresh and retry',
+      );
     }
 
+    const isFullyPaid = payment.SalesOrder.paymentStatus === PaymentStatus.PAID;
     await this.outbox.publish({
       type: DOMAIN_EVENTS.ORDER_PAYMENT_SUCCESS,
       payload: {
         orderId: order.id,
         tenantId,
         paymentId: payment.id,
+        isFullyPaid,
       },
     });
 
-    // Production-grade alias event
-    await this.outbox.publish({
-      type: DOMAIN_EVENTS.SALES_ORDER_PAID,
-      payload: {
-        orderId: order.id,
-        tenantId,
-        paymentId: payment.id,
-      },
-    });
+    if (isFullyPaid) {
+      await this.outbox.publish({
+        type: DOMAIN_EVENTS.SALES_ORDER_PAID,
+        payload: {
+          orderId: order.id,
+          tenantId,
+          paymentId: payment.id,
+        },
+      });
+    }
 
     return payment;
   }

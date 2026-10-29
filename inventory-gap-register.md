@@ -2,41 +2,91 @@
 
 ## Verified Contract
 
-- `GET /inventory/items?type=` with `inventory.read`; tenant-scoped inventory item list.
-- `GET /inventory/history` with `inventory.read`; tenant-scoped movement history.
-- `GET /inventory/history/:inventoryItemId` with `inventory.read`; tenant-scoped item history.
-- `POST /inventory/stock-in` with `inventory.adjust`; `{ inventoryItemId, warehouseId, quantity, note? }`.
-- `POST /inventory/adjustment` with `inventory.adjust`; `{ inventoryItemId, warehouseId, quantity, note }`, where quantity is a signed delta.
+- `GET /inventory/items?page=&limit=&search=&type=&warehouseId=&sortBy=&sortOrder=` with `inventory.read`; tenant-scoped paginated inventory item list. Sorting supports `createdAt`, `name`, or `code`, and `asc`/`desc`.
+- `GET /inventory/items/:inventoryItemId/stocks` with `inventory.read`; returns tenant-scoped per-warehouse stock balances, the total, and any unassigned stock.
+- `GET /inventory/items/:inventoryItemId/availability` with `inventory.read`; returns tenant-scoped on-hand, reserved, and available quantities by warehouse/unassigned location and in totals.
+- `GET /inventory/items/:inventoryItemId/reorder-rules` with `inventory.read`; returns tenant-scoped replenishment rules.
+- `PUT /inventory/items/:inventoryItemId/reorder-rules` with `inventory.adjust`; atomically replaces rules for one item. Rules support one tenant-total threshold or unique warehouse-scoped thresholds, target-stock or fixed-quantity suggestions, and alert-only or alert-and-suggest actions.
+- `GET /inventory/items/:inventoryItemId/valuation` with `inventory.read`; returns the configured valuation method, currency, per-location valuation, opening-cost status, and total value when fully valued.
+- `POST /inventory/items/:inventoryItemId/valuation` with `inventory.adjust`; configures FIFO, moving weighted average (`PER_WAREHOUSE` or `PER_ITEM`), or standard cost. FIFO and moving average replay reconciled history with provable receipt costs; opening costs are required only for balances that cannot be reconstructed.
+- `GET /inventory/history?page=&limit=&search=&type=&warehouseId=&sortBy=&sortOrder=` with `inventory.read`; tenant-scoped paginated movement history.
+- `GET /inventory/history/:inventoryItemId?page=&limit=&search=&type=&warehouseId=&sortBy=&sortOrder=` with `inventory.read`; tenant-scoped paginated item history.
+- `POST /inventory/stock-in` with `inventory.adjust`; `{ inventoryItemId, warehouseId, quantity, unitCost?, note? }`. `unitCost` is required for FIFO and moving weighted average.
+- `POST /inventory/adjustment` with `inventory.adjust`; `{ inventoryItemId, warehouseId, quantity, unitCost?, note }`, where quantity is a signed delta. Positive adjustments require `unitCost` for FIFO and moving weighted average; negative adjustments are costed by the configured method.
 - `POST /inventory/waste` with `inventory.adjust`; `{ inventoryItemId, warehouseId, quantity, note }`, where quantity is a positive deduction.
+- `GET /inventory/transfers?skip=&take=` and `GET /inventory/transfers/:id` with `inventory.read`.
+- `POST /inventory/transfers` with `inventory.adjust` and a required `Idempotency-Key`; creates a tenant-scoped transfer between distinct warehouses.
+- `POST /inventory/transfers/:id/ship` with `inventory.adjust`; atomically deducts source stock and records shipment movements.
+- `POST /inventory/transfers/:id/receipts` with `inventory.adjust` and a required `Idempotency-Key`; supports partial destination receipts and records receipt movements.
+- `POST /inventory/transfers/:id/cancel` with `inventory.adjust`; cancels a pending transfer.
 
 ## Semantics
 
 - InventoryItem types: `PRODUCT`, `INGREDIENT`, `MATERIAL`, `ASSET`, `SUPPLY`, `SERVICE`.
 - Movement types include `STOCK_IN`, `SALE`, `WASTE`, `ADJUSTMENT`, `RETURN`, `STOCK_OUT`, `PURCHASE`, `CONSUMPTION`, `PRODUCTION`, and `TRANSFER`.
 - Stock quantity is warehouse/item quantity. The backend returns before/after quantities for movements.
-- No public reserved or available quantity field exists; the frontend does not calculate or display either.
+- Available quantity is the persisted stock balance after active order reservations; reserved quantity is the sum of active `ORDER_RESERVATION` movements; on-hand is available plus reserved. The read-only availability response is calculated from one repeatable-read database snapshot. Committed, released, cancelled, and expired reservations are not counted as active.
+- Reorder triggers compare available quantity (`onHand - active reservations`) with the configured reorder point using `available <= reorderPoint`. Tenant-total scope evaluates the aggregate; per-warehouse scope evaluates each configured warehouse, including locations with zero stock. Target-stock suggestions use `max(targetStock - available, 0)`; fixed-quantity suggestions use the configured amount. `ALERT_ONLY` never suggests a quantity. No rule creates a purchase order.
 - Sales and consumption are generated by backend fulfillment, not manual Inventory UI operations.
 - Reservation is an internal order-processing mechanism; no public reservation endpoint exists.
+- Transfer creation does not reserve stock; source quantity is validated and deducted when shipment is recorded. Destination stock is credited only as receipts are recorded.
+- Transfers may cross outlets within the same tenant; cross-tenant warehouses and items are rejected.
+- Transfer create/receipt requests are idempotent by tenant/key and transfer/key respectively; transfer lifecycle events are written to the outbox.
+- Stock balances include only warehouses belonging to the inventory item's tenant; stock rows without a warehouse are grouped into an explicit unassigned balance and included in the total.
+- Valuation settings become immutable after the first costed transaction or when positive opening balances are initialized. Legacy active reservations block setup until resolved. Costed receipts and issues record unit/total cost and preserve movement-level allocations.
+- PO receipts use the purchase-order unit price for FIFO and moving-average valuation. Warehouse transfers preserve the shipment's cost basis across partial receipts. Reservations allocate cost when stock is reserved; release, cancellation, and expiration restore the original allocation, while commit preserves it through fulfillment.
+- FIFO setup reconstructs remaining layers from reconciled legacy movement history, historical PO prices, transfer shipment allocations, and reservation-release source layers when their links are retained; a broken or incomplete ledger falls back to an explicit opening cost for the full current location balance. Moving-average setup replays reconciled movements in timestamp/ID order using recorded movement costs, historical PO prices, and linked transfer/reservation allocations; `PER_WAREHOUSE` and `PER_ITEM` opening costs are required for positive balances whose history cannot be reconstructed.
+- Standard cost currently applies one configured unit cost across all locations. Purchase-order receipts record a purchase-price variance snapshot and expose it as an operational report; it is not posted to accounting.
+- Inventory list/history queries default to page 1 and 20 records per page, cap page size at 100, and return `{ data, pagination: { page, limit, total, totalPages } }`. Inventory item lists support sorting by creation date, name, or code; movement history supports sorting by creation date, quantity, or movement type. Both have stable ID tie-breakers in the selected direction.
+- Inventory item search matches name or code case-insensitively; movement search matches note, item name, or item code case-insensitively. Warehouse filters are validated against the authenticated tenant.
+
+## Resolved Gaps
+
+- Inventory valuation contracts and movement costing are implemented for FIFO, moving weighted average (`PER_WAREHOUSE` and `PER_ITEM`), and standard cost. PostgreSQL coverage includes FIFO issues and history reconstruction, cross-warehouse average-cost receipts/issues, partial-transfer cost carry-forward, PO receipt costs, reservation release/commit, expiry, and no double deduction during fulfillment.
+- Standard-cost PO receipts record `(actual PO unit price - standard unit cost) × received quantity` per receipt item. `GET /purchase-orders/price-variances` returns tenant-scoped, filterable, paginated entries and totals grouped by currency; entries are explicitly `NOT_POSTED` because no accounting module is available.
+- Inventory availability is exposed through a tenant-scoped read-only endpoint and displayed by location as on-hand, reserved, and available quantities. Tenant-scoped reorder rules configure total or per-warehouse thresholds, alert behavior, and suggestions; availability displays active alerts and suggestions. Rule replacement is atomic and tenant/item/warehouse ownership is validated. No automatic or draft purchase orders are created.
+- Legacy moving-average setup now replays dated inventory movements using recorded unit costs and historical PO prices for both per-warehouse and per-item pools. Opening costs are requested only when ledger reconciliation or receipt-cost evidence is insufficient.
+- Historical focused coverage: warehouse-transfer PostgreSQL integration passed 10 tests; stock-balance integration passed 3 tests; inventory search/pagination/filter integration and DTO validation passed 20 suites / 101 tests and 3 tests respectively. These are implementation-time snapshots, not evidence of a current full-suite pass.
+
+## Latest Validation (2026-10-25)
+
+- Configurable reorder policy schema validated; migration `20261024000000_inventory_reorder_rules` and the subsequent Kitchen migration are applied to `cafe_os_order_lifecycle_test`. The test database passes migration-status and schema-drift checks for all 62 migrations. Production `cafe_os` migration/schema status is unknown and it was not accessed.
+- Focused inventory availability/reorder PostgreSQL integration passes 8 tests; HTTP tenant-isolation E2E passes 10 tests, including foreign-tenant item and warehouse denial.
+- API and web TypeScript checks and monorepo lint pass. API, web, and worker production builds pass independently; Turbo reported 3/3 tasks successful in the root build, but its wrapper remained running after the summary and was stopped.
+
+## Historical Validation (2026-10-23)
+
+- Standard-cost purchase-price variance: purchase-order integration passed 11 tests, and purchase-order service unit tests passed 8 tests. Coverage includes partial receipts, idempotent replay, variance snapshots and totals, and tenant isolation. Its implementation-time status referred to the then-current 60-migration history; see the current migration status above.
+- Monorepo `npm run build`, `npm run lint`, and `npm run check-types` pass after the variance report implementation.
+- Focused inventory costing PostgreSQL integration: 1 suite, 12 tests pass, covering FIFO layer reconstruction and reconciliation fallback, moving-average history replay for both scopes, PO-price recovery, transfer-allocation slicing across partial receipts, reservation-release restoration to original FIFO layers, and untraceable opening-cost requirements.
+- Latest full API validation after the variance and tenant audit UI changes: unit 102 suites / 452 tests, integration 24 suites / 130 tests, and E2E 7 suites / 23 tests passed. Earlier health/Docker, billing-fixture, and Redis/queue failures did not recur.
+- Inventory availability read model: focused PostgreSQL integration passes 5 tests, including active reservation accounting, unassigned location totals, and cross-tenant item denial; focused HTTP tenant-isolation E2E passes 9 tests.
 
 ## Backend Hardening
 
 - Inventory history now uses safe field projections for related users, returning only `id` and `email`; raw password-bearing User records are no longer exposed.
+- Order stock reservation locks the tenant-scoped `SalesOrder` row before checking/creating the reservation, preventing duplicate reservation movements for concurrent retries of the same order.
+- Release and commit claims use conditional updates; a concurrent loser is treated as an idempotent no-op, while partial claims still fail and roll back.
+- PostgreSQL integration coverage verifies `10 - 7 - 7` concurrent fulfillment, same-order fulfillment idempotency, duplicate reservations/releases, and reservation expiry contention.
 
 ## Confirmed Gaps
 
 ### BACKEND CONTRACT GAP
 
 - No inventory item create/update/delete UI contract.
-- No inventory stock detail endpoint with warehouse stock balances.
-- No pagination, search, sorting, or warehouse filter for inventory list/history.
-- No transfer, valuation, reorder, reservation, or availability endpoint.
+- Reservation remains an internal order-processing mechanism; availability is exposed through `GET /inventory/items/:inventoryItemId/availability`. Configurable reorder rules and alerts/suggestions are available through tenant-scoped `GET`/`PUT /inventory/items/:inventoryItemId/reorder-rules`; no automatic PO creation occurs.
 - No dedicated permissions for stock-in versus adjustment versus waste; all mutations use `inventory.adjust`.
+- Legacy FIFO valuation reconstructs remaining layers from reconciled movement history, PO prices, transfer shipment allocations, and reservation-release allocations linked to their original FIFO layers. Moving-average valuation replays linked transfer and reservation costs for both scopes. Remaining gaps: movements without a provable cost or original FIFO layer link require opening cost. Opening cost for an untraceable moving-average balance is a single unit cost for that location.
+- Standard-cost purchase-price variances are recorded and reported operationally, but are not posted to accounting. Accounting posting remains out of scope until an accounting module is available.
 
 ### OPERATIONAL GAP
 
 - Purchase-order receiving and order fulfillment own their respective stock-in/sale/consumption workflows; Inventory does not duplicate them.
 - Warehouse selector uses the existing tenant-scoped warehouse list, but no inventory-specific warehouse summary endpoint exists.
 - No outlet switcher or outlet-specific inventory UI is exposed.
+- Per-warehouse reorder rule selection requires the existing `warehouse.read` permission.
+- The transfer workspace exposes create, ship, partial/full receipt, receipt history, and pending-transfer cancellation; transfer actions share the existing `inventory.adjust` permission.
+- Inventory item details display on-hand, active-reserved, and available quantities by warehouse, including an explicit unassigned location when applicable.
 
 ### SECURITY GAP
 

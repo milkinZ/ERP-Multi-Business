@@ -1,4 +1,5 @@
-import { IsInt, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class StockAdjustmentDto {
   @IsString()
@@ -9,6 +10,12 @@ export class StockAdjustmentDto {
 
   @IsInt()
   quantity!: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 6 })
+  @Min(0)
+  unitCost?: number;
 
   @IsString()
   note!: string;

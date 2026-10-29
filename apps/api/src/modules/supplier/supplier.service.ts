@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { SupplierRepository } from './supplier.repository';
+import { ListSuppliersQueryDto } from './dto/list-suppliers-query.dto';
 
 @Injectable()
 export class SupplierService {
@@ -24,8 +25,8 @@ export class SupplierService {
     });
   }
 
-  findAll(tenantId: string) {
-    return this.supplierRepository.findAll(tenantId);
+  findAll(tenantId: string, query: ListSuppliersQueryDto) {
+    return this.supplierRepository.findAll(tenantId, query);
   }
 
   async findOne(id: string, tenantId: string) {
@@ -46,6 +47,7 @@ export class SupplierService {
       phone?: string;
       email?: string;
       address?: string;
+      isActive?: boolean;
     },
   ) {
     const supplier = await this.supplierRepository.update(id, tenantId, {
@@ -53,6 +55,7 @@ export class SupplierService {
       phone: data.phone ?? undefined,
       email: data.email ?? undefined,
       address: data.address ?? undefined,
+      isActive: data.isActive,
     });
 
     if (!supplier) {
@@ -69,8 +72,6 @@ export class SupplierService {
       throw new BadRequestException('Supplier not found');
     }
 
-    return {
-      success: true,
-    };
+    return { success: true, deactivated: deleted.deactivated };
   }
 }

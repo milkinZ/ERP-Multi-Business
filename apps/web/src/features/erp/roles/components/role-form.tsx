@@ -18,10 +18,10 @@ export function RoleForm({ role, onSaved }: { role?: Role; onSaved: () => void }
   const [serverError, setServerError] = useState<string | null>(null)
   const { register, handleSubmit, reset, formState: { errors } } = useForm<RoleFormValues>({
     resolver: zodResolver(roleSchema),
-    defaultValues: { name: role?.name ?? "" },
+    defaultValues: { name: role?.name ?? "", description: role?.description ?? "" },
   })
 
-  useEffect(() => { reset({ name: role?.name ?? "" }) }, [role, reset])
+  useEffect(() => { reset({ name: role?.name ?? "", description: role?.description ?? "" }) }, [role, reset])
 
   const mutation = useMutation({
     mutationFn: (values: RoleFormValues) => {
@@ -35,7 +35,7 @@ export function RoleForm({ role, onSaved }: { role?: Role; onSaved: () => void }
         await queryClient.invalidateQueries({ queryKey: roleKeys.detail(tenantId, saved.id) })
       }
       setServerError(null)
-      reset({ name: saved.name })
+      reset({ name: saved.name, description: saved.description ?? "" })
       onSaved()
     },
     onError: (cause) => {
@@ -46,6 +46,7 @@ export function RoleForm({ role, onSaved }: { role?: Role; onSaved: () => void }
   return (
     <form onSubmit={handleSubmit((values) => mutation.mutate(values))} className="space-y-4" noValidate>
       <label className="block text-sm font-medium text-foreground">Role name<input {...register("name")} aria-invalid={Boolean(errors.name)} className="mt-2 h-11 w-full rounded-xl border border-border bg-card px-3 outline-none focus:border-primary focus:ring-2 focus:ring-ring" />{errors.name ? <span className="mt-1 block text-xs text-destructive">{errors.name.message}</span> : null}</label>
+      <label className="block text-sm font-medium text-foreground">Description<textarea {...register("description")} aria-invalid={Boolean(errors.description)} rows={3} className="mt-2 w-full rounded-xl border border-border bg-card px-3 py-2 outline-none focus:border-primary focus:ring-2 focus:ring-ring" />{errors.description ? <span className="mt-1 block text-xs text-destructive">{errors.description.message}</span> : null}</label>
       {serverError ? <p role="alert" className="text-sm text-destructive">{serverError}</p> : null}
       <Button type="submit" disabled={mutation.isPending || !token}>{mutation.isPending ? "Saving role..." : role ? "Save role" : "Create role"}</Button>
     </form>

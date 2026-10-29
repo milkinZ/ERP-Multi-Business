@@ -4,6 +4,8 @@ export type PlatformSubscriptionResponse = {
   id: string;
   tenantId: string;
   planId: string;
+  pendingPlanId: string | null;
+  pendingPlanEffectiveAt: 'NEXT_RENEWAL' | null;
   status: SubscriptionStatus;
   planType: PlanType;
   priceCents: number;

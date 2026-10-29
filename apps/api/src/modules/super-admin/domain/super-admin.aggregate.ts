@@ -31,27 +31,23 @@ export type SuperAdminPlanProps = {
  * automatically via the Outbox -> DomainEventBus pipeline.
  */
 export class SuperAdminAggregate extends AggregateRoot {
-  private readonly actionedByUserId: string;
-  private readonly actorTenantIdValue: string;
+  private readonly actionedByPlatformIdentityId: string;
   private readonly targetState: SuperAdminTargetTenantProps;
 
   private constructor(
-    actionedByUserId: string,
-    actorTenantId: string,
+    actionedByPlatformIdentityId: string,
     target: SuperAdminTargetTenantProps,
   ) {
     super();
-    this.actionedByUserId = actionedByUserId;
-    this.actorTenantIdValue = actorTenantId;
+    this.actionedByPlatformIdentityId = actionedByPlatformIdentityId;
     this.targetState = target;
   }
 
   static forTarget(
-    actionedByUserId: string,
-    actorTenantId: string,
+    actionedByPlatformIdentityId: string,
     target: SuperAdminTargetTenantProps,
   ): SuperAdminAggregate {
-    return new SuperAdminAggregate(actionedByUserId, actorTenantId, target);
+    return new SuperAdminAggregate(actionedByPlatformIdentityId, target);
   }
 
   get targetTenantId(): string {
@@ -62,12 +58,8 @@ export class SuperAdminAggregate extends AggregateRoot {
     return this.targetState;
   }
 
-  get actorTenantId(): string {
-    return this.actorTenantIdValue;
-  }
-
   get actionedBy(): string {
-    return this.actionedByUserId;
+    return this.actionedByPlatformIdentityId;
   }
 
   isTargetActive(): boolean {
@@ -99,9 +91,9 @@ export class SuperAdminAggregate extends AggregateRoot {
     this.addDomainEvent({
       type: DOMAIN_EVENTS.SUPER_ADMIN_TENANT_ACTIVATED,
       payload: {
-        tenantId: this.actorTenantId,
+        tenantId: this.target.tenantId,
         targetTenantId: this.target.tenantId,
-        actionedByUserId: this.actionedByUserId,
+        actionedByPlatformIdentityId: this.actionedByPlatformIdentityId,
       },
     });
   }
@@ -116,9 +108,9 @@ export class SuperAdminAggregate extends AggregateRoot {
     this.addDomainEvent({
       type: DOMAIN_EVENTS.SUPER_ADMIN_TENANT_SUSPENDED,
       payload: {
-        tenantId: this.actorTenantId,
+        tenantId: this.target.tenantId,
         targetTenantId: this.target.tenantId,
-        actionedByUserId: this.actionedByUserId,
+        actionedByPlatformIdentityId: this.actionedByPlatformIdentityId,
         reason,
       },
     });
@@ -135,9 +127,9 @@ export class SuperAdminAggregate extends AggregateRoot {
     this.addDomainEvent({
       type: DOMAIN_EVENTS.SUPER_ADMIN_TENANT_DEACTIVATED,
       payload: {
-        tenantId: this.actorTenantId,
+        tenantId: this.target.tenantId,
         targetTenantId: this.target.tenantId,
-        actionedByUserId: this.actionedByUserId,
+        actionedByPlatformIdentityId: this.actionedByPlatformIdentityId,
         reason,
       },
     });
@@ -154,9 +146,9 @@ export class SuperAdminAggregate extends AggregateRoot {
     this.addDomainEvent({
       type: DOMAIN_EVENTS.SUPER_ADMIN_TENANT_RESTORED,
       payload: {
-        tenantId: this.actorTenantId,
+        tenantId: this.target.tenantId,
         targetTenantId: this.target.tenantId,
-        actionedByUserId: this.actionedByUserId,
+        actionedByPlatformIdentityId: this.actionedByPlatformIdentityId,
       },
     });
   }
@@ -167,13 +159,13 @@ export class SuperAdminAggregate extends AggregateRoot {
     }
 
     this.addDomainEvent({
-      type: DOMAIN_EVENTS.SUPER_ADMIN_PLAN_CHANGED,
+      type: DOMAIN_EVENTS.SUPER_ADMIN_PLAN_CHANGE_SCHEDULED,
       payload: {
-        tenantId: this.actorTenantId,
+        tenantId: this.target.tenantId,
         targetTenantId: this.target.tenantId,
         oldPlanId: oldPlan.id,
         newPlanId: newPlan.id,
-        actionedByUserId: this.actionedByUserId,
+        actionedByPlatformIdentityId: this.actionedByPlatformIdentityId,
       },
     });
   }
@@ -182,10 +174,10 @@ export class SuperAdminAggregate extends AggregateRoot {
     this.addDomainEvent({
       type: DOMAIN_EVENTS.SUPER_ADMIN_SUBSCRIPTION_CHANGED,
       payload: {
-        tenantId: this.actorTenantId,
+        tenantId: this.target.tenantId,
         targetTenantId: this.target.tenantId,
         subscriptionId,
-        actionedByUserId: this.actionedByUserId,
+        actionedByPlatformIdentityId: this.actionedByPlatformIdentityId,
         reason,
       },
     });

@@ -56,19 +56,21 @@ import type {
   SubscriptionCancelledEvent,
   SubscriptionExpiredEvent,
   SubscriptionPlanChangedEvent,
+  SubscriptionPlanChangeScheduledEvent,
   SubscriptionSuspendedEvent,
   SubscriptionPastDueEvent,
   PaymentRequiredEvent,
   InvoiceCreatedEvent,
   InvoicePaidEvent,
   InvoiceFailedEvent,
+  InvoiceCancelledEvent,
   UserLoginEvent,
   UserLogoutEvent,
   SuperAdminTenantActivatedEvent,
   SuperAdminTenantSuspendedEvent,
   SuperAdminTenantDeactivatedEvent,
   SuperAdminTenantRestoredEvent,
-  SuperAdminPlanChangedEvent,
+  SuperAdminPlanChangeScheduledEvent,
   SuperAdminSubscriptionChangedEvent,
 } from '../../../core/events/domain-events';
 
@@ -309,6 +311,10 @@ export class RealtimeDomainEventsSubscription {
       DOMAIN_EVENTS.SUBSCRIPTION_PLAN_CHANGED,
       (e) => this.deps.onEvent(e),
     );
+    this.deps.bus.subscribe<SubscriptionPlanChangeScheduledEvent>(
+      DOMAIN_EVENTS.SUBSCRIPTION_PLAN_CHANGE_SCHEDULED,
+      (e) => this.deps.onEvent(e),
+    );
     this.deps.bus.subscribe<SubscriptionSuspendedEvent>(
       DOMAIN_EVENTS.SUBSCRIPTION_SUSPENDED,
       (e) => this.deps.onEvent(e),
@@ -332,6 +338,10 @@ export class RealtimeDomainEventsSubscription {
       DOMAIN_EVENTS.INVOICE_FAILED,
       (e) => this.deps.onEvent(e),
     );
+    this.deps.bus.subscribe<InvoiceCancelledEvent>(
+      DOMAIN_EVENTS.INVOICE_CANCELLED,
+      (e) => this.deps.onEvent(e),
+    );
 
     // ---- Super Admin ----
     this.deps.bus.subscribe<SuperAdminTenantActivatedEvent>(
@@ -350,8 +360,8 @@ export class RealtimeDomainEventsSubscription {
       DOMAIN_EVENTS.SUPER_ADMIN_TENANT_RESTORED,
       (e) => this.deps.onEvent(e),
     );
-    this.deps.bus.subscribe<SuperAdminPlanChangedEvent>(
-      DOMAIN_EVENTS.SUPER_ADMIN_PLAN_CHANGED,
+    this.deps.bus.subscribe<SuperAdminPlanChangeScheduledEvent>(
+      DOMAIN_EVENTS.SUPER_ADMIN_PLAN_CHANGE_SCHEDULED,
       (e) => this.deps.onEvent(e),
     );
     this.deps.bus.subscribe<SuperAdminSubscriptionChangedEvent>(

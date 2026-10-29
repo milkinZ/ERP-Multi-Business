@@ -16,9 +16,10 @@ describe('PlatformAuditLogService', () => {
     jest.clearAllMocks();
     create.mockResolvedValue({
       id: 'platform-audit-1',
-      actorUserId: 'admin-1',
-      actorTenantId: 'platform-tenant',
-      actorType: 'PLATFORM_USER',
+      actorUserId: null,
+      actorTenantId: null,
+      actorPlatformIdentityId: 'platform-identity-1',
+      actorType: 'PLATFORM_IDENTITY',
       action: 'super-admin.tenant.suspended',
       resourceType: 'TENANT',
       resourceId: 'tenant-1',
@@ -39,7 +40,7 @@ describe('PlatformAuditLogService', () => {
       },
       () =>
         service.create({
-          actor: { userId: 'admin-1', tenantId: 'platform-tenant' },
+          actor: { platformIdentityId: 'platform-identity-1' },
           action: 'super-admin.tenant.suspended',
           resourceType: 'TENANT',
           resourceId: 'tenant-1',
@@ -50,8 +51,10 @@ describe('PlatformAuditLogService', () => {
 
     const [call] = create.mock.calls as [[{ data: Record<string, unknown> }]];
     expect(call[0].data).toMatchObject({
-      actorUserId: 'admin-1',
-      actorTenantId: 'platform-tenant',
+      actorUserId: null,
+      actorTenantId: null,
+      actorPlatformIdentityId: 'platform-identity-1',
+      actorType: 'PLATFORM_IDENTITY',
       targetTenantId: 'tenant-1',
       requestId: 'request-1',
       correlationId: 'correlation-1',

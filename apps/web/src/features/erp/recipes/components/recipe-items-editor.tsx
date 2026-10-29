@@ -28,11 +28,11 @@ export function RecipeItemsEditor({
             <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_9rem_auto] sm:items-end">
               <label className="block text-sm font-medium text-foreground">
                 Ingredient
-                <select {...register(`items.${index}.ingredientId`)} aria-invalid={Boolean(itemError?.ingredientId)} className="mt-2 h-11 w-full rounded-xl border border-border bg-card px-3 outline-none focus:border-primary focus:ring-2 focus:ring-ring">
+                <select {...register(`items.${index}.inventoryItemId`)} aria-invalid={Boolean(itemError?.inventoryItemId)} className="mt-2 h-11 w-full rounded-xl border border-border bg-card px-3 outline-none focus:border-primary focus:ring-2 focus:ring-ring">
                   <option value="">Select ingredient</option>
                   {ingredients.map((ingredient) => <option key={ingredient.id} value={ingredient.id}>{ingredient.name} ({ingredient.unit})</option>)}
                 </select>
-                {itemError?.ingredientId ? <span className="mt-1 block text-xs text-destructive">{itemError.ingredientId.message}</span> : null}
+                {itemError?.inventoryItemId ? <span className="mt-1 block text-xs text-destructive">{itemError.inventoryItemId.message}</span> : null}
               </label>
               <label className="block text-sm font-medium text-foreground">
                 Quantity
@@ -44,7 +44,7 @@ export function RecipeItemsEditor({
           </div>
         )
       })}
-      <button type="button" onClick={() => append({ ingredientId: "", quantity: 1 })} className="rounded-xl border border-dashed border-primary px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.14em] text-primary transition hover:bg-primary/10">Add ingredient</button>
+      <button type="button" onClick={() => append({ inventoryItemId: "", quantity: 1 })} className="rounded-xl border border-dashed border-primary px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.14em] text-primary transition hover:bg-primary/10">Add ingredient</button>
       {typeof errors.items?.message === "string" ? <p role="alert" className="text-sm text-destructive">{errors.items.message}</p> : null}
     </div>
   )

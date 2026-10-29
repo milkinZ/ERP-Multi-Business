@@ -37,7 +37,11 @@ export class AnalyticsRepository extends BaseRepository {
     const where: Record<string, unknown> = { tenantId, ...dateFilter };
 
     if (status) {
-      where.status = status;
+      if (status === 'PAID') {
+        where.paymentStatus = 'PAID';
+      } else {
+        where.status = status;
+      }
     }
 
     if (query?.outletId) {
@@ -101,7 +105,7 @@ export class AnalyticsRepository extends BaseRepository {
 
       // Paid orders
       this.prisma.salesOrder.count({
-        where: { ...baseWhere, ...dateFilter, status: 'PAID' },
+        where: { ...baseWhere, ...dateFilter, paymentStatus: 'PAID' },
       }),
 
       // Completed orders

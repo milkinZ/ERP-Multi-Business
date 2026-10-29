@@ -17,13 +17,16 @@ import { AuditLogService } from './audit-log.service';
 import { ListAuditLogsDto } from './dto/list-audit-logs.dto';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PermissionGuard } from '../rbac/permission.guard';
+import { Permissions } from '../../common/decorator/permissions.decorator';
+import { PERMISSIONS } from '../rbac/permissions';
 import { CurrentUser } from '../../common/decorator/current-user.decorator';
 import type { JwtUser } from '../../common/interfaces/jwt-user.interface';
 
 @ApiTags('Audit Logs')
 @ApiBearerAuth()
 @Controller('audit-logs')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 export class AuditLogController {
   constructor(private readonly auditLogService: AuditLogService) {}
 
@@ -31,6 +34,7 @@ export class AuditLogController {
    * List audit logs with filtering and pagination
    */
   @Get()
+  @Permissions(PERMISSIONS.AUDIT_LOG_READ)
   @ApiOperation({
     summary: 'List audit logs',
     description:
@@ -62,6 +66,7 @@ export class AuditLogController {
    * Get single audit log
    */
   @Get(':id')
+  @Permissions(PERMISSIONS.AUDIT_LOG_READ)
   @ApiOperation({
     summary: 'Get audit log by ID',
     description: 'Retrieve a specific audit log entry',
@@ -92,6 +97,7 @@ export class AuditLogController {
    * Get audit logs by entity
    */
   @Get('entity/:entity/:entityId')
+  @Permissions(PERMISSIONS.AUDIT_LOG_READ)
   @ApiOperation({
     summary: 'Get audit logs for specific entity',
     description: 'Retrieve all audit logs for a specific entity and ID',

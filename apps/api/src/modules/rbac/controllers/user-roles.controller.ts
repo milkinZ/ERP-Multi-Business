@@ -29,6 +29,7 @@ export class UserRolesController {
   ) {
     return this.userRolesService.setUserRoles(
       user.tenantId,
+      user.userId,
       userId,
       dto.roleIds,
     );

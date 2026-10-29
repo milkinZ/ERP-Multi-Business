@@ -5,7 +5,15 @@ describe('IngredientsController', () => {
   const create = jest.fn();
   const findAll = jest.fn();
   const findOne = jest.fn();
-  const service = { create, findAll, findOne } as unknown as IngredientsService;
+  const update = jest.fn();
+  const remove = jest.fn();
+  const service = {
+    create,
+    findAll,
+    findOne,
+    update,
+    remove,
+  } as unknown as IngredientsService;
   let controller: IngredientsController;
 
   beforeEach(() => {
@@ -27,10 +35,27 @@ describe('IngredientsController', () => {
     findOne.mockResolvedValue(null);
     const user = { tenantId: 'tenant-a' } as never;
 
-    await controller.findAll(user);
+    const query = { page: 2, limit: 10 } as never;
+    await controller.findAll(query, user);
     await controller.findOne('ingredient-b', user);
 
-    expect(findAll).toHaveBeenCalledWith('tenant-a');
+    expect(findAll).toHaveBeenCalledWith('tenant-a', query);
     expect(findOne).toHaveBeenCalledWith('ingredient-b', 'tenant-a');
+  });
+
+  it('uses authenticated tenant context for updates', async () => {
+    const dto = { name: 'Arabica', isActive: false } as never;
+
+    await controller.update('ingredient-a', dto, {
+      tenantId: 'tenant-a',
+    } as never);
+
+    expect(update).toHaveBeenCalledWith('ingredient-a', 'tenant-a', dto);
+  });
+
+  it('uses authenticated tenant context for removal', async () => {
+    await controller.remove('ingredient-a', { tenantId: 'tenant-a' } as never);
+
+    expect(remove).toHaveBeenCalledWith('ingredient-a', 'tenant-a');
   });
 });

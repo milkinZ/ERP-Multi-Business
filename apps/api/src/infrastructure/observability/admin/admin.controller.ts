@@ -5,13 +5,13 @@ import { RedisService } from '../../redis/redis.service';
 import { QueueService } from '../../queue/queue.service';
 import { QUEUE_NAMES, type QueueName } from '../../queue/queue.constants';
 import { MetricsService } from '../metrics/metrics.service';
-import { JwtAuthGuard } from '../../../modules/auth/jwt-auth.guard';
+import { PlatformJwtAuthGuard } from '../../../modules/auth/platform-jwt-auth.guard';
 import { PermissionGuard } from '../../../modules/rbac/permission.guard';
 import { Permissions } from '../../../common/decorator/permissions.decorator';
 import { PERMISSIONS } from '../../../modules/rbac/permissions';
 
 @Controller('admin/monitor')
-@UseGuards(JwtAuthGuard, PermissionGuard)
+@UseGuards(PlatformJwtAuthGuard, PermissionGuard)
 export class AdminController {
   private readonly logger = new Logger(AdminController.name);
 

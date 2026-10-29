@@ -1,4 +1,9 @@
-import { PlanType, PrismaClient, TenantStatus } from '@prisma/client';
+import {
+  PlanType,
+  PlatformAdminRole,
+  PrismaClient,
+  TenantStatus,
+} from '@prisma/client';
 
 import { DomainEventBus } from '../../core/events/domain-event-bus.service';
 import { DOMAIN_EVENTS, DomainEvent } from '../../core/events/domain-events';
@@ -22,8 +27,7 @@ import { SuperAdminService } from './super-admin.service';
 const prisma = new PrismaClient();
 const runId = `${process.pid}-${Date.now()}`;
 const actor = {
-  userId: `it-arch001-actor-${runId}`,
-  tenantId: `it-arch001-platform-${runId}`,
+  platformIdentityId: 'it-super-admin-atomicity-actor',
 };
 const tenantIds = [
   `it-arch001-success-${runId}`,
@@ -76,7 +80,7 @@ async function outboxRowsForTarget(
   type: string = eventType,
 ) {
   const rows = await prisma.outboxEvent.findMany({
-    where: { tenantId: actor.tenantId, type },
+    where: { tenantId: targetTenantId, type },
   });
   return rows.filter((row) => {
     const payload = eventPayload(row.payload).payload;
@@ -156,11 +160,15 @@ async function ensurePlanPair() {
 }
 
 async function cleanupPlanFixture(tenantId: string, createdPlanIds: string[]) {
+  await prisma.subscriptionHistory.deleteMany({ where: { tenantId } });
   await prisma.subscription.deleteMany({ where: { tenantId } });
   if (createdPlanIds.length > 0) {
     await prisma.plan.deleteMany({ where: { id: { in: createdPlanIds } } });
   }
-  const rows = await outboxRowsForTarget(tenantId, 'super-admin.plan.changed');
+  const rows = await outboxRowsForTarget(
+    tenantId,
+    'super-admin.plan-change.scheduled',
+  );
   if (rows.length > 0) {
     await prisma.outboxEvent.deleteMany({
       where: { id: { in: rows.map((row) => row.id) } },
@@ -172,7 +180,7 @@ async function cleanupPlanFixture(tenantId: string, createdPlanIds: string[]) {
 function asActor<T>(requestId: string, callback: () => Promise<T>) {
   return requestContext.run(
     {
-      tenantId: actor.tenantId,
+      platformIdentityId: actor.platformIdentityId,
       requestId,
       correlationId: `correlation-${requestId}`,
     },
@@ -215,6 +223,21 @@ describe('SuperAdminService ARCH-001 PostgreSQL atomicity', () => {
   beforeAll(async () => {
     assertSafeIntegrationEnvironment();
     await prisma.$connect();
+    await prisma.platformIdentity.upsert({
+      where: {
+        issuer_subject: {
+          issuer: 'integration-test',
+          subject: actor.platformIdentityId,
+        },
+      },
+      create: {
+        id: actor.platformIdentityId,
+        issuer: 'integration-test',
+        subject: actor.platformIdentityId,
+        role: PlatformAdminRole.PLATFORM_ADMIN,
+      },
+      update: { disabledAt: null },
+    });
   });
 
   beforeEach(async () => {
@@ -249,9 +272,10 @@ describe('SuperAdminService ARCH-001 PostgreSQL atomicity', () => {
     expect(tenant?.deletedAt).toBeInstanceOf(Date);
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({
-      actorUserId: actor.userId,
-      actorTenantId: actor.tenantId,
-      actorType: 'PLATFORM_USER',
+      actorUserId: null,
+      actorTenantId: null,
+      actorPlatformIdentityId: actor.platformIdentityId,
+      actorType: 'PLATFORM_IDENTITY',
       action,
       resourceType: 'TENANT',
       resourceId: tenantId,
@@ -265,7 +289,7 @@ describe('SuperAdminService ARCH-001 PostgreSQL atomicity', () => {
     );
     expect(outboxRows).toHaveLength(1);
     expect(outboxRows[0]).toMatchObject({
-      tenantId: actor.tenantId,
+      tenantId,
       type: eventType,
       status: 'PENDING',
     });
@@ -273,9 +297,9 @@ describe('SuperAdminService ARCH-001 PostgreSQL atomicity', () => {
     expect(storedEvent).toMatchObject({
       type: eventType,
       payload: {
-        tenantId: actor.tenantId,
+        tenantId,
         targetTenantId: tenantId,
-        actionedByUserId: actor.userId,
+        actionedByPlatformIdentityId: actor.platformIdentityId,
         reason: 'integration verification',
       },
     });
@@ -297,7 +321,10 @@ describe('SuperAdminService ARCH-001 PostgreSQL atomicity', () => {
     expect(dispatchedEvents).toHaveLength(1);
     expect(dispatchedEvents[0]).toMatchObject({
       type: eventType,
-      payload: { targetTenantId: tenantId, actionedByUserId: actor.userId },
+      payload: {
+        targetTenantId: tenantId,
+        actionedByPlatformIdentityId: actor.platformIdentityId,
+      },
     });
     await expect(
       prisma.outboxEvent.findUnique({ where: { id: outboxRows[0].id } }),
@@ -773,9 +800,7 @@ describe('SuperAdminService ARCH-001 PostgreSQL atomicity', () => {
       businessRegistry,
     );
 
-    await requestContext.run({ tenantId, userId: actor.userId }, () =>
-      tenants.softDelete(tenantId),
-    );
+    await requestContext.run({ tenantId }, () => tenants.softDelete(tenantId));
 
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
     expect(tenant?.status).toBe(TenantStatus.DEACTIVATED);
@@ -806,19 +831,39 @@ describe('SuperAdminService ARCH-001 PostgreSQL atomicity', () => {
 
       await expect(
         prisma.subscription.findUnique({ where: { id: subscriptionId } }),
-      ).resolves.toMatchObject({ planId: newPlan.id });
+      ).resolves.toMatchObject({
+        planId: oldPlan.id,
+        pendingPlanId: newPlan.id,
+      });
       await expect(
         prisma.platformAuditLog.count({
           where: {
-            action: 'super-admin.plan.changed',
+            action: 'super-admin.plan.change-scheduled',
             resourceId: subscriptionId,
             targetTenantId: tenantId,
           },
         }),
       ).resolves.toBe(1);
       await expect(
-        outboxRowsForTarget(tenantId, 'super-admin.plan.changed'),
+        outboxRowsForTarget(tenantId, 'super-admin.plan-change.scheduled'),
       ).resolves.toHaveLength(1);
+      const scheduledEvents = await prisma.outboxEvent.findMany({
+        where: {
+          tenantId,
+          type: 'subscription.plan-change.scheduled',
+        },
+      });
+      expect(
+        scheduledEvents.some((row) => {
+          const payload = eventPayload(row.payload).payload;
+          return (
+            typeof payload === 'object' &&
+            payload !== null &&
+            'subscriptionId' in payload &&
+            payload.subscriptionId === subscriptionId
+          );
+        }),
+      ).toBe(true);
     } finally {
       await cleanupPlanFixture(tenantId, createdPlanIds);
     }
@@ -855,7 +900,7 @@ describe('SuperAdminService ARCH-001 PostgreSQL atomicity', () => {
     await expect(
       prisma.platformAuditLog.count({
         where: {
-          action: 'super-admin.plan.changed',
+          action: 'super-admin.plan.change-scheduled',
           resourceId: subscriptionId,
           targetTenantId: tenantId,
         },

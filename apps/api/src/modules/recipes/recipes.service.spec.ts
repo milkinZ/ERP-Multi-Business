@@ -4,9 +4,13 @@ import { RecipesService } from './recipes.service';
 describe('RecipesService', () => {
   const createRecipe = jest.fn();
   const findByProduct = jest.fn();
+  const findAll = jest.fn();
+  const findByInventoryItem = jest.fn();
   const repository = {
     createRecipe,
     findByProduct,
+    findAll,
+    findByInventoryItem,
   } as unknown as RecipesRepository;
   let service: RecipesService;
 
@@ -15,11 +19,11 @@ describe('RecipesService', () => {
     service = new RecipesService(repository);
   });
 
-  it('creates a recipe with tenant, product, and ingredient quantities', async () => {
+  it('creates a recipe with tenant, product, and inventory item quantities', async () => {
     createRecipe.mockResolvedValue({ id: 'recipe-a', tenantId: 'tenant-a' });
     const items = [
-      { ingredientId: 'ingredient-a', quantity: 2 },
-      { ingredientId: 'ingredient-b', quantity: 1 },
+      { inventoryItemId: 'inventory-a', quantity: 2 },
+      { inventoryItemId: 'inventory-b', quantity: 1 },
     ];
 
     await expect(
@@ -35,16 +39,16 @@ describe('RecipesService', () => {
   it('rejects invalid recipe invariants before persistence', async () => {
     await expect(
       service.create('tenant-a', { productId: 'product-a', items: [] }),
-    ).rejects.toThrow('Recipe must contain at least one ingredient');
+    ).rejects.toThrow('Recipe must contain at least one inventory item');
     await expect(
       service.create('tenant-a', {
         productId: 'product-a',
         items: [
-          { ingredientId: 'ingredient-a', quantity: 1 },
-          { ingredientId: 'ingredient-a', quantity: 1 },
+          { inventoryItemId: 'inventory-a', quantity: 1 },
+          { inventoryItemId: 'inventory-a', quantity: 1 },
         ],
       }),
-    ).rejects.toThrow('Duplicate ingredients detected');
+    ).rejects.toThrow('Duplicate inventory items detected');
     expect(createRecipe).not.toHaveBeenCalled();
   });
 
@@ -55,5 +59,33 @@ describe('RecipesService', () => {
       service.findByProduct('product-b', 'tenant-a'),
     ).resolves.toBeNull();
     expect(findByProduct).toHaveBeenCalledWith('product-b', 'tenant-a');
+  });
+
+  it('delegates recipe catalog queries with tenant scope', async () => {
+    const query = { page: 1, limit: 20 };
+    findAll.mockResolvedValue({ data: [], pagination: { total: 0 } });
+
+    await expect(service.findAll('tenant-a', query)).resolves.toEqual({
+      data: [],
+      pagination: { total: 0 },
+    });
+    expect(findAll).toHaveBeenCalledWith('tenant-a', query);
+  });
+
+  it('delegates inventory item recipe usage with tenant scope', async () => {
+    const query = { page: 1, limit: 20 };
+    findByInventoryItem.mockResolvedValue({
+      data: [],
+      pagination: { total: 0 },
+    });
+
+    await expect(
+      service.findByInventoryItem('inventory-a', 'tenant-a', query),
+    ).resolves.toEqual({ data: [], pagination: { total: 0 } });
+    expect(findByInventoryItem).toHaveBeenCalledWith(
+      'inventory-a',
+      'tenant-a',
+      query,
+    );
   });
 });

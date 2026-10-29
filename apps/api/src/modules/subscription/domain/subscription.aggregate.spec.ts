@@ -45,6 +45,26 @@ describe('SubscriptionAggregate', () => {
     );
   });
 
+  it('does not reactivate soft-deleted or time-expired subscriptions', () => {
+    const expired = SubscriptionAggregate.reconstitute(
+      {
+        id: 'subscription-a',
+        tenantId: 'tenant-a',
+        planId: 'plan-a',
+        status: SubscriptionStatus.SUSPENDED,
+        startedAt: new Date('2025-01-01T00:00:00.000Z'),
+        endedAt: new Date('2025-01-02T00:00:00.000Z'),
+        deletedAt: null,
+      },
+      plan,
+    );
+
+    expect(expired.canActivate()).toBe(false);
+    expect(() => expired.activate()).toThrow(
+      'Cannot activate an expired subscription',
+    );
+  });
+
   it('covers cancellation, suspension, past-due, expiration, and plan changes', () => {
     const aggregate = subscription();
 
@@ -61,15 +81,44 @@ describe('SubscriptionAggregate', () => {
     suspended.expire();
     expect(suspended.status).toBe(SubscriptionStatus.EXPIRED);
 
-    const upgraded = subscription(SubscriptionStatus.ACTIVE);
-    upgraded.upgrade({ ...plan, type: PlanType.ENTERPRISE });
-    const planChange = upgraded.pullDomainEvents()[0];
-    expect(planChange.payload).toEqual({
-      subscriptionId: 'subscription-a',
-      tenantId: 'tenant-a',
-      oldPlanType: PlanType.BUSINESS,
-      newPlanType: PlanType.ENTERPRISE,
+    const scheduled = subscription(SubscriptionStatus.ACTIVE);
+    const enterprisePlan = {
+      ...plan,
+      id: 'plan-enterprise',
+      type: PlanType.ENTERPRISE,
+    };
+    scheduled.schedulePlanChange(enterprisePlan);
+    expect(scheduled.planId).toBe('plan-a');
+    expect(scheduled.pendingPlanId).toBe('plan-enterprise');
+    expect(scheduled.pullDomainEvents()[0]).toMatchObject({
+      type: 'subscription.plan-change.scheduled',
+      payload: {
+        currentPlanId: 'plan-a',
+        previousPendingPlanId: null,
+        pendingPlanId: 'plan-enterprise',
+        effectiveAt: 'NEXT_RENEWAL',
+      },
     });
+    scheduled.schedulePlanChange(enterprisePlan);
+    expect(scheduled.pullDomainEvents()).toHaveLength(0);
+
+    scheduled.schedulePlanChange(plan);
+    expect(scheduled.pendingPlanId).toBeNull();
+    expect(scheduled.pullDomainEvents()[0]).toMatchObject({
+      payload: {
+        previousPendingPlanId: 'plan-enterprise',
+        pendingPlanId: null,
+      },
+    });
+    scheduled.schedulePlanChange(enterprisePlan);
+    scheduled.renew(new Date('2026-02-01'), new Date('2026-03-01'));
+    expect(scheduled.planId).toBe('plan-enterprise');
+    expect(scheduled.pendingPlanId).toBeNull();
+    expect(scheduled.pullDomainEvents().map((event) => event.type)).toEqual([
+      'subscription.plan-change.scheduled',
+      'subscription.plan.changed',
+      'subscription.renewed',
+    ]);
   });
 
   it('rejects invalid terminal lifecycle transitions', () => {
@@ -82,5 +131,29 @@ describe('SubscriptionAggregate', () => {
     expect(() => subscription(SubscriptionStatus.EXPIRED).cancel()).toThrow(
       'Cannot cancel an already expired subscription',
     );
+  });
+
+  it('does not emit duplicate renewal events for an already-renewed period', () => {
+    const aggregate = subscription(SubscriptionStatus.ACTIVE);
+    const periodStart = new Date('2026-02-01T00:00:00.000Z');
+    const periodEnd = new Date('2026-02-28T23:59:59.999Z');
+
+    aggregate.renew(periodStart, periodEnd);
+    expect(aggregate.endedAt).toEqual(periodEnd);
+    expect(aggregate.pullDomainEvents()).toHaveLength(1);
+
+    aggregate.renew(periodStart, periodEnd);
+    expect(aggregate.pullDomainEvents()).toHaveLength(0);
+  });
+
+  it('rejects an invalid renewal period', () => {
+    const aggregate = subscription(SubscriptionStatus.ACTIVE);
+
+    expect(() =>
+      aggregate.renew(
+        new Date('2026-03-01T00:00:00.000Z'),
+        new Date('2026-03-01T00:00:00.000Z'),
+      ),
+    ).toThrow('Billing period start must be before its end');
   });
 });

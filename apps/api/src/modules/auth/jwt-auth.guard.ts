@@ -2,7 +2,10 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 
 import { requestContext } from '../../core/request-context/request-context';
-import { JwtUser } from '../../common/interfaces/jwt-user.interface';
+import {
+  JwtUser,
+  PlatformJwtUser,
+} from '../../common/interfaces/jwt-user.interface';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -19,12 +22,16 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       throw new UnauthorizedException('Authentication required');
     }
 
-    const jwtUser = user as unknown as JwtUser;
+    const authenticatedUser = user as unknown as JwtUser | PlatformJwtUser;
+    if (authenticatedUser.scope !== 'tenant' || !authenticatedUser.tenantId) {
+      throw new UnauthorizedException('Tenant authentication required');
+    }
 
     requestContext.set({
-      userId: jwtUser.userId,
-      tenantId: jwtUser.tenantId,
-      outletId: jwtUser.outletId,
+      userId: authenticatedUser.userId,
+      tenantId: authenticatedUser.tenantId,
+      outletId: authenticatedUser.outletId,
+      platformIdentityId: undefined,
     });
     return user;
   }

@@ -53,15 +53,26 @@ describe('SupplierService', () => {
       phone: undefined,
       email: undefined,
       address: undefined,
+      isActive: undefined,
     });
     expect(remove).toHaveBeenCalledWith('supplier-b', 'tenant-a');
   });
 
   it('returns an explicit success result after tenant-scoped deletion', async () => {
-    remove.mockResolvedValue({ id: 'supplier-a' });
+    remove.mockResolvedValue({ id: 'supplier-a', deactivated: false });
 
     await expect(service.remove('supplier-a', 'tenant-a')).resolves.toEqual({
       success: true,
+      deactivated: false,
+    });
+  });
+
+  it('reports a referenced supplier as deactivated rather than deleted', async () => {
+    remove.mockResolvedValue({ id: 'supplier-a', deactivated: true });
+
+    await expect(service.remove('supplier-a', 'tenant-a')).resolves.toEqual({
+      success: true,
+      deactivated: true,
     });
   });
 });

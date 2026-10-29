@@ -1,3 +1,5 @@
+import { ConflictException, ForbiddenException } from '@nestjs/common';
+
 import { UsersRepository } from './users.repository';
 import { UsersService } from './users.service';
 
@@ -37,5 +39,59 @@ describe('UsersService', () => {
       passwordHash: 'hashed-password',
       tenantId: 'tenant-a',
     });
+  });
+
+  it('prevents an actor from deactivating their own account', async () => {
+    const transaction = jest.fn();
+    const guardedService = new UsersService(
+      { $transaction: transaction } as never,
+      repository,
+    );
+
+    await expect(
+      guardedService.setStatus('tenant-a', 'user-a', 'user-a', false),
+    ).rejects.toThrow(
+      new ForbiddenException('You cannot deactivate your own account'),
+    );
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it('keeps the last active user administrator enabled', async () => {
+    const userFindFirst = jest
+      .fn()
+      .mockResolvedValue({ id: 'user-a', isActive: true });
+    const userCount = jest.fn().mockResolvedValue(0);
+    const userUpdateMany = jest.fn();
+    const refreshTokenUpdateMany = jest.fn();
+    const sessionUpdateMany = jest.fn();
+    const transactionClient = {
+      $queryRaw: jest.fn(),
+      user: {
+        findFirst: userFindFirst,
+        count: userCount,
+        updateMany: userUpdateMany,
+      },
+      refreshToken: { updateMany: refreshTokenUpdateMany },
+      session: { updateMany: sessionUpdateMany },
+    };
+    const transaction = jest.fn(
+      (callback: (client: typeof transactionClient) => Promise<unknown>) =>
+        callback(transactionClient),
+    );
+    const guardedService = new UsersService(
+      { $transaction: transaction } as never,
+      repository,
+    );
+
+    await expect(
+      guardedService.setStatus('tenant-a', 'actor-a', 'user-a', false),
+    ).rejects.toThrow(
+      new ConflictException(
+        'The last active user administrator cannot be deactivated',
+      ),
+    );
+    expect(userUpdateMany).not.toHaveBeenCalled();
+    expect(refreshTokenUpdateMany).not.toHaveBeenCalled();
+    expect(sessionUpdateMany).not.toHaveBeenCalled();
   });
 });

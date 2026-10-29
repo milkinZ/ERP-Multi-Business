@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   Injectable,
   NestInterceptor,
+  StreamableFile,
 } from '@nestjs/common';
 import { map, Observable } from 'rxjs';
 
@@ -17,13 +18,17 @@ export class ResponseInterceptor implements NestInterceptor {
   intercept<T>(
     _context: ExecutionContext,
     next: CallHandler<T>,
-  ): Observable<StandardResponse<T>> {
+  ): Observable<StandardResponse<T> | T> {
     return next.handle().pipe(
-      map((data) => ({
-        success: true,
-        message: 'OK',
-        data,
-      })),
+      map((data) =>
+        data instanceof StreamableFile
+          ? data
+          : {
+              success: true,
+              message: 'OK',
+              data,
+            },
+      ),
     );
   }
 }

@@ -1,16 +1,18 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { OrdersRepository } from './orders.repository';
-import { OrderStatus } from '@prisma/client';
+import { OrderMode, OrderStatus } from '@prisma/client';
 import { JwtUser } from '../../common/interfaces/jwt-user.interface';
 import { DomainEventBus } from '../../core/events/domain-event-bus.service';
 import { DOMAIN_EVENTS } from '../../core/events/domain-events';
+import { InventoryReservationService } from '../inventory/inventory-reservation.service';
 
 @Injectable()
 export class OrdersService {
   constructor(
     private readonly ordersRepository: OrdersRepository,
     private readonly events: DomainEventBus,
+    private readonly inventoryReservations: InventoryReservationService,
   ) {}
 
   async create(
@@ -20,6 +22,7 @@ export class OrdersService {
       productId: string;
       quantity: number;
     }[],
+    orderMode: OrderMode = OrderMode.REGULAR,
   ) {
     const productIds = items.map((item) => item.productId);
 
@@ -57,6 +60,7 @@ export class OrdersService {
       `ORD-${Date.now()}`,
       totalAmount,
       orderItems,
+      orderMode,
     );
 
     await this.events.publish({
@@ -94,58 +98,30 @@ export class OrdersService {
   }
 
   async updateStatus(id: string, user: JwtUser, status: OrderStatus) {
-    const tenant = await this.ordersRepository.findTenantById(user.tenantId);
-
-    const kitchenWorkflowStatuses = new Set<OrderStatus>([
-      OrderStatus.IN_PROGRESS,
-      OrderStatus.READY,
-      OrderStatus.COMPLETED,
-    ]);
-
-    const isKitchenWorkflowStatus = kitchenWorkflowStatuses.has(status);
-
-    if (
-      !tenant ||
-      (tenant.businessType !== 'CAFE' && isKitchenWorkflowStatus)
-    ) {
-      throw new BadRequestException(
-        'Kitchen workflow status transition is only available for CAFE business type',
-      );
-    }
-
-    const aggregate = await this.ordersRepository.findOneAggregate(
-      id,
-      user.tenantId,
-      user.outletId || null,
-    );
-
-    if (!aggregate) {
-      throw new BadRequestException('Order not found');
-    }
-
     if (status === OrderStatus.PAID) {
       throw new BadRequestException(
         'Use payment endpoint to mark order as paid',
       );
     }
-
-    if (status === OrderStatus.COMPLETED) {
-      aggregate.complete();
-    } else if (status === OrderStatus.CANCELLED) {
-      aggregate.cancel();
+    if (status === OrderStatus.CANCELLED) {
+      return this.cancelOrder(id, user.tenantId, user.outletId || null);
     }
 
-    const updated = await this.ordersRepository.updateStatus(
-      id,
-      user.tenantId,
-      aggregate.status,
+    throw new BadRequestException(
+      'Order workflow status is managed by payment and kitchen actions',
     );
+  }
 
+  async releaseToKitchen(id: string, tenantId: string) {
+    const updated = await this.ordersRepository.releaseToKitchen(id, tenantId);
     if (!updated) {
       throw new BadRequestException('Order not found');
     }
-
     return updated;
+  }
+
+  findOneByTenant(id: string, tenantId: string) {
+    return this.ordersRepository.findOne(id, tenantId);
   }
 
   async markPaid(id: string, tenantId: string) {
@@ -169,10 +145,11 @@ export class OrdersService {
     return updated;
   }
 
-  async cancelOrder(id: string, tenantId: string) {
+  async cancelOrder(id: string, tenantId: string, outletId?: string | null) {
     const aggregate = await this.ordersRepository.findOneAggregate(
       id,
       tenantId,
+      outletId,
     );
 
     if (!aggregate) {
@@ -185,12 +162,16 @@ export class OrdersService {
       return this.ordersRepository.findOne(id, tenantId);
     }
 
-    const updated = await this.ordersRepository.cancelOrder(id, tenantId);
+    const updated = await this.ordersRepository.cancelOrder(
+      id,
+      tenantId,
+      outletId,
+      (tx) => this.inventoryReservations.releaseReservation(id, tenantId, tx),
+    );
 
     if (!updated) {
       throw new BadRequestException('Order not found');
     }
-
     return updated;
   }
 

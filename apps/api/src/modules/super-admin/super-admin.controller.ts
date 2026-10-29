@@ -3,20 +3,22 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Param,
   Post,
   Put,
   Query,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PlatformJwtAuthGuard } from '../auth/platform-jwt-auth.guard';
 import { PermissionGuard } from '../rbac/permission.guard';
 import { Permissions } from '../../common/decorator/permissions.decorator';
 import { CurrentUser } from '../../common/decorator/current-user.decorator';
 import { PERMISSIONS } from '../rbac/permissions';
-import type { JwtUser } from '../../common/interfaces/jwt-user.interface';
+import type { PlatformJwtUser } from '../../common/interfaces/jwt-user.interface';
 
 import { SuperAdminService } from './super-admin.service';
 import { SuperAdminTenantQueryDto } from './dto/super-admin-query.dto';
@@ -25,13 +27,20 @@ import { UpdatePlanDto } from './dto/update-plan.dto';
 import { ChangeTenantPlanDto } from './dto/change-tenant-plan.dto';
 import { TenantActionDto } from './dto/tenant-action.dto';
 import { ListPlatformAuditLogsDto } from '../audit-logs/dto/list-platform-audit-logs.dto';
+import { ListPlatformJobExecutionsDto } from './dto/list-platform-job-executions.dto';
+import { UpdatePlatformSettingDto } from './dto/update-platform-setting.dto';
+import { PlatformSettingsService } from './platform-settings.service';
+import { InvoiceExportQueryDto } from '../billing/dto/invoice-export-query.dto';
 
 @ApiTags('super-admin')
 @ApiBearerAuth()
 @Controller('super-admin')
-@UseGuards(JwtAuthGuard, PermissionGuard)
+@UseGuards(PlatformJwtAuthGuard, PermissionGuard)
 export class SuperAdminController {
-  constructor(private readonly superAdminService: SuperAdminService) {}
+  constructor(
+    private readonly superAdminService: SuperAdminService,
+    private readonly platformSettings: PlatformSettingsService,
+  ) {}
 
   // ---- Tenants -----------------------------------------------------------
 
@@ -50,11 +59,11 @@ export class SuperAdminController {
   @Post('tenants/:tenantId/activate')
   @Permissions(PERMISSIONS.SUPER_ADMIN_MANAGE_TENANTS)
   activateTenant(
-    @CurrentUser() user: JwtUser,
+    @CurrentUser() user: PlatformJwtUser,
     @Param('tenantId') tenantId: string,
   ) {
     return this.superAdminService.activateTenant(
-      { userId: user.userId, tenantId: user.tenantId },
+      { platformIdentityId: user.platformIdentityId },
       tenantId,
     );
   }
@@ -62,12 +71,12 @@ export class SuperAdminController {
   @Post('tenants/:tenantId/suspend')
   @Permissions(PERMISSIONS.SUPER_ADMIN_MANAGE_TENANTS)
   suspendTenant(
-    @CurrentUser() user: JwtUser,
+    @CurrentUser() user: PlatformJwtUser,
     @Param('tenantId') tenantId: string,
     @Body() dto: TenantActionDto,
   ) {
     return this.superAdminService.suspendTenant(
-      { userId: user.userId, tenantId: user.tenantId },
+      { platformIdentityId: user.platformIdentityId },
       tenantId,
       dto.reason,
     );
@@ -76,12 +85,12 @@ export class SuperAdminController {
   @Delete('tenants/:tenantId')
   @Permissions(PERMISSIONS.SUPER_ADMIN_MANAGE_TENANTS)
   deactivateTenant(
-    @CurrentUser() user: JwtUser,
+    @CurrentUser() user: PlatformJwtUser,
     @Param('tenantId') tenantId: string,
     @Body() dto: TenantActionDto,
   ) {
     return this.superAdminService.deactivateTenant(
-      { userId: user.userId, tenantId: user.tenantId },
+      { platformIdentityId: user.platformIdentityId },
       tenantId,
       dto.reason,
     );
@@ -90,11 +99,11 @@ export class SuperAdminController {
   @Post('tenants/:tenantId/restore')
   @Permissions(PERMISSIONS.SUPER_ADMIN_MANAGE_TENANTS)
   restoreTenant(
-    @CurrentUser() user: JwtUser,
+    @CurrentUser() user: PlatformJwtUser,
     @Param('tenantId') tenantId: string,
   ) {
     return this.superAdminService.restoreTenant(
-      { userId: user.userId, tenantId: user.tenantId },
+      { platformIdentityId: user.platformIdentityId },
       tenantId,
     );
   }
@@ -151,21 +160,64 @@ export class SuperAdminController {
     return this.superAdminService.getWorker(id);
   }
 
+  @Get('job-executions')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_READ)
+  listJobExecutions(@Query() query: ListPlatformJobExecutionsDto) {
+    return this.superAdminService.listJobExecutions(query);
+  }
+
   @Get('billing/aggregate')
   @Permissions(PERMISSIONS.SUPER_ADMIN_READ)
   getBillingAggregate() {
     return this.superAdminService.getBillingAggregate();
   }
 
+  @Get('invoices-export.csv')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_READ)
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="platform-invoices.csv"')
+  async exportInvoices(
+    @CurrentUser() user: PlatformJwtUser,
+    @Query() query: InvoiceExportQueryDto,
+  ) {
+    return new StreamableFile(
+      await this.superAdminService.exportInvoices(
+        { platformIdentityId: user.platformIdentityId },
+        query,
+      ),
+    );
+  }
+
+  @Get('settings')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_READ)
+  listPlatformSettings() {
+    return this.platformSettings.list();
+  }
+
+  @Put('settings/:key')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_MANAGE_SYSTEM)
+  updatePlatformSetting(
+    @CurrentUser() user: PlatformJwtUser,
+    @Param('key') key: string,
+    @Body() dto: UpdatePlatformSettingDto,
+  ) {
+    return this.platformSettings.update(
+      { platformIdentityId: user.platformIdentityId },
+      key,
+      dto.value,
+      dto.expectedVersion,
+    );
+  }
+
   @Put('tenants/:tenantId/plan')
   @Permissions(PERMISSIONS.SUPER_ADMIN_MANAGE_SUBSCRIPTIONS)
   changeTenantPlan(
-    @CurrentUser() user: JwtUser,
+    @CurrentUser() user: PlatformJwtUser,
     @Param('tenantId') tenantId: string,
     @Body() dto: ChangeTenantPlanDto,
   ) {
     return this.superAdminService.changeTenantPlan(
-      { userId: user.userId, tenantId: user.tenantId },
+      { platformIdentityId: user.platformIdentityId },
       tenantId,
       dto.planId,
     );

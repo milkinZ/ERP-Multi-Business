@@ -7,6 +7,7 @@ export type SupplierProps = {
   phone?: string | null;
   email?: string | null;
   address?: string | null;
+  isActive?: boolean;
   createdAt: Date;
 };
 
@@ -51,11 +52,16 @@ export class SupplierAggregate extends AggregateRoot {
     return this.props.createdAt;
   }
 
+  get isActive(): boolean {
+    return this.props.isActive ?? true;
+  }
+
   updateDetails(data: {
     name?: string;
     phone?: string | null;
     email?: string | null;
     address?: string | null;
+    isActive?: boolean;
   }) {
     if (data.name !== undefined && !data.name.trim()) {
       throw new Error('Supplier name must not be empty');
@@ -68,6 +74,7 @@ export class SupplierAggregate extends AggregateRoot {
       email: data.email === null ? null : (data.email ?? this.props.email),
       address:
         data.address === null ? null : (data.address ?? this.props.address),
+      isActive: data.isActive ?? this.props.isActive,
     };
   }
 
@@ -79,6 +86,7 @@ export class SupplierAggregate extends AggregateRoot {
       phone: this.phone,
       email: this.email,
       address: this.address,
+      isActive: this.isActive,
       createdAt: this.createdAt,
     };
   }

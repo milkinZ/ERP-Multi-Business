@@ -6,9 +6,10 @@ import { SuperAdminRepository } from './super-admin.repository';
 import { OutboxPublisher } from '../../infrastructure/events/outbox.publisher';
 import { PrismaService } from '../../core/database/prisma.service';
 import { PlatformAuditLogService } from '../audit-logs/platform-audit-log.service';
+import { ListPlatformJobExecutionsDto } from './dto/list-platform-job-executions.dto';
 
 describe('SuperAdminService', () => {
-  const actor = { userId: 'user-1', tenantId: 'tenant-superadmin' };
+  const actor = { platformIdentityId: 'platform-identity-1' };
 
   const findTenantByIdMock = jest.fn();
   const findAllTenantsMock = jest.fn();
@@ -27,6 +28,8 @@ describe('SuperAdminService', () => {
   const findAllFeatureFlagsMock = jest.fn();
   const tenantUpdateMock = jest.fn();
   const tenantUpdateManyMock = jest.fn();
+  const jobExecutionFindManyMock = jest.fn();
+  const jobExecutionCountMock = jest.fn();
 
   const repository = {
     findTenantById: findTenantByIdMock,
@@ -51,6 +54,7 @@ describe('SuperAdminService', () => {
 
   const subscriptionUpdateMock = jest.fn();
   const subscriptionUpdateManyMock = jest.fn();
+  const subscriptionHistoryCreateMock = jest.fn();
   const transactionMock = jest.fn(
     async (callback: (tx: typeof txClient) => Promise<unknown>) =>
       callback(txClient),
@@ -62,6 +66,10 @@ describe('SuperAdminService', () => {
     subscription: {
       update: subscriptionUpdateMock,
       updateMany: subscriptionUpdateManyMock,
+    },
+    jobExecution: {
+      findMany: jobExecutionFindManyMock,
+      count: jobExecutionCountMock,
     },
   } as unknown as PrismaService;
   const platformAuditCreateMock = jest.fn().mockResolvedValue(undefined);
@@ -78,6 +86,7 @@ describe('SuperAdminService', () => {
       updateMany: subscriptionUpdateManyMock,
     },
     platformAuditLog: { create: jest.fn() },
+    subscriptionHistory: { create: subscriptionHistoryCreateMock },
     outboxEvent: { create: jest.fn() },
   };
 
@@ -90,6 +99,7 @@ describe('SuperAdminService', () => {
     transactionMock.mockImplementation(async (callback) => callback(txClient));
     txClient.subscription.update = subscriptionUpdateMock;
     txClient.platformAuditLog.create = platformAuditCreateMock;
+    txClient.subscriptionHistory.create = subscriptionHistoryCreateMock;
     txClient.outboxEvent.create = outboxPublishMock;
     service = new SuperAdminService(repository, outbox, platformAudit, prisma);
   });
@@ -321,10 +331,11 @@ describe('SuperAdminService', () => {
   });
 
   describe('changeTenantPlan', () => {
-    it('should update subscription planId', async () => {
+    it('should schedule the subscription plan for the next renewal', async () => {
       findSubscriptionByTenantIdMock.mockResolvedValue({
         id: 'sub-1',
         planId: 'plan-1',
+        pendingPlanId: null,
         plan: { id: 'plan-1', type: 'FREE', name: 'Free', priceCents: 0 },
       });
       findPlanByIdMock.mockResolvedValue({
@@ -343,20 +354,53 @@ describe('SuperAdminService', () => {
       );
 
       expect(subscriptionUpdateManyMock).toHaveBeenCalledWith({
-        where: { id: 'sub-1', planId: 'plan-1' },
-        data: { planId: 'plan-2' },
+        where: { id: 'sub-1', planId: 'plan-1', pendingPlanId: null },
+        data: { pendingPlanId: 'plan-2' },
       });
       expect(platformAuditCreateMock).toHaveBeenCalledWith(
         expect.objectContaining({
           actor,
-          action: 'super-admin.plan.changed',
+          action: 'super-admin.plan.change-scheduled',
           resourceType: 'SUBSCRIPTION',
           resourceId: 'sub-1',
           targetTenantId: 'tenant-1',
         }),
         expect.any(Object),
       );
-      expect(result).toMatchObject({ newPlanId: 'plan-2' });
+      expect(subscriptionHistoryCreateMock).toHaveBeenCalledWith({
+        data: {
+          subscriptionId: 'sub-1',
+          tenantId: 'tenant-1',
+          eventType: 'subscription.plan-change.scheduled',
+          actorPlatformIdentityId: actor.platformIdentityId,
+          actorType: 'PLATFORM_IDENTITY',
+          metadata: {
+            currentPlanId: 'plan-1',
+            previousPendingPlanId: null,
+            pendingPlanId: 'plan-2',
+            effectiveAt: 'NEXT_RENEWAL',
+          },
+        },
+      });
+      expect(outboxPublishMock).toHaveBeenCalledWith(
+        {
+          type: 'subscription.plan-change.scheduled',
+          payload: {
+            subscriptionId: 'sub-1',
+            tenantId: 'tenant-1',
+            currentPlanId: 'plan-1',
+            previousPendingPlanId: null,
+            pendingPlanId: 'plan-2',
+            effectiveAt: 'NEXT_RENEWAL',
+          },
+        },
+        txClient,
+      );
+      expect(result).toMatchObject({
+        newPlanId: 'plan-2',
+        pendingPlanId: 'plan-2',
+        effectiveAt: 'NEXT_RENEWAL',
+      });
     });
 
     it('should throw NotFoundException when no subscription', async () => {
@@ -448,6 +492,102 @@ describe('SuperAdminService', () => {
       await expect(service.getInvoice('missing')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('job execution history', () => {
+    it('returns bounded safe execution metadata with stable pagination', async () => {
+      const startedAt = new Date('2026-10-12T10:00:00.000Z');
+      jobExecutionFindManyMock.mockResolvedValue([
+        {
+          id: 'execution-1',
+          queueName: 'billing',
+          jobName: 'renew-subscription',
+          workerId: 'worker-1',
+          attemptNumber: 2,
+          status: 'FAILED',
+          startedAt,
+          finishedAt: new Date('2026-10-12T10:00:02.000Z'),
+          durationMs: 2000,
+          errorCategory: 'TRANSIENT',
+          createdAt: startedAt,
+          updatedAt: startedAt,
+          bullmqJobId: 'private-job-id',
+          errorMessage: 'private error details',
+          correlationId: 'private-correlation-id',
+          payload: { private: true },
+        },
+      ]);
+      jobExecutionCountMock.mockResolvedValue(41);
+
+      await expect(
+        service.listJobExecutions({
+          page: 2,
+          limit: 20,
+          queueName: 'billing',
+          status: 'FAILED',
+        }),
+      ).resolves.toEqual({
+        data: [
+          {
+            id: 'execution-1',
+            queueName: 'billing',
+            jobName: 'renew-subscription',
+            workerId: 'worker-1',
+            attemptNumber: 2,
+            status: 'FAILED',
+            startedAt,
+            finishedAt: new Date('2026-10-12T10:00:02.000Z'),
+            durationMs: 2000,
+            errorCategory: 'TRANSIENT',
+            createdAt: startedAt,
+            updatedAt: startedAt,
+          },
+        ],
+        pagination: { page: 2, limit: 20, total: 41, totalPages: 3 },
+      });
+
+      expect(jobExecutionFindManyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { queueName: 'billing', status: 'FAILED' },
+          take: 20,
+          skip: 20,
+          orderBy: [
+            { startedAt: 'desc' },
+            { createdAt: 'desc' },
+            { id: 'desc' },
+          ],
+          select: {
+            id: true,
+            queueName: true,
+            jobName: true,
+            workerId: true,
+            attemptNumber: true,
+            status: true,
+            startedAt: true,
+            finishedAt: true,
+            durationMs: true,
+            errorCategory: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        }),
+      );
+      expect(jobExecutionCountMock).toHaveBeenCalledWith({
+        where: { queueName: 'billing', status: 'FAILED' },
+      });
+    });
+
+    it('applies safe pagination defaults', async () => {
+      jobExecutionFindManyMock.mockResolvedValue([]);
+      jobExecutionCountMock.mockResolvedValue(0);
+
+      await expect(
+        service.listJobExecutions(new ListPlatformJobExecutionsDto()),
+      ).resolves.toEqual({
+        data: [],
+        pagination: { page: 1, limit: 25, total: 0, totalPages: 0 },
+      });
     });
   });
 });

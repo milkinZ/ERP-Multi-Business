@@ -39,6 +39,8 @@ const paymentRequestIds = [
   `it-api001-attempt-webhook-${runId}`,
 ];
 const platformTenantId = `it-api001-platform-${runId}`;
+const userId = `it-api001-user-${runId}`;
+const outletId = `it-api001-outlet-${runId}`;
 const repository = new SuperAdminRepository(prisma as never);
 const billingRepository = new BillingRepository(prisma as never);
 const billing = new BillingService(
@@ -67,6 +69,8 @@ async function ensurePlan(type: PlanType) {
 }
 
 async function cleanup() {
+  await prisma.outlet.deleteMany({ where: { id: outletId } });
+  await prisma.user.deleteMany({ where: { id: userId } });
   await prisma.xenditWebhookReceipt.deleteMany({
     where: { paymentId: `it-api001-webhook-payment-${runId}` },
   });
@@ -83,6 +87,17 @@ async function cleanup() {
 async function createFixtures() {
   await prisma.tenant.createMany({
     data: tenantIds.map((id) => ({ id, name: id })),
+  });
+  await prisma.user.create({
+    data: {
+      id: userId,
+      email: `${userId}@example.test`,
+      password: 'integration-test-only',
+      tenantId: tenantIds[0],
+    },
+  });
+  await prisma.outlet.create({
+    data: { id: outletId, name: outletId, tenantId: tenantIds[0] },
   });
 
   const activePlan = plans[0];
@@ -223,26 +238,34 @@ describe('Platform billing aggregate PostgreSQL integration', () => {
     await prisma.$disconnect();
   });
 
-  it('returns a valid empty billing aggregate when no billing rows exist', async () => {
+  it('leaves the aggregate unchanged when its scoped fixtures are absent', async () => {
     await cleanup();
     const result = await aggregate();
 
-    expect(result.subscriptions).toEqual({
-      total: 0,
-      byStatus: [],
-      byPlan: [],
-    });
-    expect(result.invoices).toEqual({
-      total: 0,
-      byStatusAndCurrency: [],
-      byProviderStatus: [],
-    });
-    expect(result.paymentRequests).toEqual({ total: 0, byState: [] });
+    expect(result.subscriptions).toEqual(baselineAggregate.subscriptions);
+    expect(result.invoices).toEqual(baselineAggregate.invoices);
+    expect(result.paymentRequests).toEqual(baselineAggregate.paymentRequests);
+    expect(result.users).toEqual(baselineAggregate.users);
+    expect(result.outlets).toEqual(baselineAggregate.outlets);
+    expect(result.platformAudit).toEqual(baselineAggregate.platformAudit);
   });
 
   it('aggregates all tenants by internal status, plan, currency, and persisted provider state without double counting', async () => {
     const before = baselineAggregate;
-    const beforeWebhook = await aggregate();
+    const aggregateWithPlatformCounts = await aggregate();
+    const beforeWebhook = aggregateWithPlatformCounts;
+    expect(aggregateWithPlatformCounts.users.total - before.users.total).toBe(
+      1,
+    );
+    expect(
+      aggregateWithPlatformCounts.outlets.total - before.outlets.total,
+    ).toBe(1);
+    expect(
+      aggregateWithPlatformCounts.platformAudit.total,
+    ).toBeGreaterThanOrEqual(before.platformAudit.total);
+    expect(
+      aggregateWithPlatformCounts.platformAudit.last24Hours,
+    ).toBeLessThanOrEqual(aggregateWithPlatformCounts.platformAudit.total);
     const webhookInput = {
       eventType: 'payment.capture',
       eventCreatedAt: '2026-09-30T12:00:00.000Z',

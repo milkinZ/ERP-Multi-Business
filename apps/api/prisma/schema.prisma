@@ -7,45 +7,45 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Ingredient {
-  id              String        @id @default(cuid())
-  name            String
-  unit            String
-  tenantId        String
-  createdAt       DateTime      @default(now())
-  inventoryItemId String        @unique
-  InventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
-  Tenant          Tenant        @relation(fields: [tenantId], references: [id])
-  RecipeItem      RecipeItem[]
-}
-
 model InventoryItem {
-  id                String              @id @default(cuid())
-  code              String
-  name              String
-  description       String?
-  unit              String?
-  type              InventoryItemType
-  isActive          Boolean             @default(true)
-  tenantId          String
-  createdAt         DateTime            @default(now())
-  Ingredient        Ingredient?
-  Tenant            Tenant              @relation(fields: [tenantId], references: [id])
-  InventoryMovement InventoryMovement[]
-  InventoryStock    InventoryStock[]
-  Product           Product?
-  PurchaseOrderItem PurchaseOrderItem[]
+  id                             String                           @id @default(cuid())
+  code                           String
+  name                           String
+  description                    String?
+  unit                           String?
+  type                           InventoryItemType
+  isActive                       Boolean                          @default(true)
+  valuationMethod                InventoryValuationMethod?
+  movingAverageScope             MovingAverageScope?
+  standardCost                   Decimal?                         @db.Decimal(18, 6)
+  averageUnitCost                Decimal?                         @db.Decimal(18, 6)
+  valuationLockedAt              DateTime?
+  tenantId                       String
+  createdAt                      DateTime                         @default(now())
+  Tenant                         Tenant                           @relation(fields: [tenantId], references: [id])
+  InventoryMovement              InventoryMovement[]
+  InventoryCostLayer             InventoryCostLayer[]
+  InventoryStock                 InventoryStock[]
+  Product                        Product?
+  PurchaseOrderItem              PurchaseOrderItem[]
+  PurchaseOrderReceiptItem       PurchaseOrderReceiptItem[]
+  InventoryPurchasePriceVariance InventoryPurchasePriceVariance[]
+  WarehouseTransferItem          WarehouseTransferItem[]
+  WarehouseTransferReceiptItem   WarehouseTransferReceiptItem[]
+  RecipeItem                     RecipeItem[]
+  InventoryReorderRule           InventoryReorderRule[]
 
   @@unique([tenantId, code])
+  @@index([tenantId, createdAt, id])
 }
 
 model InventoryMovement {
-  id              String                @id @default(cuid())
+  id              String                            @id @default(cuid())
   tenantId        String
   type            InventoryMovementType
   quantity        Float
   note            String?
-  createdAt       DateTime              @default(now())
+  createdAt       DateTime                          @default(now())
   afterQuantity   Float?
   beforeQuantity  Float?
   createdById     String?
@@ -53,15 +53,22 @@ model InventoryMovement {
   referenceId     String?
   referenceType   String?
   warehouseId     String?
-  User            User?                 @relation(fields: [createdById], references: [id])
-  InventoryItem   InventoryItem         @relation(fields: [inventoryItemId], references: [id])
-  Tenant          Tenant                @relation(fields: [tenantId], references: [id])
-  Warehouse       Warehouse?            @relation(fields: [warehouseId], references: [id])
+  unitCost        Decimal?                          @db.Decimal(18, 6)
+  totalCost       Decimal?                          @db.Decimal(18, 6)
+  User            User?                             @relation(fields: [createdById], references: [id])
+  InventoryItem   InventoryItem                     @relation(fields: [inventoryItemId], references: [id])
+  Tenant          Tenant                            @relation(fields: [tenantId], references: [id])
+  Warehouse       Warehouse?                        @relation(fields: [warehouseId], references: [id])
+  CostAllocations InventoryMovementCostAllocation[]
+  CostLayers      InventoryCostLayer[]
 
   @@index([inventoryItemId])
   @@index([referenceType, referenceId])
   @@index([tenantId])
   @@index([warehouseId])
+  @@index([tenantId, createdAt, id])
+  @@index([tenantId, warehouseId, createdAt, id])
+  @@index([tenantId, inventoryItemId, createdAt, id])
 }
 
 model InventoryStock {
@@ -69,6 +76,7 @@ model InventoryStock {
   warehouseId     String?
   inventoryItemId String
   quantity        Float         @default(0)
+  averageUnitCost Decimal?      @db.Decimal(18, 6)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime
   InventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
@@ -77,6 +85,62 @@ model InventoryStock {
   @@unique([warehouseId, inventoryItemId])
   @@index([inventoryItemId])
   @@index([warehouseId])
+}
+
+model InventoryReorderRule {
+  id                 String                           @id @default(cuid())
+  tenantId           String
+  inventoryItemId    String
+  warehouseId        String?
+  locationKey        String
+  scope              InventoryReorderScope
+  quantityStrategy   InventoryReorderQuantityStrategy
+  action             InventoryReorderAction           @default(ALERT_AND_SUGGEST)
+  reorderPoint       Float
+  targetStock        Float?
+  fixedOrderQuantity Float?
+  createdAt          DateTime                         @default(now())
+  updatedAt          DateTime                         @updatedAt
+  Tenant             Tenant                           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  InventoryItem      InventoryItem                    @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  Warehouse          Warehouse?                       @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, inventoryItemId, locationKey])
+  @@index([tenantId, inventoryItemId])
+}
+
+model InventoryCostLayer {
+  id                String                            @id @default(cuid())
+  tenantId          String
+  inventoryItemId   String
+  warehouseId       String?
+  sourceMovementId  String?
+  sourceType        String
+  sourceReferenceId String?
+  receivedQuantity  Decimal                           @db.Decimal(18, 6)
+  remainingQuantity Decimal                           @db.Decimal(18, 6)
+  unitCost          Decimal                           @db.Decimal(18, 6)
+  createdAt         DateTime                          @default(now())
+  InventoryItem     InventoryItem                     @relation(fields: [inventoryItemId], references: [id])
+  Warehouse         Warehouse?                        @relation(fields: [warehouseId], references: [id])
+  SourceMovement    InventoryMovement?                @relation(fields: [sourceMovementId], references: [id], onDelete: SetNull)
+  CostAllocations   InventoryMovementCostAllocation[]
+
+  @@index([tenantId, inventoryItemId, warehouseId, createdAt, id], map: "InventoryCostLayer_tenantId_inventoryItemId_warehouseId_created")
+  @@index([sourceType, sourceReferenceId])
+}
+
+model InventoryMovementCostAllocation {
+  id          String              @id @default(cuid())
+  movementId  String
+  costLayerId String?
+  quantity    Decimal             @db.Decimal(18, 6)
+  unitCost    Decimal             @db.Decimal(18, 6)
+  Movement    InventoryMovement   @relation(fields: [movementId], references: [id], onDelete: Cascade)
+  CostLayer   InventoryCostLayer? @relation(fields: [costLayerId], references: [id], onDelete: SetNull)
+
+  @@index([movementId])
+  @@index([costLayerId])
 }
 
 model Outlet {
@@ -92,28 +156,29 @@ model Outlet {
   SalesOrder   SalesOrder[]
   Session      Session[]
   UserOutlet   UserOutlet[]
+  UserInvitationOutlet UserInvitationOutlet[]
   Warehouse    Warehouse[]
 }
 
 model Payment {
-  id              String        @id @default(cuid())
-  orderId         String
-  tenantId        String
-  method          PaymentMethod
-  status          PaymentStatus @default(PENDING)
-  amount          Int
-  referenceNumber String?
-  providerReferenceId String? @unique
-  providerPaymentRequestId String? @unique
-  providerPaymentId String? @unique
-  providerEventId String? @unique
-  providerStatus String?
-  paidAt          DateTime?
-  createdAt       DateTime      @default(now())
-  createdById     String?
-  User            User?         @relation(fields: [createdById], references: [id])
-  SalesOrder      SalesOrder    @relation(fields: [orderId], references: [id])
-  Tenant          Tenant        @relation(fields: [tenantId], references: [id])
+  id                       String        @id @default(cuid())
+  orderId                  String
+  tenantId                 String
+  method                   PaymentMethod
+  status                   PaymentStatus @default(PENDING)
+  amount                   Int
+  referenceNumber          String?
+  providerReferenceId      String?       @unique
+  providerPaymentRequestId String?       @unique
+  providerPaymentId        String?       @unique
+  providerEventId          String?       @unique
+  providerStatus           String?
+  paidAt                   DateTime?
+  createdAt                DateTime      @default(now())
+  createdById              String?
+  User                     User?         @relation(fields: [createdById], references: [id])
+  SalesOrder               SalesOrder    @relation(fields: [orderId], references: [id])
+  Tenant                   Tenant        @relation(fields: [tenantId], references: [id])
 }
 
 model Permission {
@@ -143,23 +208,26 @@ model Product {
 }
 
 model PurchaseOrder {
-  id                   String              @id @default(cuid())
-  poNumber             String              @db.VarChar(50)
-  status               PurchaseOrderStatus @default(DRAFT)
-  supplierId           String
-  tenantId             String
-  warehouseId          String?
-  expectedDeliveryDate DateTime?
-  totalAmount          Int
-  notes                String?
-  receivedAt           DateTime?
-  completedAt          DateTime?
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime
-  Supplier             Supplier            @relation(fields: [supplierId], references: [id])
-  Tenant               Tenant              @relation(fields: [tenantId], references: [id])
-  Warehouse            Warehouse?          @relation(fields: [warehouseId], references: [id])
-  PurchaseOrderItem    PurchaseOrderItem[]
+  id                             String                           @id @default(cuid())
+  poNumber                       String                           @db.VarChar(50)
+  status                         PurchaseOrderStatus              @default(DRAFT)
+  supplierId                     String
+  tenantId                       String
+  warehouseId                    String?
+  expectedDeliveryDate           DateTime?
+  totalAmount                    Int
+  currencyCode                   String?                          @db.Char(3)
+  notes                          String?
+  receivedAt                     DateTime?
+  completedAt                    DateTime?
+  createdAt                      DateTime                         @default(now())
+  updatedAt                      DateTime
+  Supplier                       Supplier                         @relation(fields: [supplierId], references: [id])
+  Tenant                         Tenant                           @relation(fields: [tenantId], references: [id])
+  Warehouse                      Warehouse?                       @relation(fields: [warehouseId], references: [id])
+  PurchaseOrderItem              PurchaseOrderItem[]
+  PurchaseOrderReceipt           PurchaseOrderReceipt[]
+  InventoryPurchasePriceVariance InventoryPurchasePriceVariance[]
 
   @@unique([tenantId, poNumber])
   @@index([status])
@@ -168,18 +236,86 @@ model PurchaseOrder {
 }
 
 model PurchaseOrderItem {
-  id               String        @id @default(cuid())
-  purchaseOrderId  String
-  inventoryItemId  String
-  quantity         Float
-  unitPrice        Int
-  subtotal         Int
-  receivedQuantity Float         @default(0)
-  InventoryItem    InventoryItem @relation(fields: [inventoryItemId], references: [id])
-  PurchaseOrder    PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  id                             String                           @id @default(cuid())
+  purchaseOrderId                String
+  inventoryItemId                String
+  quantity                       Float
+  unitPrice                      Int
+  subtotal                       Int
+  receivedQuantity               Float                            @default(0)
+  InventoryItem                  InventoryItem                    @relation(fields: [inventoryItemId], references: [id])
+  PurchaseOrder                  PurchaseOrder                    @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  ReceiptItem                    PurchaseOrderReceiptItem[]
+  InventoryPurchasePriceVariance InventoryPurchasePriceVariance[]
 
   @@index([inventoryItemId])
   @@index([purchaseOrderId])
+}
+
+model PurchaseOrderReceipt {
+  id                             String                           @id @default(cuid())
+  tenantId                       String
+  purchaseOrderId                String
+  createdById                    String?
+  idempotencyKey                 String                           @db.VarChar(128)
+  requestHash                    String                           @db.VarChar(64)
+  statusAfter                    PurchaseOrderStatus
+  note                           String?
+  createdAt                      DateTime                         @default(now())
+  Items                          PurchaseOrderReceiptItem[]
+  PurchaseOrder                  PurchaseOrder                    @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  Tenant                         Tenant                           @relation(fields: [tenantId], references: [id])
+  User                           User?                            @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  InventoryPurchasePriceVariance InventoryPurchasePriceVariance[]
+
+  @@unique([purchaseOrderId, idempotencyKey])
+  @@index([tenantId, purchaseOrderId, createdAt])
+}
+
+model PurchaseOrderReceiptItem {
+  id                             String                          @id @default(cuid())
+  tenantId                       String
+  receiptId                      String
+  purchaseOrderItemId            String
+  inventoryItemId                String
+  receivedQuantity               Float
+  Receipt                        PurchaseOrderReceipt            @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  PurchaseOrderItem              PurchaseOrderItem               @relation(fields: [purchaseOrderItemId], references: [id])
+  InventoryItem                  InventoryItem                   @relation(fields: [inventoryItemId], references: [id])
+  Tenant                         Tenant                          @relation(fields: [tenantId], references: [id])
+  InventoryPurchasePriceVariance InventoryPurchasePriceVariance?
+
+  @@unique([receiptId, purchaseOrderItemId])
+  @@index([tenantId, receiptId])
+  @@index([purchaseOrderItemId])
+}
+
+model InventoryPurchasePriceVariance {
+  id                  String                   @id @default(cuid())
+  tenantId            String
+  receiptId           String
+  receiptItemId       String                   @unique
+  purchaseOrderId     String
+  purchaseOrderItemId String
+  inventoryItemId     String
+  warehouseId         String?
+  quantity            Decimal                  @db.Decimal(18, 6)
+  standardUnitCost    Decimal                  @db.Decimal(18, 6)
+  actualUnitCost      Decimal                  @db.Decimal(18, 6)
+  varianceAmount      Decimal                  @db.Decimal(18, 6)
+  currencyCode        String?                  @db.Char(3)
+  createdAt           DateTime                 @default(now())
+  Tenant              Tenant                   @relation(fields: [tenantId], references: [id])
+  Receipt             PurchaseOrderReceipt     @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  ReceiptItem         PurchaseOrderReceiptItem @relation(fields: [receiptItemId], references: [id], onDelete: Cascade)
+  PurchaseOrder       PurchaseOrder            @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  PurchaseOrderItem   PurchaseOrderItem        @relation(fields: [purchaseOrderItemId], references: [id], onDelete: Cascade)
+  InventoryItem       InventoryItem            @relation(fields: [inventoryItemId], references: [id])
+  Warehouse           Warehouse?               @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt, id])
+  @@index([tenantId, purchaseOrderId])
+  @@index([tenantId, inventoryItemId, createdAt], map: "InventoryPurchasePriceVariance_tenantId_inventoryItemId_created")
 }
 
 model Recipe {
@@ -193,12 +329,14 @@ model Recipe {
 }
 
 model RecipeItem {
-  id           String     @id @default(cuid())
-  recipeId     String
-  ingredientId String
-  quantity     Float
-  Ingredient   Ingredient @relation(fields: [ingredientId], references: [id])
-  Recipe       Recipe     @relation(fields: [recipeId], references: [id])
+  id              String        @id @default(cuid())
+  recipeId        String
+  inventoryItemId String
+  quantity        Float
+  InventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  Recipe          Recipe        @relation(fields: [recipeId], references: [id])
+
+  @@index([inventoryItemId])
 }
 
 model RefreshToken {
@@ -207,6 +345,7 @@ model RefreshToken {
   userId        String
   tenantId      String
   roleId        String
+  sessionId     String?
   outletId      String?
   expiresAt     DateTime
   revokedAt     DateTime?
@@ -217,12 +356,20 @@ model RefreshToken {
 }
 
 model Role {
-  id             String           @id @default(cuid())
-  name           String
-  tenantId       String
-  Tenant         Tenant           @relation(fields: [tenantId], references: [id])
-  RolePermission RolePermission[]
-  UserRole       UserRole[]
+  id                    String                  @id @default(cuid())
+  name                  String
+  description           String?
+  isSystem              Boolean                 @default(false)
+  systemKey             String?
+  tenantId              String
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  Tenant                Tenant                  @relation(fields: [tenantId], references: [id])
+  RolePermission        RolePermission[]
+  UserRole              UserRole[]
+  UserInvitationRole    UserInvitationRole[]
+
+  @@unique([tenantId, systemKey])
 }
 
 model RolePermission {
@@ -236,19 +383,26 @@ model RolePermission {
 }
 
 model SalesOrder {
-  id             String           @id @default(cuid())
-  orderNumber    String           @db.VarChar(50)
-  status         OrderStatus      @default(PENDING)
-  totalAmount    Int
-  tenantId       String
-  outletId       String?
-  createdAt      DateTime         @default(now())
-  Payment        Payment[]
-  Outlet         Outlet?          @relation(fields: [outletId], references: [id])
-  Tenant         Tenant           @relation(fields: [tenantId], references: [id])
-  SalesOrderItem SalesOrderItem[]
+  id                String           @id @default(cuid())
+  orderNumber       String           @db.VarChar(50)
+  status            OrderStatus      @default(PENDING)
+  orderMode         OrderMode        @default(REGULAR)
+  paymentStatus     PaymentStatus    @default(PENDING)
+  paidAmount        Int              @default(0)
+  kitchenReleasedAt DateTime?
+  kitchenPriority   Int              @default(0)
+  totalAmount       Int
+  currencyCode      String?          @db.Char(3)
+  tenantId          String
+  outletId          String?
+  createdAt         DateTime         @default(now())
+  Payment           Payment[]
+  Outlet            Outlet?          @relation(fields: [outletId], references: [id])
+  Tenant            Tenant           @relation(fields: [tenantId], references: [id])
+  SalesOrderItem    SalesOrderItem[]
 
   @@unique([tenantId, orderNumber])
+  @@index([tenantId, kitchenPriority(sort: Desc), kitchenReleasedAt(sort: Asc)])
 }
 
 model SalesOrderItem {
@@ -280,73 +434,219 @@ model Supplier {
 }
 
 model Tenant {
-  id                String              @id @default(cuid())
-  name              String
-  contactEmail      String?
-  contactPhone      String?
-  address           String?
-  createdAt         DateTime            @default(now())
-  businessType      BusinessType        @default(CAFE)
-  status            TenantStatus        @default(ACTIVE)
-  deletedAt         DateTime?
-  updatedAt         DateTime            @updatedAt
-  AuditLog          AuditLog[]
-  FeatureFlag       FeatureFlag[]
-  Ingredient        Ingredient[]
-  InventoryItem     InventoryItem[]
-  InventoryMovement InventoryMovement[]
-  Invoice           Invoice[]
-  Notification      Notification[]
-  Outlet            Outlet[]
-  Payment           Payment[]
-  Product           Product[]
-  PurchaseOrder     PurchaseOrder[]
-  Recipe            Recipe[]
-  Role              Role[]
-  SalesOrder        SalesOrder[]
-  Session           Session[]
-  Subscription      Subscription?
-  Supplier          Supplier[]
-  User              User[]
-  UserOutlet        UserOutlet[]
-  UserRole          UserRole[]
-  Warehouse         Warehouse[]
+  id                             String                           @id @default(cuid())
+  name                           String
+  contactEmail                   String?
+  contactPhone                   String?
+  address                        String?
+  createdAt                      DateTime                         @default(now())
+  businessType                   BusinessType                     @default(CAFE)
+  kitchenWaitThresholdMinutes    Int                              @default(15)
+  currencyCode                   String?                          @db.Char(3)
+  status                         TenantStatus                     @default(ACTIVE)
+  deletedAt                      DateTime?
+  updatedAt                      DateTime                         @updatedAt
+  AuditLog                       AuditLog[]
+  FeatureFlag                    FeatureFlag[]
+  InventoryItem                  InventoryItem[]
+  InventoryMovement              InventoryMovement[]
+  Invoice                        Invoice[]
+  Notification                   Notification[]
+  Outlet                         Outlet[]
+  Payment                        Payment[]
+  Product                        Product[]
+  PurchaseOrder                  PurchaseOrder[]
+  PurchaseOrderReceipt           PurchaseOrderReceipt[]
+  PurchaseOrderReceiptItem       PurchaseOrderReceiptItem[]
+  InventoryPurchasePriceVariance InventoryPurchasePriceVariance[]
+  Recipe                         Recipe[]
+  Role                           Role[]
+  SalesOrder                     SalesOrder[]
+  Session                        Session[]
+  Subscription                   Subscription?
+  SubscriptionHistory            SubscriptionHistory[]
+  Supplier                       Supplier[]
+  User                           User[]
+  UserOutlet                     UserOutlet[]
+  UserInvitation                 UserInvitation[]
+  UserInvitationRole             UserInvitationRole[]
+  UserInvitationOutlet           UserInvitationOutlet[]
+  UserRole                       UserRole[]
+  Warehouse                      Warehouse[]
+  InventoryReorderRule           InventoryReorderRule[]
+  WarehouseTransfer              WarehouseTransfer[]
+  WarehouseTransferReceipt       WarehouseTransferReceipt[]
+  WarehouseTransferReceiptItem   WarehouseTransferReceiptItem[]
 }
 
 model User {
-  id                String              @id @default(cuid())
-  email             String              @unique
-  password          String
-  tenantId          String
-  createdAt         DateTime            @default(now())
-  deletedAt         DateTime?
-  updatedAt         DateTime            @updatedAt
-  AuditLog          AuditLog[]
-  InventoryMovement InventoryMovement[]
-  Notification      Notification[]
-  Payment           Payment[]
-  RefreshToken      RefreshToken[]
-  Session           Session[]
-  Tenant            Tenant              @relation(fields: [tenantId], references: [id])
-  UserOutlet        UserOutlet[]
-  UserRole          UserRole[]
+  id                       String                     @id @default(cuid())
+  email                    String                     @unique
+  password                 String?
+  isActive                 Boolean                    @default(true)
+  tenantId                 String
+  createdAt                DateTime                   @default(now())
+  deletedAt                DateTime?
+  updatedAt                DateTime                   @updatedAt
+  AuditLog                 AuditLog[]
+  InventoryMovement        InventoryMovement[]
+  Notification             Notification[]
+  Payment                  Payment[]
+  PurchaseOrderReceipt     PurchaseOrderReceipt[]
+  WarehouseTransferCreated WarehouseTransfer[]        @relation("WarehouseTransferCreator")
+  WarehouseTransferShipped WarehouseTransfer[]        @relation("WarehouseTransferShipper")
+  WarehouseTransferReceipt WarehouseTransferReceipt[]
+  RefreshToken             RefreshToken[]
+  Session                  Session[]
+  Tenant                   Tenant                     @relation(fields: [tenantId], references: [id])
+  UserOutlet               UserOutlet[]
+  CreatedUserInvitations   UserInvitation[]           @relation("UserInvitationCreator")
+  UserRole                 UserRole[]
+}
+
+model UserInvitation {
+  id               String                 @id @default(cuid())
+  email            String
+  tenantId         String
+  invitedByUserId  String
+  tokenHash        String                 @unique
+  expiresAt        DateTime
+  acceptedAt       DateTime?
+  revokedAt        DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  Tenant           Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  InvitedBy        User                   @relation("UserInvitationCreator", fields: [invitedByUserId], references: [id], onDelete: Restrict)
+  Roles            UserInvitationRole[]
+  Outlets          UserInvitationOutlet[]
+
+  @@index([tenantId, email, revokedAt, acceptedAt])
+  @@index([expiresAt])
+}
+
+model UserInvitationRole {
+  invitationId String
+  roleId       String
+  tenantId     String
+  Invitation   UserInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+  Role         Role           @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  Tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([invitationId, roleId])
+  @@index([tenantId])
+}
+
+model UserInvitationOutlet {
+  invitationId String
+  outletId     String
+  tenantId     String
+  Invitation   UserInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+  Outlet       Outlet         @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  Tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([invitationId, outletId])
+  @@index([tenantId])
 }
 
 model Warehouse {
-  id                String              @id @default(cuid())
-  name              String
-  tenantId          String
-  outletId          String?
-  createdAt         DateTime            @default(now())
-  code              String
-  InventoryMovement InventoryMovement[]
-  InventoryStock    InventoryStock[]
-  PurchaseOrder     PurchaseOrder[]
-  Outlet            Outlet?             @relation(fields: [outletId], references: [id])
-  Tenant            Tenant              @relation(fields: [tenantId], references: [id])
+  id                             String                           @id @default(cuid())
+  name                           String
+  tenantId                       String
+  outletId                       String?
+  isActive                       Boolean                          @default(true)
+  createdAt                      DateTime                         @default(now())
+  code                           String
+  InventoryMovement              InventoryMovement[]
+  InventoryCostLayer             InventoryCostLayer[]
+  InventoryPurchasePriceVariance InventoryPurchasePriceVariance[]
+  InventoryStock                 InventoryStock[]
+  InventoryReorderRule           InventoryReorderRule[]
+  PurchaseOrder                  PurchaseOrder[]
+  OutgoingTransfers              WarehouseTransfer[]              @relation("WarehouseTransferSource")
+  IncomingTransfers              WarehouseTransfer[]              @relation("WarehouseTransferDestination")
+  Outlet                         Outlet?                          @relation(fields: [outletId], references: [id])
+  Tenant                         Tenant                           @relation(fields: [tenantId], references: [id])
 
   @@unique([tenantId, code])
   @@unique([tenantId, name])
+}
+
+model WarehouseTransfer {
+  id                     String                     @id @default(cuid())
+  tenantId               String
+  sourceWarehouseId      String
+  destinationWarehouseId String
+  createdById            String
+  shippedById            String?
+  idempotencyKey         String                     @db.VarChar(128)
+  requestHash            String                     @db.VarChar(64)
+  status                 WarehouseTransferStatus    @default(PENDING)
+  note                   String?
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+  shippedAt              DateTime?
+  receivedAt             DateTime?
+  Items                  WarehouseTransferItem[]
+  Receipts               WarehouseTransferReceipt[]
+  Tenant                 Tenant                     @relation(fields: [tenantId], references: [id])
+  SourceWarehouse        Warehouse                  @relation("WarehouseTransferSource", fields: [sourceWarehouseId], references: [id])
+  DestinationWarehouse   Warehouse                  @relation("WarehouseTransferDestination", fields: [destinationWarehouseId], references: [id])
+  CreatedBy              User                       @relation("WarehouseTransferCreator", fields: [createdById], references: [id])
+  ShippedBy              User?                      @relation("WarehouseTransferShipper", fields: [shippedById], references: [id])
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status, createdAt])
+  @@index([sourceWarehouseId, status])
+  @@index([destinationWarehouseId, status])
+}
+
+model WarehouseTransferItem {
+  id               String                         @id @default(cuid())
+  transferId       String
+  inventoryItemId  String
+  quantity         Float
+  receivedQuantity Float                          @default(0)
+  Transfer         WarehouseTransfer              @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  InventoryItem    InventoryItem                  @relation(fields: [inventoryItemId], references: [id])
+  ReceiptItems     WarehouseTransferReceiptItem[]
+
+  @@unique([transferId, inventoryItemId])
+  @@index([inventoryItemId])
+}
+
+model WarehouseTransferReceipt {
+  id             String                         @id @default(cuid())
+  tenantId       String
+  transferId     String
+  createdById    String
+  idempotencyKey String                         @db.VarChar(128)
+  requestHash    String                         @db.VarChar(64)
+  note           String?
+  createdAt      DateTime                       @default(now())
+  Transfer       WarehouseTransfer              @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  Tenant         Tenant                         @relation(fields: [tenantId], references: [id])
+  CreatedBy      User                           @relation(fields: [createdById], references: [id])
+  Items          WarehouseTransferReceiptItem[]
+
+  @@unique([transferId, idempotencyKey])
+  @@index([tenantId, transferId, createdAt])
+}
+
+model WarehouseTransferReceiptItem {
+  id               String                   @id @default(cuid())
+  tenantId         String
+  receiptId        String
+  transferItemId   String
+  inventoryItemId  String
+  receivedQuantity Float
+  Receipt          WarehouseTransferReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  TransferItem     WarehouseTransferItem    @relation(fields: [transferItemId], references: [id])
+  InventoryItem    InventoryItem            @relation(fields: [inventoryItemId], references: [id])
+  Tenant           Tenant                   @relation(fields: [tenantId], references: [id])
+
+  @@unique([receiptId, transferItemId])
+  @@index([tenantId, receiptId])
+  @@index([transferItemId])
 }
 
 model OutboxEvent {
@@ -367,19 +667,19 @@ model OutboxEvent {
 }
 
 model WorkerInstance {
-  id            String       @id @default(cuid())
-  workerKey     String       @unique
-  name          String
-  hostname      String?
-  instancePid   Int?
-  version       String?
-  status        WorkerStatus @default(ACTIVE)
-  startedAt     DateTime     @default(now())
-  lastHeartbeatAt DateTime    @default(now())
-  stoppedAt     DateTime?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  jobExecutions JobExecution[]
+  id              String         @id @default(cuid())
+  workerKey       String         @unique
+  name            String
+  hostname        String?
+  instancePid     Int?
+  version         String?
+  status          WorkerStatus   @default(ACTIVE)
+  startedAt       DateTime       @default(now())
+  lastHeartbeatAt DateTime       @default(now())
+  stoppedAt       DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  jobExecutions   JobExecution[]
 
   @@index([status])
   @@index([lastHeartbeatAt])
@@ -387,13 +687,13 @@ model WorkerInstance {
 }
 
 model JobExecution {
-  id            String            @id @default(cuid())
+  id            String             @id @default(cuid())
   queueName     String
   bullmqJobId   String
   jobName       String?
   workerId      String?
-  worker        WorkerInstance?   @relation(fields: [workerId], references: [id], onDelete: SetNull)
-  attemptNumber Int               @default(1)
+  worker        WorkerInstance?    @relation(fields: [workerId], references: [id], onDelete: SetNull)
+  attemptNumber Int                @default(1)
   status        JobExecutionStatus @default(ACTIVE)
   startedAt     DateTime?
   finishedAt    DateTime?
@@ -401,8 +701,8 @@ model JobExecution {
   errorCategory String?
   errorMessage  String?
   correlationId String?
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
   @@unique([queueName, bullmqJobId, attemptNumber])
   @@index([queueName])
@@ -470,25 +770,99 @@ model AuditLog {
 }
 
 model PlatformAuditLog {
-  id             String   @id @default(cuid())
-  actorUserId    String
-  actorTenantId  String
-  actorType      String   @default("PLATFORM_USER")
-  action         String
-  resourceType   String
-  resourceId     String
-  targetTenantId String?
-  requestId      String?
-  correlationId  String?
-  metadata       Json?
-  outcome        String   @default("SUCCESS")
-  createdAt      DateTime @default(now())
+  id                      String            @id @default(cuid())
+  actorUserId             String?
+  actorTenantId           String?
+  actorPlatformIdentityId String?
+  actorType               String            @default("PLATFORM_USER")
+  action                  String
+  resourceType            String
+  resourceId              String
+  targetTenantId          String?
+  requestId               String?
+  correlationId           String?
+  metadata                Json?
+  outcome                 String            @default("SUCCESS")
+  createdAt               DateTime          @default(now())
+  actorPlatformIdentity   PlatformIdentity? @relation(fields: [actorPlatformIdentityId], references: [id], onDelete: Restrict)
 
   @@index([createdAt, id])
   @@index([action, createdAt])
   @@index([resourceType, resourceId])
   @@index([targetTenantId, createdAt])
   @@index([actorUserId, createdAt])
+  @@index([actorPlatformIdentityId, createdAt])
+}
+
+enum PlatformAdminRole {
+  READ_ONLY
+  OPERATIONS
+  PLATFORM_ADMIN
+}
+
+model PlatformIdentity {
+  id                  String                @id @default(cuid())
+  issuer              String
+  subject             String
+  role                PlatformAdminRole
+  email               String?
+  disabledAt          DateTime?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  sessions            PlatformSession[]
+  auditLogs           PlatformAuditLog[]
+  subscriptionHistory SubscriptionHistory[]
+
+  @@unique([issuer, subject])
+  @@index([disabledAt, role])
+}
+
+model PlatformSession {
+  id         String           @id @default(cuid())
+  identityId String
+  tokenHash  String           @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime         @default(now())
+  identity   PlatformIdentity @relation(fields: [identityId], references: [id], onDelete: Cascade)
+
+  @@index([identityId, revokedAt])
+  @@index([expiresAt])
+}
+
+model PlatformSetting {
+  key       String   @id
+  value     String
+  version   Int      @default(1)
+  updatedAt DateTime @updatedAt
+}
+
+model OperationalEventLog {
+  id         String   @id @default(cuid())
+  level      String
+  eventType  String
+  method     String
+  route      String
+  statusCode Int
+  durationMs Int
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt, id])
+  @@index([level, createdAt])
+}
+
+model OperationalMetricBucket {
+  id              String   @id @default(cuid())
+  bucketStart     DateTime
+  method          String
+  route           String
+  statusClass     String
+  requestCount    Int      @default(0)
+  errorCount      Int      @default(0)
+  durationTotalMs Int      @default(0)
+
+  @@unique([bucketStart, method, route, statusClass])
+  @@index([bucketStart])
 }
 
 model Notification {
@@ -528,49 +902,74 @@ model FeatureFlag {
 }
 
 model Plan {
-  id            String         @id @default(cuid())
-  type          PlanType       @unique
-  name          String
-  priceCents    Int
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  deletedAt     DateTime?
-  Subscriptions Subscription[]
+  id                   String         @id @default(cuid())
+  type                 PlanType       @unique
+  name                 String
+  priceCents           Int
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  deletedAt            DateTime?
+  Subscriptions        Subscription[] @relation("CurrentSubscriptionPlan")
+  PendingSubscriptions Subscription[] @relation("PendingSubscriptionPlan")
 }
 
 model Subscription {
-  id        String             @id @default(cuid())
-  tenantId  String             @unique
-  planId    String
-  status    SubscriptionStatus @default(ACTIVE)
-  startedAt DateTime           @default(now())
-  endedAt   DateTime?
-  createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
-  deletedAt DateTime?
-  plan      Plan               @relation(fields: [planId], references: [id])
-  tenant    Tenant             @relation(fields: [tenantId], references: [id])
+  id            String                @id @default(cuid())
+  tenantId      String                @unique
+  planId        String
+  pendingPlanId String?
+  status        SubscriptionStatus    @default(ACTIVE)
+  startedAt     DateTime              @default(now())
+  endedAt       DateTime?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  deletedAt     DateTime?
+  plan          Plan                  @relation("CurrentSubscriptionPlan", fields: [planId], references: [id])
+  pendingPlan   Plan?                 @relation("PendingSubscriptionPlan", fields: [pendingPlanId], references: [id], onDelete: Restrict)
+  tenant        Tenant                @relation(fields: [tenantId], references: [id])
+  history       SubscriptionHistory[]
+
+  @@index([pendingPlanId])
+}
+
+model SubscriptionHistory {
+  id                      String            @id @default(cuid())
+  subscriptionId          String
+  tenantId                String
+  eventType               String
+  actorUserId             String?
+  actorPlatformIdentityId String?
+  actorType               String            @default("SYSTEM")
+  metadata                Json
+  createdAt               DateTime          @default(now())
+  subscription            Subscription      @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  tenant                  Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  actorPlatformIdentity   PlatformIdentity? @relation(fields: [actorPlatformIdentityId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, subscriptionId, createdAt, id])
+  @@index([actorPlatformIdentityId, createdAt])
 }
 
 model Invoice {
-  id             String    @id @default(cuid())
-  tenantId       String
-  subscriptionId String?
-  invoiceNumber  String    @unique
-  amountCents    Int
-  currency       String    @default("IDR")
-  status         String    @default("PENDING")
-  providerReferenceId String? @unique
-  providerPaymentRequestId String? @unique
-  providerPaymentId String? @unique
-  providerEventId String? @unique
-  providerStatus String?
-  dueAt          DateTime?
-  paidAt         DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  deletedAt      DateTime?
-  tenant         Tenant    @relation(fields: [tenantId], references: [id])
+  id                          String                       @id @default(cuid())
+  tenantId                    String
+  subscriptionId              String?
+  invoiceNumber               String                       @unique
+  amountCents                 Int
+  currency                    String                       @default("IDR")
+  status                      String                       @default("PENDING")
+  providerReferenceId         String?                      @unique
+  providerPaymentRequestId    String?                      @unique
+  providerPaymentId           String?                      @unique
+  providerEventId             String?                      @unique
+  providerStatus              String?
+  billingPeriodKey            String?                      @unique
+  dueAt                       DateTime?
+  paidAt                      DateTime?
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
+  deletedAt                   DateTime?
+  tenant                      Tenant                       @relation(fields: [tenantId], references: [id])
   xenditPaymentRequestAttempt XenditPaymentRequestAttempt?
 
   @@index([tenantId])
@@ -583,29 +982,29 @@ model InvoiceNumberCounter {
 }
 
 model XenditPaymentRequestAttempt {
-  id                       String                                 @id @default(cuid())
-  invoiceId                String                                 @unique
+  id                       String                           @id @default(cuid())
+  invoiceId                String                           @unique
   tenantId                 String
-  state                    XenditPaymentRequestAttemptState       @default(IN_PROGRESS)
-  providerPaymentRequestId String?                                @unique
-  createdAt                DateTime                               @default(now())
-  updatedAt                DateTime                               @updatedAt
-  invoice                  Invoice                                @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  state                    XenditPaymentRequestAttemptState @default(IN_PROGRESS)
+  providerPaymentRequestId String?                          @unique
+  createdAt                DateTime                         @default(now())
+  updatedAt                DateTime                         @updatedAt
+  invoice                  Invoice                          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, state])
 }
 
 model XenditWebhookReceipt {
-  id                   String   @id @default(cuid())
-  idempotencyKey       String   @unique @db.VarChar(64)
-  paymentRequestId     String?
-  paymentId            String
-  referenceId          String?
-  eventType            String
-  paymentStatus        String
-  outcome              String   @default("PROCESSING")
-  receivedAt           DateTime @default(now())
-  processedAt          DateTime?
+  id               String    @id @default(cuid())
+  idempotencyKey   String    @unique @db.VarChar(64)
+  paymentRequestId String?
+  paymentId        String
+  referenceId      String?
+  eventType        String
+  paymentStatus    String
+  outcome          String    @default("PROCESSING")
+  receivedAt       DateTime  @default(now())
+  processedAt      DateTime?
 
   @@index([paymentRequestId])
   @@index([paymentId])
@@ -674,6 +1073,40 @@ enum InventoryMovementType {
   TRANSFER
 }
 
+enum InventoryValuationMethod {
+  FIFO
+  MOVING_WEIGHTED_AVERAGE
+  STANDARD_COST
+}
+
+enum InventoryReorderScope {
+  PER_WAREHOUSE
+  TENANT_ITEM_TOTAL
+}
+
+enum InventoryReorderQuantityStrategy {
+  TARGET_STOCK
+  FIXED_QUANTITY
+}
+
+enum InventoryReorderAction {
+  ALERT_ONLY
+  ALERT_AND_SUGGEST
+}
+
+enum MovingAverageScope {
+  PER_WAREHOUSE
+  PER_ITEM
+}
+
+enum WarehouseTransferStatus {
+  PENDING
+  IN_TRANSIT
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
 enum OrderStatus {
   PENDING
   PAID
@@ -681,6 +1114,11 @@ enum OrderStatus {
   CANCELLED
   IN_PROGRESS
   READY
+}
+
+enum OrderMode {
+  REGULAR
+  OPEN_BILL
 }
 
 enum PaymentMethod {

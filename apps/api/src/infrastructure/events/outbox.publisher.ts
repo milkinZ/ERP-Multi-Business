@@ -14,9 +14,19 @@ export class OutboxPublisher {
     client: PrismaService | Prisma.TransactionClient = this.prisma,
   ) {
     const ctx = requestContext.get();
+    const eventPayload = event.payload as Record<string, unknown>;
+    const tenantId =
+      ctx.tenantId ??
+      (typeof eventPayload.tenantId === 'string'
+        ? eventPayload.tenantId
+        : undefined);
+    if (!tenantId) {
+      throw new Error('OUTBOX_TENANT_CONTEXT_MISSING');
+    }
+
     await client.outboxEvent.create({
       data: {
-        tenantId: ctx.tenantId,
+        tenantId,
         outletId: ctx.outletId ?? null,
         type: event.type,
         payload: JSON.stringify({

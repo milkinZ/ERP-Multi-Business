@@ -1,6 +1,7 @@
 import {
   CallHandler,
   ExecutionContext,
+  HttpException,
   Injectable,
   NestInterceptor,
 } from '@nestjs/common';
@@ -13,11 +14,11 @@ import type { ObservabilityConfig } from '../../config/observability.config';
 import { MetricsService } from '../metrics/metrics.service';
 import { TracingService, type TraceContext } from '../tracing/tracing.service';
 import { AlertingService } from '../alerting/alerting.service';
+import { OperationalTelemetryService } from '../telemetry/operational-telemetry.service';
 
 interface TraceableRequest {
   method: string;
   route?: { path?: string };
-  originalUrl?: string;
   traceContext?: TraceContext;
   headers: Record<string, string | string[] | undefined>;
 }
@@ -37,6 +38,7 @@ export class PerformanceMonitorInterceptor implements NestInterceptor {
     private readonly metrics: MetricsService,
     private readonly tracing: TracingService,
     private readonly alerting: AlertingService,
+    private readonly telemetry: OperationalTelemetryService,
   ) {
     const observability = this.config.get<ObservabilityConfig>('observability');
     this.slowResponseMs = observability?.alerting.highResponseTimeMs ?? 2000;
@@ -47,8 +49,7 @@ export class PerformanceMonitorInterceptor implements NestInterceptor {
     const request = http.getRequest<TraceableRequest>();
 
     const method = request.method ?? 'UNKNOWN';
-    const route =
-      request.route?.path ?? request.originalUrl?.split('?')[0] ?? 'unknown';
+    const route = request.route?.path ?? 'unmatched';
 
     // Continue or start a trace from the incoming traceparent header.
     const rawTraceparent = request.headers['traceparent'];
@@ -73,6 +74,12 @@ export class PerformanceMonitorInterceptor implements NestInterceptor {
             typeof response?.statusCode === 'number'
               ? response.statusCode
               : 200;
+          this.telemetry.recordHttpRequest(
+            method,
+            route,
+            statusCode,
+            durationMs,
+          );
           const status = `${Math.floor(statusCode / 100)}xx`;
           this.metrics.httpRequestTotal.inc({ method, route, status });
           this.metrics.httpRequestDuration.observe(
@@ -84,15 +91,27 @@ export class PerformanceMonitorInterceptor implements NestInterceptor {
             this.alerting.recordSlowResponse(route, durationMs);
           }
         },
-        error: () => {
+        error: (error: unknown) => {
           const durationMs = Date.now() - start;
 
           const response = http.getResponse<Response | undefined>();
 
-          const statusCode =
+          const responseStatus =
             typeof response?.statusCode === 'number'
               ? response.statusCode
-              : 500;
+              : undefined;
+          const statusCode =
+            error instanceof HttpException
+              ? error.getStatus()
+              : responseStatus && responseStatus >= 400
+                ? responseStatus
+                : 500;
+          this.telemetry.recordHttpRequest(
+            method,
+            route,
+            statusCode,
+            durationMs,
+          );
           const status = `${Math.floor(statusCode / 100)}xx`;
           this.metrics.httpRequestTotal.inc({ method, route, status });
           this.metrics.httpRequestErrors.inc({ method, route, status });

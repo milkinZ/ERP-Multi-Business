@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  GoneException,
   Get,
   Post,
   Req,
@@ -13,7 +14,6 @@ import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 import { LoginDto } from './dto/login.dto';
-import { RegisterDto } from './dto/register.dto';
 import { LogoutDto } from './dto/logout.dto';
 import { RefreshDto } from './dto/refresh.dto';
 
@@ -22,14 +22,27 @@ import type { JwtUser } from '../../common/interfaces/jwt-user.interface';
 
 import { CsrfRefreshGuard } from '../../infrastructure/security/csrf-refresh.guard';
 import { REFRESH_COOKIE_NAME } from '../../infrastructure/security/security.constants';
+import { UsersInvitationsService } from '../users/users-invitations.service';
+import { AcceptUserInvitationDto } from '../users/dto/accept-user-invitation.dto';
+import { SwitchOutletDto } from './dto/switch-outlet.dto';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private readonly userInvitations: UsersInvitationsService,
+  ) {}
 
   @Post('register')
-  register(@Body() body: RegisterDto) {
-    return this.authService.register(body);
+  register() {
+    throw new GoneException(
+      'Public registration is disabled; use a tenant invitation link',
+    );
+  }
+
+  @Post('invitations/accept')
+  acceptInvitation(@Body() body: AcceptUserInvitationDto) {
+    return this.userInvitations.accept(body.token, body.password);
   }
 
   @Post('login')
@@ -74,5 +87,32 @@ export class AuthController {
   @Get('me')
   me(@CurrentUser() user: JwtUser) {
     return user;
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('outlets')
+  getAccessibleOutlets(@CurrentUser() user: JwtUser) {
+    return this.authService.getAccessibleOutlets(user);
+  }
+
+  @UseGuards(JwtAuthGuard, CsrfRefreshGuard)
+  @Post('outlet/switch')
+  switchOutlet(
+    @Body() body: SwitchOutletDto,
+    @Req() req: Request,
+    @CurrentUser() user: JwtUser,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const cookies = req.cookies as Record<string, unknown> | undefined;
+    const refreshTokenValue = cookies?.[REFRESH_COOKIE_NAME];
+    const refreshToken =
+      typeof refreshTokenValue === 'string' ? refreshTokenValue : '';
+    return this.authService.switchOutlet(
+      user,
+      body.outletId,
+      refreshToken,
+      body.csrfToken,
+      res,
+    );
   }
 }
