@@ -17,8 +17,10 @@ import {
   getLiveness,
   getPlatformOperationalTelemetry,
   getPlatformQueues,
+  getPlatformSchedulerRuns,
   platformObservabilityKeys,
 } from "@/features/platform/api/queries";
+import { usePlatformRealtime } from "@/features/platform/hooks/use-platform-realtime";
 import { useAuthStore } from "@/stores/auth.store";
 
 function readinessTone(ok: boolean | undefined, isError = false) {
@@ -55,11 +57,19 @@ function HealthSignal({ label, ok }: { label: string; ok: boolean }) {
   );
 }
 
+function formatDate(value: string | null) {
+  if (!value) return "In progress";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Not recorded" : date.toLocaleString();
+}
+
 export default function ObservabilityPage() {
   const [telemetryWindowHours, setTelemetryWindowHours] = React.useState(24);
   const token = useAuthStore((state) => state.accessToken);
   const session = useAuthStore((state) => state.session);
   const canRead = hasPermission(session, "super-admin.read");
+  const isRealtimeConnected = usePlatformRealtime(canRead);
+  const refetchInterval = isRealtimeConnected ? 60_000 : 15_000;
   const telemetryRange = React.useMemo(() => {
     const to = new Date();
     return {
@@ -75,18 +85,29 @@ export default function ObservabilityPage() {
     queryFn: getHealth,
     enabled: Boolean(token && canRead),
     staleTime: 15_000,
+    refetchInterval,
   });
   const livenessQuery = useQuery({
     queryKey: platformObservabilityKeys.liveness(),
     queryFn: getLiveness,
     enabled: Boolean(token && canRead),
     staleTime: 15_000,
+    refetchInterval,
   });
   const queuesQuery = useQuery({
     queryKey: platformObservabilityKeys.queues(),
     queryFn: () => getPlatformQueues(token as string),
     enabled: Boolean(token && canRead),
     staleTime: 15_000,
+    refetchInterval,
+  });
+  const schedulerRunsQuery = useQuery({
+    queryKey: platformObservabilityKeys.schedulerRuns(),
+    queryFn: () =>
+      getPlatformSchedulerRuns(token as string, { page: 1, limit: 25 }),
+    enabled: Boolean(token && canRead),
+    staleTime: 15_000,
+    refetchInterval,
   });
   const telemetryQuery = useQuery({
     queryKey: [...platformObservabilityKeys.telemetry(), telemetryWindowHours],
@@ -94,6 +115,7 @@ export default function ObservabilityPage() {
       getPlatformOperationalTelemetry(token as string, telemetryRange),
     enabled: Boolean(token && canRead),
     staleTime: 30_000,
+    refetchInterval,
   });
 
   if (!canRead)
@@ -128,9 +150,19 @@ export default function ObservabilityPage() {
         title="Observability"
         description="Current request-time health, liveness, and bounded queue snapshots from authoritative platform endpoints."
         actions={
-          <StatusBadge tone={readinessTone(ready, readinessQuery.isError)}>
-            {overallLabel}
-          </StatusBadge>
+          <div className="flex items-center gap-2">
+            <StatusBadge tone={isRealtimeConnected ? "success" : "warning"}>
+              {isRealtimeConnected ? "Realtime connected" : "Polling fallback"}
+            </StatusBadge>
+            {schedulerRunsQuery.data?.data.some(
+              (run) => run.status === "FAILED",
+            ) ? (
+              <StatusBadge tone="danger">Scheduler failures</StatusBadge>
+            ) : null}
+            <StatusBadge tone={readinessTone(ready, readinessQuery.isError)}>
+              {overallLabel}
+            </StatusBadge>
+          </div>
         }
       />
 
@@ -165,6 +197,90 @@ export default function ObservabilityPage() {
             />
             <HealthSignal label="Redis" ok={Boolean(readiness?.redis.ok)} />
             <HealthSignal label="BullMQ" ok={Boolean(readiness?.bullmq.ok)} />
+          </div>
+        )}
+      </section>
+
+      <section
+        aria-labelledby="scheduler-runs-heading"
+        className="mt-6 rounded-[24px] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[0_10px_30px_rgba(15,23,42,0.03)]"
+      >
+        <SectionHeader
+          title="Scheduler run history"
+          action={
+            <span className="text-xs text-[var(--muted-foreground)]">
+              {schedulerRunsQuery.data?.retentionDays ?? 30}-day retention
+            </span>
+          }
+        />
+        {schedulerRunsQuery.isPending ? (
+          <div className="h-32 animate-pulse rounded-2xl bg-[var(--muted)]" />
+        ) : schedulerRunsQuery.isError ? (
+          <UnavailableState
+            title="Scheduler history unavailable"
+            description="The authorized scheduler history endpoint could not be reached."
+          />
+        ) : !schedulerRunsQuery.data?.data.length ? (
+          <EmptyState
+            title="No scheduler runs recorded"
+            description="Scheduler executions will appear here after the next scheduled run."
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--border)] text-xs uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
+                  {[
+                    "Scheduler",
+                    "Status",
+                    "Started",
+                    "Duration",
+                    "Error code",
+                  ].map((heading) => (
+                    <th key={heading} className="px-3 py-3">
+                      {heading}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {schedulerRunsQuery.data.data.map((run) => (
+                  <tr
+                    key={run.id}
+                    className="border-b border-[var(--border)] last:border-0"
+                  >
+                    <th
+                      scope="row"
+                      className="px-3 py-3 font-medium text-[var(--foreground)]"
+                    >
+                      {run.schedulerName}
+                    </th>
+                    <td className="px-3 py-3">
+                      <StatusBadge
+                        tone={
+                          run.status === "SUCCEEDED"
+                            ? "success"
+                            : run.status === "FAILED"
+                              ? "danger"
+                              : "warning"
+                        }
+                      >
+                        {run.status}
+                      </StatusBadge>
+                    </td>
+                    <td className="px-3 py-3 text-[var(--muted-foreground)]">
+                      {formatDate(run.startedAt)}
+                    </td>
+                    <td className="px-3 py-3 text-[var(--muted-foreground)]">
+                      {run.durationMs === null ? "—" : `${run.durationMs} ms`}
+                    </td>
+                    <td className="px-3 py-3 font-mono text-xs text-[var(--muted-foreground)]">
+                      {run.errorCode ?? "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </section>

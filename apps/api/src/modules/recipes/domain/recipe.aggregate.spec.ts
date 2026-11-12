@@ -11,12 +11,12 @@ describe('RecipeAggregate', () => {
   it('accepts positive unique inventory item quantities', () => {
     const aggregate = RecipeAggregate.create({
       ...base,
-      items: [{ inventoryItemId: 'inventory-a', quantity: 2 }],
+      items: [{ inventoryItemId: 'inventory-a', quantity: 2.123456 }],
     });
 
     expect(aggregate.tenantId).toBe('tenant-a');
     expect(aggregate.items).toEqual([
-      { inventoryItemId: 'inventory-a', quantity: 2 },
+      { inventoryItemId: 'inventory-a', quantity: 2.123456 },
     ]);
   });
 
@@ -45,6 +45,16 @@ describe('RecipeAggregate', () => {
         ...base,
         items: [{ inventoryItemId: 'a', quantity: 0 }],
       }),
-    ).toThrow('Inventory item quantity must be a positive integer');
+    ).toThrow(
+      'Inventory item quantity must be positive with at most six decimal places',
+    );
+    expect(() =>
+      RecipeAggregate.create({
+        ...base,
+        items: [{ inventoryItemId: 'a', quantity: 1.1234567 }],
+      }),
+    ).toThrow(
+      'Inventory item quantity must be positive with at most six decimal places',
+    );
   });
 });

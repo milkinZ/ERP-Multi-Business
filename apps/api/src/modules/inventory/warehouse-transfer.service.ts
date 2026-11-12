@@ -92,6 +92,7 @@ export class WarehouseTransferService {
     const normalizedItems = dto.items.map((item) => ({
       inventoryItemId: item.inventoryItemId.trim(),
       quantity: item.quantity,
+      ...(item.unit !== undefined ? { unit: item.unit.trim() } : {}),
     }));
     const itemIds = new Set<string>();
     for (const item of normalizedItems) {
@@ -147,13 +148,16 @@ export class WarehouseTransferService {
             where: { id: destinationWarehouseId, tenantId },
             select: { id: true, isActive: true },
           }),
-          tx.inventoryItem.findMany({
-            where: {
-              id: { in: normalizedItems.map((item) => item.inventoryItemId) },
-              tenantId,
-            },
-            select: { id: true },
-          }),
+          tx.$queryRaw<Array<{ id: string; unit: string | null }>>`
+            SELECT "id", "unit"
+            FROM "InventoryItem"
+            WHERE "id" IN (${Prisma.join(
+              normalizedItems.map((item) => item.inventoryItemId),
+            )})
+              AND "tenantId" = ${tenantId}
+            ORDER BY "id"
+            FOR UPDATE
+          `,
         ]);
 
         if (!source || !destination) {
@@ -171,6 +175,16 @@ export class WarehouseTransferService {
             'One or more inventory items were not found in this tenant',
           );
         }
+        for (const item of normalizedItems) {
+          const currentItem = inventoryItems.find(
+            (inventoryItem) => inventoryItem.id === item.inventoryItemId,
+          );
+          if (item.unit !== undefined && item.unit !== currentItem?.unit) {
+            throw new ConflictException(
+              'Inventory item unit changed; reload the transfer form',
+            );
+          }
+        }
 
         const created = await tx.warehouseTransfer.create({
           data: {
@@ -184,6 +198,11 @@ export class WarehouseTransferService {
             Items: {
               create: normalizedItems.map((item) => ({
                 inventoryItemId: item.inventoryItemId,
+                unit:
+                  inventoryItems.find(
+                    (inventoryItem) =>
+                      inventoryItem.id === item.inventoryItemId,
+                  )?.unit ?? null,
                 quantity: item.quantity,
               })),
             },
@@ -512,6 +531,7 @@ export class WarehouseTransferService {
                 transferItemId: transferItem.id,
                 inventoryItemId: transferItem.inventoryItemId,
                 receivedQuantity: delta,
+                unit: transferItem.unit,
               })),
             },
           },

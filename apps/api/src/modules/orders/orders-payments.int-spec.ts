@@ -6,6 +6,7 @@ import { TenantsRepository } from '../tenants/tenants.repository';
 import { PaymentsRepository } from '../payments/payments.repository';
 import { BillingRepository } from '../billing/billing.repository';
 import { SubscriptionRepository } from '../subscription/domain/subscription.repository';
+import { PlanEntitlementsService } from '../subscription/plans/plan-entitlements.service';
 import { ProductsRepository } from '../products/products.repository';
 import { Money } from '../../core/domain/value-objects/money';
 import {
@@ -15,7 +16,10 @@ import {
 } from '../subscription/domain/subscription.aggregate';
 
 const prisma = new PrismaClient();
-const orders = new OrdersRepository(prisma as never);
+const orders = new OrdersRepository(
+  prisma as never,
+  new PlanEntitlementsService(prisma as never),
+);
 const tenants = new TenantsRepository(prisma as never);
 const payments = new PaymentsRepository(prisma as never);
 const billing = new BillingRepository(prisma as never);
@@ -69,6 +73,9 @@ async function cleanup() {
     where: { orderId: { in: [orderA, orderB] } },
   });
   await prisma.salesOrder.deleteMany({
+    where: { tenantId: { in: [tenantA, tenantB] } },
+  });
+  await prisma.subscriptionMonthlyUsage.deleteMany({
     where: { tenantId: { in: [tenantA, tenantB] } },
   });
   await prisma.product.deleteMany({
@@ -177,6 +184,9 @@ describe('Orders, payments, billing, and subscription integration', () => {
     await prisma.salesOrder.deleteMany({
       where: { id: { in: [orderA, orderB] } },
     });
+    await prisma.subscriptionMonthlyUsage.deleteMany({
+      where: { tenantId: { in: [tenantA, tenantB] } },
+    });
     await prisma.tenant.updateMany({
       where: { id: { in: [tenantA, tenantB] } },
       data: { currencyCode: 'IDR' },
@@ -239,7 +249,6 @@ describe('Orders, payments, billing, and subscription integration', () => {
       where: { id: tenantB },
       data: { currencyCode: null },
     });
-
     await expect(
       orders.createOrder(tenantB, outletB, 'IT-ORDER-NO-CURRENCY', 0, []),
     ).rejects.toThrow(
@@ -250,6 +259,39 @@ describe('Orders, payments, billing, and subscription integration', () => {
       where: { id: tenantB },
       data: { currencyCode: 'IDR' },
     });
+  });
+
+  it('atomically rejects concurrent new orders beyond the monthly cap', async () => {
+    const periodKey = new Date().toISOString().slice(0, 7);
+    await prisma.subscriptionMonthlyUsage.create({
+      data: { tenantId: tenantA, periodKey, orderCount: 499 },
+    });
+
+    const results = await Promise.allSettled([
+      orders.createOrder(tenantA, outletA, 'IT-ORDER-LIMIT-A', 0, []),
+      orders.createOrder(tenantA, outletA, 'IT-ORDER-LIMIT-B', 0, []),
+    ]);
+
+    expect(
+      results.filter((result) => result.status === 'fulfilled'),
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === 'rejected'),
+    ).toHaveLength(1);
+    await expect(
+      prisma.subscriptionMonthlyUsage.findUnique({
+        where: { tenantId_periodKey: { tenantId: tenantA, periodKey } },
+        select: { orderCount: true },
+      }),
+    ).resolves.toEqual({ orderCount: 500 });
+    await expect(
+      prisma.salesOrder.count({
+        where: {
+          tenantId: tenantA,
+          orderNumber: { in: ['IT-ORDER-LIMIT-A', 'IT-ORDER-LIMIT-B'] },
+        },
+      }),
+    ).resolves.toBe(1);
   });
 
   it('allows initial currency configuration without rewriting legacy orders', async () => {

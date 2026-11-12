@@ -3,6 +3,7 @@ import {
   Logger,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
 } from "@nestjs/common";
 import type { Job } from "bullmq";
 import { Queue, QueueEvents } from "bullmq";
@@ -11,6 +12,7 @@ import { QUEUE_NAMES, type QueueName } from "../queue/queue.constants";
 import { RedisService } from "../shared/redis.service";
 import { PrismaService } from "../shared/prisma.service";
 import { WorkerRegistryService } from "./worker-registry.service";
+import { PlatformOperationsSignalPublisher } from "./platform-operations-signal.publisher";
 
 export type JobExecutionStatus = "ACTIVE" | "RETRYING" | "COMPLETED" | "FAILED";
 
@@ -38,6 +40,8 @@ export class JobExecutionHistoryService
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly workerRegistry: WorkerRegistryService,
+    @Optional()
+    private readonly realtimeSignal?: PlatformOperationsSignalPublisher,
   ) {}
 
   onModuleInit() {
@@ -374,6 +378,8 @@ export class JobExecutionHistoryService
       this.logger.warn(
         `Job execution history for ${args.queueName}/${args.bullmqJobId} attempt ${args.attemptNumber} could not be persisted.`,
       );
+      return;
     }
+    await this.realtimeSignal?.publishRefresh();
   }
 }

@@ -5,7 +5,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import * as crypto from 'node:crypto';
 
 import { PrismaService } from '../../../core/database/prisma.service';
@@ -69,6 +69,91 @@ const defaultSystemRoles = [
     ],
   },
 ] as const;
+
+type DefaultRoleClient = Pick<PrismaClient, 'permission' | 'role'>;
+
+export async function ensureDefaultTenantRoles(
+  client: DefaultRoleClient,
+  tenantId: string,
+): Promise<{ ownerRoleId: string }> {
+  const permissionCodes = [
+    ...new Set(defaultSystemRoles.flatMap((role) => role.permissionCodes)),
+  ];
+  const permissions = await client.permission.findMany({
+    where: { code: { in: permissionCodes } },
+    select: { id: true, code: true },
+  });
+  const permissionByCode = new Map<string, string>();
+  for (const permission of permissions) {
+    const permissionCode: unknown = permission.code;
+    const permissionId: unknown = permission.id;
+    if (
+      typeof permissionCode !== 'string' ||
+      typeof permissionId !== 'string'
+    ) {
+      throw new InternalServerErrorException(
+        'A seeded tenant permission has invalid data',
+      );
+    }
+    permissionByCode.set(permissionCode, permissionId);
+  }
+  const missingCode = permissionCodes.find(
+    (code) => !permissionByCode.has(code),
+  );
+  if (missingCode) {
+    throw new InternalServerErrorException(
+      `Required system role permission is not seeded: ${missingCode}`,
+    );
+  }
+
+  let ownerRoleId: string | undefined;
+  for (const role of defaultSystemRoles) {
+    const rolePermissions = role.permissionCodes.map((code) => {
+      const permissionCode: unknown = code;
+      if (typeof permissionCode !== 'string') {
+        throw new InternalServerErrorException(
+          'A default tenant role has an invalid permission code',
+        );
+      }
+      const permissionId = permissionByCode.get(permissionCode);
+      if (!permissionId) {
+        throw new InternalServerErrorException(
+          `Required system role permission is not seeded: ${permissionCode}`,
+        );
+      }
+      return {
+        id: crypto.randomUUID(),
+        Permission: { connect: { id: permissionId } },
+      };
+    });
+
+    const savedRole = await client.role.upsert({
+      where: {
+        tenantId_systemKey: { tenantId, systemKey: role.key },
+      },
+      create: {
+        tenantId,
+        systemKey: role.key,
+        isSystem: true,
+        name: role.name,
+        description: role.description,
+        RolePermission: { create: rolePermissions },
+      },
+      update: {},
+      select: { id: true },
+    });
+    if (role.key === 'OWNER') {
+      ownerRoleId = savedRole.id;
+    }
+  }
+
+  if (!ownerRoleId) {
+    throw new InternalServerErrorException(
+      'Default Owner role was not created',
+    );
+  }
+  return { ownerRoleId };
+}
 
 type RoleListOptions = {
   page: number;
@@ -326,52 +411,7 @@ export class RolesService {
   }
 
   private async ensureDefaultRoles(tenantId: string): Promise<void> {
-    const permissionCodes = [
-      ...new Set(defaultSystemRoles.flatMap((role) => role.permissionCodes)),
-    ];
-    const permissions = await this.prisma.permission.findMany({
-      where: { code: { in: permissionCodes } },
-      select: { id: true, code: true },
-    });
-    const knownCodes = new Set(
-      permissions.map((permission) => permission.code),
-    );
-    const missingCode = permissionCodes.find((code) => !knownCodes.has(code));
-    if (missingCode) {
-      throw new InternalServerErrorException(
-        `Required system role permission is not seeded: ${missingCode}`,
-      );
-    }
-
-    for (const role of defaultSystemRoles) {
-      const rolePermissions = role.permissionCodes.map((code) => {
-        const permission = permissions.find((item) => item.code === code);
-        if (!permission) {
-          throw new InternalServerErrorException(
-            `Required system role permission is not seeded: ${code}`,
-          );
-        }
-        return {
-          id: crypto.randomUUID(),
-          Permission: { connect: { id: permission.id } },
-        };
-      });
-
-      await this.prisma.role.upsert({
-        where: {
-          tenantId_systemKey: { tenantId, systemKey: role.key },
-        },
-        create: {
-          tenantId,
-          systemKey: role.key,
-          isSystem: true,
-          name: role.name,
-          description: role.description,
-          RolePermission: { create: rolePermissions },
-        },
-        update: {},
-      });
-    }
+    await ensureDefaultTenantRoles(this.prisma, tenantId);
   }
 
   private toResponse<

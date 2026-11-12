@@ -15,7 +15,8 @@ export const orderSchema = z.object({
     .min(1, "Add at least one product"),
 });
 
-export type OrderFormValues = z.infer<typeof orderSchema>;
+export type OrderFormInput = z.input<typeof orderSchema>;
+export type OrderFormValues = z.output<typeof orderSchema>;
 
 export const paymentSchema = z.object({
   method: z.enum(["CASH", "QRIS", "TRANSFER"]),
@@ -25,4 +26,5 @@ export const paymentSchema = z.object({
     .min(1, "Amount must be greater than zero"),
 });
 
-export type PaymentFormValues = z.infer<typeof paymentSchema>;
+export type PaymentFormInput = z.input<typeof paymentSchema>;
+export type PaymentFormValues = z.output<typeof paymentSchema>;

@@ -1,12 +1,26 @@
 "use client"
 
-import React from "react"
+import React, { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { EmptyState, SectionHeader, StatusBadge, UnavailableState } from "@/components/data-display/states"
 import { ApiError } from "@/lib/api/client"
 import { useAuthStore } from "@/stores/auth.store"
-import { deleteNotification, getNotifications, getUnreadCount, markAllNotificationsAsRead, markNotificationAsRead, notificationKeys, type NotificationRecord } from "@/features/erp/notifications/api/queries"
+import { deleteNotification, getNotificationPreferences, getNotifications, getUnreadCount, markAllNotificationsAsRead, markNotificationAsRead, notificationKeys, updateNotificationPreferences, type NotificationPreference, type NotificationRecord } from "@/features/erp/notifications/api/queries"
+
+const categoryLabels: Record<string, string> = {
+  PRODUCTS: "Products",
+  ORDERS: "Orders",
+  PAYMENTS: "Payments",
+  INVENTORY: "Inventory",
+  PROCUREMENT: "Procurement",
+  KITCHEN: "Kitchen",
+  USERS: "Users",
+  BUSINESS: "Business",
+  FEATURE_FLAGS: "Feature flags",
+  SUBSCRIPTIONS: "Subscriptions",
+  BILLING: "Billing",
+}
 
 function formatTimestamp(value?: string | null) {
   if (!value) return "—"
@@ -18,6 +32,7 @@ export function NotificationWorkspace() {
   const session = useAuthStore((state) => state.session)
   const tenantId = session?.tenantId
   const queryClient = useQueryClient()
+  const [preferenceDraft, setPreferenceDraft] = useState<NotificationPreference[] | null>(null)
 
   const listQuery = useQuery({
     queryKey: tenantId ? notificationKeys.all(tenantId) : ["notifications", "unauthenticated"],
@@ -32,14 +47,32 @@ export function NotificationWorkspace() {
     enabled: Boolean(token && tenantId),
     staleTime: 30_000,
   })
+  const preferencesQuery = useQuery({
+    queryKey: tenantId ? notificationKeys.preferences(tenantId) : ["notifications", "unauthenticated", "preferences"],
+    queryFn: () => getNotificationPreferences(token as string),
+    enabled: Boolean(token && tenantId),
+  })
 
   const invalidateQueries = async () => {
     if (!tenantId) return
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: notificationKeys.all(tenantId) }),
       queryClient.invalidateQueries({ queryKey: notificationKeys.unread(tenantId) }),
+      queryClient.invalidateQueries({ queryKey: notificationKeys.preferences(tenantId) }),
     ])
   }
+
+  const preferencesMutation = useMutation({
+    mutationFn: (preferences: NotificationPreference[]) => {
+      if (!token) throw new Error("Authentication required")
+      return updateNotificationPreferences(token, preferences)
+    },
+    retry: 0,
+    onSuccess: async () => {
+      setPreferenceDraft(null)
+      await invalidateQueries()
+    },
+  })
 
   const markReadMutation = useMutation({
     mutationFn: (notificationId: string) => {
@@ -108,6 +141,68 @@ export function NotificationWorkspace() {
             {markAllReadMutation.isPending ? "Updating..." : "Mark all read"}
           </button>
         </div>
+      </section>
+
+      <section className="rounded-[24px] border border-[var(--border)] bg-[var(--panel)] p-5">
+        <SectionHeader eyebrow="Delivery settings" title="Notification preferences" />
+        <p className="mt-2 text-sm text-[var(--muted-foreground)]">
+          Choose which notification categories you receive in-app and by email.
+        </p>
+        {preferencesQuery.isError ? (
+          <p role="alert" className="mt-3 text-sm text-destructive">
+            Notification preferences could not be loaded.
+          </p>
+        ) : preferencesQuery.isPending ? (
+          <p role="status" className="mt-3 text-sm text-[var(--muted-foreground)]">
+            Loading notification preferences...
+          </p>
+        ) : (
+          <>
+            <div className="mt-4 divide-y divide-[var(--border)]">
+              {(preferenceDraft ?? preferencesQuery.data ?? []).map((preference) => (
+                <div key={preference.category} className="flex flex-wrap items-center justify-between gap-4 py-3">
+                  <span className="text-sm font-medium text-[var(--foreground)]">
+                    {categoryLabels[preference.category] ?? preference.category}
+                  </span>
+                  <div className="flex gap-5">
+                    {(["inApp", "email"] as const).map((channel) => (
+                      <label key={channel} className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+                        <input
+                          type="checkbox"
+                          checked={preference[channel]}
+                          onChange={(event) => {
+                            const current = preferenceDraft ?? preferencesQuery.data ?? []
+                            setPreferenceDraft(current.map((item) =>
+                              item.category === preference.category
+                                ? { ...item, [channel]: event.target.checked }
+                                : item,
+                            ))
+                          }}
+                        />
+                        {channel === "inApp" ? "In-app" : "Email"}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {preferencesMutation.isError ? (
+              <p role="alert" className="mt-3 text-sm text-destructive">
+                {preferencesMutation.error instanceof Error
+                  ? preferencesMutation.error.message
+                  : "Unable to save notification preferences."}
+              </p>
+            ) : null}
+            <button
+              type="button"
+              disabled={!preferenceDraft || preferencesMutation.isPending}
+              onClick={() => preferenceDraft && preferencesMutation.mutate(preferenceDraft)}
+              className="mt-4 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {preferencesMutation.isPending ? "Saving..." : "Save preferences"}
+            </button>
+          </>
+        )}
       </section>
 
       {!notifications.length ? (

@@ -10,11 +10,13 @@ export class RecipesService {
 
   async create(
     tenantId: string,
+    userId: string,
     dto: {
       productId: string;
       items: {
         inventoryItemId: string;
         quantity: number;
+        unit?: string;
       }[];
     },
   ) {
@@ -28,6 +30,7 @@ export class RecipesService {
 
     return this.recipesRepository.createRecipe({
       tenantId,
+      userId,
       productId: aggregate.productId,
       items: aggregate.items,
     });
@@ -35,6 +38,32 @@ export class RecipesService {
 
   findByProduct(productId: string, tenantId: string) {
     return this.recipesRepository.findByProduct(productId, tenantId);
+  }
+
+  update(
+    tenantId: string,
+    userId: string,
+    productId: string,
+    dto: {
+      expectedRevision: number;
+      items: { inventoryItemId: string; quantity: number; unit?: string }[];
+    },
+  ) {
+    return this.recipesRepository.updateRecipe({
+      tenantId,
+      userId,
+      productId,
+      expectedRevision: dto.expectedRevision,
+      items: dto.items,
+    });
+  }
+
+  archive(productId: string, tenantId: string, userId: string) {
+    return this.recipesRepository.archiveRecipe(productId, tenantId, userId);
+  }
+
+  restore(productId: string, tenantId: string, userId: string) {
+    return this.recipesRepository.restoreRecipe(productId, tenantId, userId);
   }
 
   findAll(tenantId: string, query: ListRecipesQueryDto) {

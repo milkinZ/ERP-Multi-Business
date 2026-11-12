@@ -16,6 +16,11 @@ const PLATFORM_SETTINGS = {
   supportUrl: { label: 'Support URL', defaultValue: '' },
   defaultTimezone: { label: 'Default timezone', defaultValue: 'Asia/Jakarta' },
   defaultCurrency: { label: 'Default display currency', defaultValue: 'IDR' },
+  autopayEnabled: { label: 'Recurring autopay enabled', defaultValue: 'false' },
+  mitChannelAllowlist: {
+    label: 'Operator-approved MIT channel codes',
+    defaultValue: '',
+  },
 } as const;
 
 type PlatformSettingKey = keyof typeof PLATFORM_SETTINGS;
@@ -58,6 +63,9 @@ export class PlatformSettingsService {
     this.validateValue(key, normalizedValue);
 
     return this.prisma.$transaction(async (tx) => {
+      if (key === 'autopayEnabled' || key === 'mitChannelAllowlist') {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(7281946301) IS NULL`;
+      }
       const current = await tx.platformSetting.findUnique({ where: { key } });
       const currentVersion = current?.version ?? 0;
       if (currentVersion !== expectedVersion) {
@@ -67,6 +75,28 @@ export class PlatformSettingsService {
       }
 
       const nextVersion = currentVersion + 1;
+      if (key === 'autopayEnabled' && normalizedValue === 'true') {
+        const channelSetting = await tx.platformSetting.findUnique({
+          where: { key: 'mitChannelAllowlist' },
+          select: { value: true },
+        });
+        if (!channelSetting?.value.trim()) {
+          throw new BadRequestException(
+            'Configure at least one operator-approved MIT channel before enabling autopay',
+          );
+        }
+      }
+      if (key === 'mitChannelAllowlist' && normalizedValue === '') {
+        const enabledSetting = await tx.platformSetting.findUnique({
+          where: { key: 'autopayEnabled' },
+          select: { value: true },
+        });
+        if (enabledSetting?.value === 'true') {
+          throw new BadRequestException(
+            'Disable autopay before removing all approved MIT channels',
+          );
+        }
+      }
       if (current) {
         const updated = await tx.platformSetting.updateMany({
           where: { key, version: currentVersion },
@@ -162,6 +192,29 @@ export class PlatformSettingsService {
       !['IDR', 'USD', 'SGD', 'MYR', 'PHP', 'THB', 'VND'].includes(normalized)
     ) {
       throw new BadRequestException('Default display currency is unsupported');
+    }
+
+    if (key === 'autopayEnabled' && !['true', 'false'].includes(normalized)) {
+      throw new BadRequestException(
+        'Autopay enabled must be either true or false',
+      );
+    }
+
+    if (key === 'mitChannelAllowlist' && normalized) {
+      const channels = normalized.split(',');
+      if (
+        channels.length > 20 ||
+        channels.some(
+          (channel) =>
+            channel !== channel.trim().toUpperCase() ||
+            !/^[A-Z0-9_]{2,32}$/.test(channel),
+        ) ||
+        new Set(channels).size !== channels.length
+      ) {
+        throw new BadRequestException(
+          'MIT channel allowlist must contain unique uppercase channel codes separated by commas',
+        );
+      }
     }
   }
 }

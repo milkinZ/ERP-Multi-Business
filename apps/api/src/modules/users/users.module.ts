@@ -6,9 +6,11 @@ import { UsersRepository } from './users.repository';
 import { UsersInvitationsService } from './users-invitations.service';
 import { EmailService } from '../../infrastructure/email/email.service';
 import { RBACModule } from '../rbac/rbac.module';
+import { SubscriptionModule } from '../subscription/subscription.module';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
-  imports: [PrismaModule, RBACModule],
+  imports: [PrismaModule, RBACModule, SubscriptionModule, BillingModule],
   controllers: [UsersController],
   providers: [
     UsersService,

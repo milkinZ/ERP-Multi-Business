@@ -27,10 +27,14 @@ describe('RecipesService', () => {
     ];
 
     await expect(
-      service.create('tenant-a', { productId: 'product-a', items }),
+      service.create('tenant-a', 'user-a', {
+        productId: 'product-a',
+        items,
+      }),
     ).resolves.toEqual(expect.objectContaining({ tenantId: 'tenant-a' }));
     expect(createRecipe).toHaveBeenCalledWith({
       tenantId: 'tenant-a',
+      userId: 'user-a',
       productId: 'product-a',
       items,
     });
@@ -38,10 +42,13 @@ describe('RecipesService', () => {
 
   it('rejects invalid recipe invariants before persistence', async () => {
     await expect(
-      service.create('tenant-a', { productId: 'product-a', items: [] }),
+      service.create('tenant-a', 'user-a', {
+        productId: 'product-a',
+        items: [],
+      }),
     ).rejects.toThrow('Recipe must contain at least one inventory item');
     await expect(
-      service.create('tenant-a', {
+      service.create('tenant-a', 'user-a', {
         productId: 'product-a',
         items: [
           { inventoryItemId: 'inventory-a', quantity: 1 },

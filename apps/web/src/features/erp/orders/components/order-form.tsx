@@ -18,6 +18,7 @@ import {
 import { createOrder, orderKeys } from "@/features/erp/orders/api/queries";
 import {
   orderSchema,
+  type OrderFormInput,
   type OrderFormValues,
 } from "@/features/erp/orders/schemas/order.schema";
 
@@ -48,7 +49,7 @@ export function OrderForm({ onCreated }: { onCreated: () => void }) {
     handleSubmit,
     watch,
     formState: { errors },
-  } = useForm<OrderFormValues>({
+  } = useForm<OrderFormInput, unknown, OrderFormValues>({
     resolver: zodResolver(orderSchema),
     defaultValues: {
       orderMode: "REGULAR",
@@ -123,10 +124,11 @@ export function OrderForm({ onCreated }: { onCreated: () => void }) {
     const product = products.find(
       (candidate) => candidate.id === item.productId,
     );
+    const quantity = Number(item.quantity);
     return (
       total +
       (product?.price ?? 0) *
-        (Number.isFinite(item.quantity) ? item.quantity : 0)
+        (Number.isFinite(quantity) ? quantity : 0)
     );
   }, 0);
 

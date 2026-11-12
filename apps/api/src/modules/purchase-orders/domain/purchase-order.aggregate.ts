@@ -3,6 +3,7 @@ import { PurchaseOrderStatus, Prisma } from '@prisma/client';
 
 export type PurchaseOrderItemProps = {
   inventoryItemId: string;
+  unit?: string | null;
   quantity: number;
   unitPrice: number;
   subtotal: number;
@@ -63,21 +64,23 @@ export class PurchaseOrderAggregate extends AggregateRoot {
         throw new Error('Inventory item id must not be empty');
       }
 
-      if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+      if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
+        throw new Error('Purchase order item quantity must be positive');
+      }
+
+      if (
+        !Number.isFinite(item.unitPrice) ||
+        item.unitPrice < 0 ||
+        Math.round(item.unitPrice * 1_000_000) !== item.unitPrice * 1_000_000
+      ) {
         throw new Error(
-          'Purchase order item quantity must be a positive integer',
+          'Purchase order item unit price must be a non-negative value with at most six decimal places',
         );
       }
 
-      if (!Number.isInteger(item.unitPrice) || item.unitPrice < 0) {
+      if (item.subtotal !== Math.round(item.quantity * item.unitPrice)) {
         throw new Error(
-          'Purchase order item unit price must be a non-negative integer',
-        );
-      }
-
-      if (item.subtotal !== item.quantity * item.unitPrice) {
-        throw new Error(
-          'Purchase order item subtotal must equal quantity times unit price',
+          'Purchase order item subtotal must equal the rounded quantity times unit price',
         );
       }
 
@@ -117,8 +120,9 @@ export class PurchaseOrderAggregate extends AggregateRoot {
       completedAt: purchaseOrder.completedAt,
       items: purchaseOrder.PurchaseOrderItem.map((item) => ({
         inventoryItemId: item.inventoryItemId,
+        unit: item.unit,
         quantity: item.quantity,
-        unitPrice: item.unitPrice,
+        unitPrice: item.unitPrice.toNumber(),
         subtotal: item.subtotal,
         receivedQuantity: item.receivedQuantity,
       })),

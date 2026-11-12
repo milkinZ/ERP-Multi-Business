@@ -36,6 +36,7 @@ export const DOMAIN_EVENTS = {
   PURCHASE_ORDER_SENT: 'purchase-order.sent',
   PURCHASE_ORDER_PARTIALLY_RECEIVED: 'purchase-order.partially-received',
   PURCHASE_ORDER_RECEIVED: 'purchase-order.received',
+  PURCHASE_ORDER_RETURNED: 'purchase-order.returned',
   PURCHASE_ORDER_COMPLETED: 'purchase-order.completed',
   PURCHASE_ORDER_CANCELLED: 'purchase-order.cancelled',
 
@@ -54,6 +55,7 @@ export const DOMAIN_EVENTS = {
   KITCHEN_SERVED: 'kitchen.served',
   KITCHEN_CANCELLED: 'kitchen.cancelled',
   KITCHEN_RECALLED: 'kitchen.recalled',
+  KITCHEN_UPDATED: 'kitchen.updated',
 
   // Feature Flags
   FEATURE_FLAG_CREATED: 'feature-flag.created',
@@ -96,6 +98,7 @@ export const DOMAIN_EVENTS = {
   INVOICE_PAID: 'invoice.paid',
   INVOICE_FAILED: 'invoice.failed',
   INVOICE_CANCELLED: 'invoice.cancelled',
+  INVOICE_REFUNDED: 'invoice.refunded',
 } as const;
 
 export type DomainEventName =
@@ -108,6 +111,7 @@ type BaseDomainEvent<
   type: TType;
   payload: TPayload;
   occurredAt?: Date;
+  eventId?: string;
 };
 
 export type OrderCreatedEvent = BaseDomainEvent<
@@ -437,6 +441,17 @@ export type KitchenRecalledEvent = BaseDomainEvent<
     tenantId: string;
     outletId?: string | null;
     reason?: string;
+  }
+>;
+
+export type KitchenUpdatedEvent = BaseDomainEvent<
+  typeof DOMAIN_EVENTS.KITCHEN_UPDATED,
+  {
+    tenantId: string;
+    outletId?: string | null;
+    salesOrderId?: string;
+    stationId?: string;
+    action: string;
   }
 >;
 
@@ -771,6 +786,18 @@ export type InvoiceCancelledEvent = BaseDomainEvent<
   }
 >;
 
+export type InvoiceRefundedEvent = BaseDomainEvent<
+  typeof DOMAIN_EVENTS.INVOICE_REFUNDED,
+  {
+    invoiceId: string;
+    refundId: string;
+    tenantId: string;
+    amountCents: number;
+    refundedAmountCents: number;
+    status: 'PARTIALLY_REFUNDED' | 'REFUNDED';
+  }
+>;
+
 export type DomainEvent =
   | UserLoginEvent
   | UserLogoutEvent
@@ -809,6 +836,7 @@ export type DomainEvent =
   | KitchenServedEvent
   | KitchenCancelledEvent
   | KitchenRecalledEvent
+  | KitchenUpdatedEvent
   | FeatureFlagCreatedEvent
   | FeatureFlagEnabledEvent
   | FeatureFlagDisabledEvent
@@ -842,4 +870,5 @@ export type DomainEvent =
   | InvoiceCreatedEvent
   | InvoicePaidEvent
   | InvoiceFailedEvent
-  | InvoiceCancelledEvent;
+  | InvoiceCancelledEvent
+  | InvoiceRefundedEvent;

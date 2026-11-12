@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 import { BaseRepository } from '../../core/database/repositories/base.repository';
 import { PrismaService } from '../../core/database/prisma.service';
 import {
@@ -7,10 +11,14 @@ import {
   SalesOrderWithItems,
 } from './domain/order.aggregate';
 import { OrderMode, OrderStatus, Prisma } from '@prisma/client';
+import { PlanEntitlementsService } from '../subscription/plans/plan-entitlements.service';
 
 @Injectable()
 export class OrdersRepository extends BaseRepository {
-  constructor(protected readonly prisma: PrismaService) {
+  constructor(
+    protected readonly prisma: PrismaService,
+    private readonly planEntitlements: PlanEntitlementsService,
+  ) {
     super(prisma);
   }
 
@@ -21,7 +29,17 @@ export class OrdersRepository extends BaseRepository {
     totalAmount: number,
     items: OrderItemDetails[],
     orderMode: OrderMode = OrderMode.REGULAR,
-  ): Promise<SalesOrderWithItems> {
+  ): Promise<
+    SalesOrderWithItems & {
+      planUsage: {
+        periodKey: string;
+        ordersUsed: number;
+        monthlyOrderLimit: number | null;
+        limitReached: boolean;
+        overLimit: boolean;
+      };
+    }
+  > {
     const created = await this.prisma.$transaction(async (tx) => {
       const tenants = await tx.$queryRaw<
         Array<{ currencyCode: string | null }>
@@ -35,6 +53,26 @@ export class OrdersRepository extends BaseRepository {
       if (!currencyCode) {
         throw new BadRequestException(
           'Configure the tenant base currency before creating financial transactions',
+        );
+      }
+
+      const periodKey = new Date().toISOString().slice(0, 7);
+      const usageRecord = await tx.subscriptionMonthlyUsage.upsert({
+        where: { tenantId_periodKey: { tenantId, periodKey } },
+        create: { tenantId, periodKey, orderCount: 1 },
+        update: { orderCount: { increment: 1 } },
+        select: { orderCount: true },
+      });
+      const entitlements = await this.planEntitlements.getForTenant(
+        tenantId,
+        tx,
+      );
+      const overLimit =
+        entitlements.maxMonthlyOrders !== null &&
+        usageRecord.orderCount > entitlements.maxMonthlyOrders;
+      if (overLimit) {
+        throw new ConflictException(
+          `The ${entitlements.planType} plan allows up to ${entitlements.maxMonthlyOrders} orders per month`,
         );
       }
 
@@ -60,7 +98,7 @@ export class OrdersRepository extends BaseRepository {
         })),
       });
 
-      return tx.salesOrder.findUnique({
+      const createdOrder = await tx.salesOrder.findUnique({
         where: { id: order.id },
         include: {
           SalesOrderItem: {
@@ -70,6 +108,20 @@ export class OrdersRepository extends BaseRepository {
           },
         },
       });
+      if (!createdOrder) return null;
+
+      return {
+        ...createdOrder,
+        planUsage: {
+          periodKey,
+          ordersUsed: usageRecord.orderCount,
+          monthlyOrderLimit: entitlements.maxMonthlyOrders,
+          limitReached:
+            entitlements.maxMonthlyOrders !== null &&
+            usageRecord.orderCount >= entitlements.maxMonthlyOrders,
+          overLimit,
+        },
+      };
     });
 
     if (!created) {
@@ -193,15 +245,79 @@ export class OrdersRepository extends BaseRepository {
     id: string,
     tenantId: string,
   ): Promise<SalesOrderWithItems | null> {
-    await this.prisma.salesOrder.updateMany({
-      where: {
-        id,
-        tenantId,
-        status: { not: OrderStatus.CANCELLED },
-        kitchenReleasedAt: null,
-        OR: [{ orderMode: OrderMode.OPEN_BILL }, { paymentStatus: 'PAID' }],
-      },
-      data: { kitchenReleasedAt: new Date() },
+    await this.prisma.$transaction(async (tx) => {
+      const [order] = await tx.$queryRaw<
+        Array<{
+          id: string;
+          outletId: string | null;
+          kitchenReleasedAt: Date | null;
+          status: OrderStatus;
+        }>
+      >`
+        SELECT "id", "outletId", "kitchenReleasedAt", "status"
+        FROM "SalesOrder"
+        WHERE "id" = ${id} AND "tenantId" = ${tenantId}
+        FOR UPDATE
+      `;
+      if (!order || order.status === OrderStatus.CANCELLED) return;
+
+      const canRelease = await tx.salesOrder.findFirst({
+        where: {
+          id,
+          tenantId,
+          OR: [{ orderMode: OrderMode.OPEN_BILL }, { paymentStatus: 'PAID' }],
+        },
+        select: { id: true },
+      });
+      if (!canRelease) return;
+
+      if (!order.kitchenReleasedAt) {
+        if (order.outletId) {
+          const products = await tx.salesOrderItem.findMany({
+            where: { orderId: id },
+            select: {
+              id: true,
+              Product: {
+                select: {
+                  kitchenCategory: true,
+                  kitchenPrepTimeMinutes: true,
+                },
+              },
+            },
+          });
+          const routes = await tx.kitchenStationCategory.findMany({
+            where: {
+              tenantId,
+              outletId: order.outletId,
+              Station: { isActive: true },
+            },
+            select: { category: true, stationId: true },
+          });
+          const stationByCategory = new Map(
+            routes.map((route) => [route.category, route.stationId]),
+          );
+          for (const item of products) {
+            const category =
+              item.Product.kitchenCategory?.trim().toLocaleLowerCase('en-US') ??
+              null;
+            await tx.salesOrderItem.update({
+              where: { id: item.id },
+              data: {
+                kitchenCategorySnapshot: category,
+                kitchenPrepTimeMinutes: item.Product.kitchenPrepTimeMinutes,
+                kitchenStationId: category
+                  ? (stationByCategory.get(category) ?? null)
+                  : null,
+              },
+            });
+          }
+        }
+
+        await tx.salesOrder.update({
+          where: { id },
+          data: { kitchenReleasedAt: new Date() },
+        });
+      }
     });
 
     return this.findOne(id, tenantId);

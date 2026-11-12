@@ -12,10 +12,13 @@ import { Permissions } from '../../common/decorator/permissions.decorator';
 import type { JwtUser } from '../../common/interfaces/jwt-user.interface';
 import { PermissionGuard } from '../rbac/permission.guard';
 import { PERMISSIONS } from '../rbac/permissions';
+import { FeatureModuleGuard } from '../feature-flags/feature-module.guard';
+import { RequireFeatureModule } from '../subscription/plans/feature-module.decorator';
 
-@UseGuards(JwtAuthGuard, PermissionGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard, FeatureModuleGuard)
 @ApiTags('Analytics')
 @Controller('analytics')
+@RequireFeatureModule('ANALYTICS')
 export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
 

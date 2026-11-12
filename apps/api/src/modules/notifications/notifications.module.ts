@@ -6,6 +6,7 @@ import { NotificationController } from './notification.controller';
 import { NotificationFactory } from './notification.factory';
 import { NotificationTemplateService } from './notification.template.service';
 import { NotificationPreferenceService } from './notification.preference.service';
+import { NotificationRecipientService } from './notification-recipient.service';
 import { NotificationEventSubscriber } from './notification.event-subscriber';
 import { EmailNotificationChannelHandler } from './notification.email.handler';
 import { InAppNotificationChannelHandler } from './notification.in-app.handler';
@@ -19,6 +20,7 @@ import { NOTIFICATION_CHANNEL_HANDLERS } from './notification.channel';
     NotificationFactory,
     NotificationTemplateService,
     NotificationPreferenceService,
+    NotificationRecipientService,
     NotificationEventSubscriber,
     EmailNotificationChannelHandler,
     InAppNotificationChannelHandler,

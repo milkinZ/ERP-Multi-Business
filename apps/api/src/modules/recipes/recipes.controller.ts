@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -21,9 +23,13 @@ import { CreateRecipeDto } from './dto/create-recipe.dto';
 import { ListRecipesQueryDto } from './dto/list-recipes-query.dto';
 import { PermissionGuard } from '../rbac/permission.guard';
 import { PERMISSIONS } from '../rbac/permissions';
+import { UpdateRecipeDto } from './dto/update-recipe.dto';
+import { FeatureModuleGuard } from '../feature-flags/feature-module.guard';
+import { RequireFeatureModule } from '../subscription/plans/feature-module.decorator';
 
-@UseGuards(JwtAuthGuard, PermissionGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard, FeatureModuleGuard)
 @Controller('recipes')
+@RequireFeatureModule('INVENTORY')
 export class RecipesController {
   constructor(private recipesService: RecipesService) {}
 
@@ -36,7 +42,34 @@ export class RecipesController {
     @CurrentUser()
     user: JwtUser,
   ) {
-    return this.recipesService.create(user.tenantId, dto);
+    return this.recipesService.create(user.tenantId, user.userId, dto);
+  }
+
+  @Put(':productId')
+  @Permissions(PERMISSIONS.RECIPE_UPDATE)
+  update(
+    @Param('productId') productId: string,
+    @Body() dto: UpdateRecipeDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.recipesService.update(
+      user.tenantId,
+      user.userId,
+      productId,
+      dto,
+    );
+  }
+
+  @Delete(':productId')
+  @Permissions(PERMISSIONS.RECIPE_UPDATE)
+  archive(@Param('productId') productId: string, @CurrentUser() user: JwtUser) {
+    return this.recipesService.archive(productId, user.tenantId, user.userId);
+  }
+
+  @Post(':productId/restore')
+  @Permissions(PERMISSIONS.RECIPE_UPDATE)
+  restore(@Param('productId') productId: string, @CurrentUser() user: JwtUser) {
+    return this.recipesService.restore(productId, user.tenantId, user.userId);
   }
 
   @Get()

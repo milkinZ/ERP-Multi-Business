@@ -53,6 +53,11 @@ export const PERMISSIONS = {
   PURCHASE_ORDER_APPROVE: 'purchase_order.approve',
   PURCHASE_ORDER_RECEIVE: 'purchase_order.receive',
 
+  FINANCE_READ: 'finance.read',
+  FINANCE_MANAGE: 'finance.manage',
+  FINANCE_APPROVE: 'finance.approve',
+  FINANCE_POST: 'finance.post',
+
   // Admin
   QUEUE_VIEW: 'queue.view',
 

@@ -25,6 +25,7 @@ import {
 } from "@/features/erp/orders/api/queries";
 import {
   paymentSchema,
+  type PaymentFormInput,
   type PaymentFormValues,
 } from "@/features/erp/orders/schemas/order.schema";
 
@@ -109,7 +110,7 @@ export function OrderDetailWorkspace({ orderId }: { orderId: string }) {
     reset,
     setValue,
     formState: { errors },
-  } = useForm<PaymentFormValues>({
+  } = useForm<PaymentFormInput, unknown, PaymentFormValues>({
     resolver: zodResolver(paymentSchema),
     defaultValues: { method: "CASH", amount: query.data?.totalAmount ?? 0 },
   });

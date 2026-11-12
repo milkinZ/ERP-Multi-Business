@@ -14,6 +14,7 @@ import {
   getUnreadCount,
   notificationKeys,
 } from "@/features/erp/notifications/api/queries";
+import { getSubscriptionFeatureEntitlements } from "@/features/erp/billing/api/queries";
 import {
   apiRequest,
   getCsrfToken,
@@ -45,8 +46,25 @@ export function AppShell({
   const tenantId = useAuthStore((state) => state.session?.tenantId);
   const userId = useAuthStore((state) => state.session?.userId);
   const session = useAuthStore((state) => state.session);
-  const items = navigationFor(surface).filter(
-    (item) => !item.permission || hasPermission(session, item.permission),
+  const featureEntitlementsQuery = useQuery({
+    queryKey: tenantId
+      ? ["subscriptions", tenantId, "feature-entitlements"]
+      : ["subscriptions", "unauthenticated", "feature-entitlements"],
+    queryFn: () => getSubscriptionFeatureEntitlements(accessToken as string),
+    enabled: Boolean(!isPlatform && accessToken && tenantId),
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+  const items = navigationFor(
+    surface,
+    featureEntitlementsQuery.data?.featureModules ?? [],
+  ).filter(
+    (item) =>
+      (!item.permission || hasPermission(session, item.permission)) &&
+      (!item.featureModule ||
+        featureEntitlementsQuery.data?.featureModules.includes(
+          item.featureModule,
+        )),
   );
   const [signOutError, setSignOutError] = useState<string | null>(null);
   const [outletError, setOutletError] = useState<string | null>(null);
@@ -226,6 +244,22 @@ export function AppShell({
           aria-label={`${surface} navigation`}
           className="grid grid-cols-2 gap-2 px-4 pb-5 sm:grid-cols-3 lg:block lg:space-y-1.5"
         >
+          {!isPlatform && featureEntitlementsQuery.isError ? (
+            <p
+              role="alert"
+              className="col-span-full px-3 py-2 text-xs text-destructive"
+            >
+              Module access could not be loaded. Refresh to try again.
+            </p>
+          ) : null}
+          {!isPlatform && featureEntitlementsQuery.isPending ? (
+            <p
+              role="status"
+              className="col-span-full px-3 py-2 text-xs text-[var(--muted-foreground)]"
+            >
+              Loading purchased modules...
+            </p>
+          ) : null}
           {items.map((item) => {
             const isNotificationsItem = item.href === "/app/notifications";
             const showUnreadBadge =

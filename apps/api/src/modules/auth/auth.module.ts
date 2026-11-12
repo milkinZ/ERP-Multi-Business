@@ -4,6 +4,9 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtModule } from '@nestjs/jwt';
 import { UsersModule } from '../users/users.module';
+import { PrismaModule } from '../../core/database/prisma.module';
+import { EmailService } from '../../infrastructure/email/email.service';
+import { TenantRegistrationService } from './tenant-registration.service';
 import { JwtStrategy } from './jwt.strategy';
 import { AuthTokensService } from './services/auth-tokens.service';
 import { RefreshTokensService } from './services/refresh-tokens.service';
@@ -28,6 +31,8 @@ import { loadOpenIdClient, PLATFORM_OIDC_CLIENT } from './openid-client-loader';
     RefreshTokenSelectorsService,
     RefreshSecretHashService,
     PlatformIdentityAuthService,
+    TenantRegistrationService,
+    EmailService,
     {
       provide: PLATFORM_OIDC_CLIENT,
       useValue: loadOpenIdClient,
@@ -35,6 +40,7 @@ import { loadOpenIdClient, PLATFORM_OIDC_CLIENT } from './openid-client-loader';
   ],
   controllers: [AuthController, PlatformAuthController],
   imports: [
+    PrismaModule,
     UsersModule,
     SecurityModule,
     JwtModule.registerAsync({

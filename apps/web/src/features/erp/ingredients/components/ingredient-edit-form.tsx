@@ -28,16 +28,14 @@ export function IngredientEditForm({
   const tenantId = useAuthStore((state) => state.session?.tenantId);
   const queryClient = useQueryClient();
   const [name, setName] = useState(ingredient.name);
-  const [unit, setUnit] = useState(ingredient.unit);
   const [isActive, setIsActive] = useState(ingredient.InventoryItem.isActive);
   const [serverError, setServerError] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [removeNotice, setRemoveNotice] = useState<string | null>(null);
   useEffect(() => {
     setName(ingredient.name);
-    setUnit(ingredient.unit);
     setIsActive(ingredient.InventoryItem.isActive);
-  }, [ingredient.name, ingredient.unit, ingredient.InventoryItem.isActive]);
+  }, [ingredient.name, ingredient.InventoryItem.isActive]);
 
   async function invalidateIngredientQueries() {
     if (!tenantId) return;
@@ -104,7 +102,6 @@ export function IngredientEditForm({
     if (!canUpdate) return;
     const input: UpdateIngredientInput = {};
     if (name.trim() !== ingredient.name) input.name = name.trim();
-    if (unit.trim() !== ingredient.unit) input.unit = unit.trim();
     if (isActive !== ingredient.InventoryItem.isActive) {
       input.isActive = isActive;
     }
@@ -129,16 +126,6 @@ export function IngredientEditForm({
               className="mt-2 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--panel)] px-3"
             />
           </label>
-          <label className="text-sm font-medium text-[var(--foreground)]">
-            Unit
-            <input
-              value={unit}
-              onChange={(event) => setUnit(event.target.value)}
-              maxLength={32}
-              required
-              className="mt-2 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--panel)] px-3"
-            />
-          </label>
           <label className="flex items-center gap-2 text-sm font-medium text-[var(--foreground)]">
             <input
               type="checkbox"
@@ -159,8 +146,9 @@ export function IngredientEditForm({
         {canUpdate ? (
           <>
             <p className="mb-3 text-xs text-[var(--muted-foreground)]">
-              Unit changes are locked after stock, movement, or recipe usage
-              exists. Deactivation preserves historical records.
+              Change units only through the audited conversion control. It
+              converts on-hand stock, active costing, reorder settings, and
+              open purchase/transfer documents.
             </p>
             <button
               type="submit"

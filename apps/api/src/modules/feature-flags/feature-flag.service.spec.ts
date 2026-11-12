@@ -8,12 +8,13 @@ import { FeatureFlagRepository } from './feature-flag.repository';
 import { FeatureFlagService } from './feature-flag.service';
 
 describe('FeatureFlagService', () => {
+  const findByKeyMock = jest.fn();
   const repository = {
     existsByKey: jest.fn(),
     save: jest.fn(),
     findById: jest.fn(),
     findByIdIncludingArchived: jest.fn(),
-    findByKey: jest.fn(),
+    findByKey: findByKeyMock,
   } as unknown as FeatureFlagRepository;
   const eventBusPublish = jest.fn();
   const eventBus = {
@@ -25,11 +26,21 @@ describe('FeatureFlagService', () => {
     del: jest.Mock;
   } = { get: jest.fn(), setex: jest.fn(), del: jest.fn() };
   const redis = { getClient: jest.fn(() => client) } as unknown as RedisService;
+  const planEntitlements = {
+    getFeatureModuleEntitlement: jest.fn().mockResolvedValue(null),
+  };
   let service: FeatureFlagService;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new FeatureFlagService(repository, eventBus, redis);
+    repository.findByKey = findByKeyMock;
+    planEntitlements.getFeatureModuleEntitlement.mockResolvedValue(null);
+    service = new FeatureFlagService(
+      repository,
+      eventBus,
+      redis,
+      planEntitlements as never,
+    );
   });
 
   it('rejects duplicate keys within the trusted tenant scope', async () => {
@@ -75,6 +86,36 @@ describe('FeatureFlagService', () => {
     await expect(
       service.evaluate(testIds.tenant, 'inventory-v2'),
     ).resolves.toBe(false);
+  });
+
+  it('blocks module flags unless the tenant has an active module entitlement', async () => {
+    planEntitlements.getFeatureModuleEntitlement.mockResolvedValue(false);
+
+    await expect(service.evaluate(testIds.tenant, 'INVENTORY')).resolves.toBe(
+      false,
+    );
+    expect(findByKeyMock).not.toHaveBeenCalled();
+    expect(client.get).not.toHaveBeenCalled();
+  });
+
+  it('enables an entitled module by default and honors a tenant-level disable override', async () => {
+    planEntitlements.getFeatureModuleEntitlement.mockResolvedValue(true);
+    (repository.findByKey as jest.Mock).mockResolvedValueOnce(null);
+
+    await expect(service.evaluate(testIds.tenant, 'INVENTORY')).resolves.toBe(
+      true,
+    );
+
+    const disabled = FeatureFlagAggregate.create(
+      testIds.featureFlag,
+      'INVENTORY',
+      testIds.tenant,
+      false,
+    );
+    (repository.findByKey as jest.Mock).mockResolvedValueOnce(disabled);
+    await expect(service.evaluate(testIds.tenant, 'INVENTORY')).resolves.toBe(
+      false,
+    );
   });
 
   it('publishes a tenant-scoped event and invalidates only that tenant cache on enable', async () => {

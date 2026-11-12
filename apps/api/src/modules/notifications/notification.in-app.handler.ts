@@ -28,15 +28,21 @@ export class InAppNotificationChannelHandler implements NotificationChannelHandl
     }
 
     try {
-      await this.prisma.notification.create({
-        data: {
-          tenantId: job.tenantId,
-          userId: job.recipientId,
-          type: job.notification.type,
-          title: job.notification.title,
-          message: job.notification.message,
-          payload: job.notification.data as Prisma.InputJsonValue,
-        },
+      await this.prisma.notification.createMany({
+        data: [
+          {
+            tenantId: job.tenantId,
+            userId: job.recipientId,
+            outletId: job.outletId,
+            category: job.notification.category,
+            sourceEventId: job.notification.sourceEventId,
+            type: job.notification.type,
+            title: job.notification.title,
+            message: job.notification.message,
+            payload: job.notification.data as Prisma.InputJsonValue,
+          },
+        ],
+        skipDuplicates: true,
       });
     } catch (error) {
       this.logger.error('Failed to create in-app notification', String(error));

@@ -22,6 +22,7 @@ import {
 } from "@/features/erp/inventory/api/queries";
 import {
   inventoryMutationSchema,
+  type InventoryMutationInput,
   type InventoryMutationValues,
 } from "@/features/erp/inventory/schemas/inventory-mutation.schema";
 
@@ -44,7 +45,7 @@ export function InventoryMutationForm({
     watch,
     reset,
     formState: { errors },
-  } = useForm<InventoryMutationValues>({
+  } = useForm<InventoryMutationInput, unknown, InventoryMutationValues>({
     resolver: zodResolver(inventoryMutationSchema),
     defaultValues: { operation: "stock-in", quantity: 1 },
   });

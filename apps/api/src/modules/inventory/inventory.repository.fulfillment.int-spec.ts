@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, ProductStockMode } from '@prisma/client';
 
 import { assertSafeIntegrationEnvironment } from '../../test/integration-environment';
 import { InventoryRepository } from './inventory.repository';
@@ -68,6 +68,7 @@ describe('InventoryRepository fulfillment integration', () => {
         id: itemA,
         code: 'ITEM-A',
         name: 'Product Stock A',
+        unit: 'PCS',
         type: 'PRODUCT',
         tenantId: tenantA,
         valuationMethod: 'STANDARD_COST',
@@ -79,6 +80,7 @@ describe('InventoryRepository fulfillment integration', () => {
         id: itemB,
         code: 'ITEM-B',
         name: 'Product Stock B',
+        unit: 'PCS',
         type: 'PRODUCT',
         tenantId: tenantA,
         valuationMethod: 'STANDARD_COST',
@@ -92,6 +94,7 @@ describe('InventoryRepository fulfillment integration', () => {
         sku: 'FULFILL-A',
         price: 100,
         tenantId: tenantA,
+        stockMode: ProductStockMode.INVENTORY_ITEM,
         inventoryItemId: itemA,
       },
     });
@@ -102,6 +105,7 @@ describe('InventoryRepository fulfillment integration', () => {
         sku: 'FULFILL-B',
         price: 100,
         tenantId: tenantA,
+        stockMode: ProductStockMode.INVENTORY_ITEM,
         inventoryItemId: itemB,
       },
     });

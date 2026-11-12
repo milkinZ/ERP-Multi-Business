@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { ConflictException } from '@nestjs/common';
 
 import { ProductsService } from './products.service';
 import { ProductsRepository } from './products.repository';
@@ -34,18 +34,23 @@ describe('ProductsService', () => {
     expect(createFromDto).toHaveBeenCalledWith({
       name: 'Coffee',
       description: null,
+      kitchenCategory: null,
+      kitchenPrepTimeMinutes: null,
       price: 250,
       sku: 'COFFEE-1',
+      stockMode: undefined,
+      inventoryUnit: undefined,
       tenantId: 'tenant-a',
     });
   });
 
-  it('maps repository failures to a bad request', async () => {
-    createFromDto.mockRejectedValue(new Error('SKU already exists'));
+  it('preserves repository conflict errors', async () => {
+    const conflict = new ConflictException('SKU already exists');
+    createFromDto.mockRejectedValue(conflict);
 
     await expect(
       service.create({ name: 'Coffee', price: 250, tenantId: 'tenant-a' }),
-    ).rejects.toThrow(new BadRequestException('SKU already exists'));
+    ).rejects.toBe(conflict);
   });
 
   it('preserves tenant scope for reads and not-found results', async () => {

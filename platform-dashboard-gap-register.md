@@ -24,7 +24,7 @@
 
 ### REALTIME INFRASTRUCTURE GAP
 
-- No platform dashboard realtime contract exists. Dashboard values use request-time TanStack Query data.
+- The readiness indicator receives platform operations invalidation signals and periodically polls. Tenant and billing aggregate cards remain request-time reads and are not refreshed by operational signals.
 
 ### PERFORMANCE GAP
 

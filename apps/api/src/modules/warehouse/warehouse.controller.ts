@@ -22,9 +22,12 @@ import { WarehouseStocksQueryDto } from './dto/warehouse-stocks-query.dto';
 import { PermissionGuard } from '../rbac/permission.guard';
 import { PERMISSIONS } from '../rbac/permissions';
 import type { JwtUser } from '../../common/interfaces/jwt-user.interface';
+import { FeatureModuleGuard } from '../feature-flags/feature-module.guard';
+import { RequireFeatureModule } from '../subscription/plans/feature-module.decorator';
 
-@UseGuards(JwtAuthGuard, PermissionGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard, FeatureModuleGuard)
 @Controller('warehouses')
+@RequireFeatureModule('INVENTORY')
 export class WarehouseController {
   constructor(private warehouseService: WarehouseService) {}
 

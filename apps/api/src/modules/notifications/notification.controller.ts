@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   Put,
@@ -7,7 +8,7 @@ import {
   Query,
   UseGuards,
   HttpStatus,
-  BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -17,6 +18,7 @@ import {
 } from '@nestjs/swagger';
 import { NotificationService } from './notification.service';
 import { ListNotificationsDto } from './dto/create-notification.dto';
+import { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorator/current-user.decorator';
 import type { JwtUser } from '../../common/interfaces/jwt-user.interface';
@@ -51,12 +53,27 @@ export class NotificationController {
       dto.limit,
     );
 
-    return {
-      success: true,
-      message: 'Notifications retrieved successfully',
-      data: result.data,
-      pagination: result.pagination,
-    };
+    return result;
+  }
+
+  @Get('preferences')
+  getPreferences(@CurrentUser() user: JwtUser) {
+    return this.notificationService.getUserPreferences(
+      user.userId,
+      user.tenantId,
+    );
+  }
+
+  @Put('preferences')
+  updatePreferences(
+    @Body() dto: UpdateNotificationPreferencesDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.notificationService.updateUserPreferences(
+      user.userId,
+      user.tenantId,
+      dto.preferences,
+    );
   }
 
   /**
@@ -73,11 +90,7 @@ export class NotificationController {
       user.tenantId,
     );
 
-    return {
-      success: true,
-      message: 'Unread count retrieved',
-      data: { unreadCount: count },
-    };
+    return { unreadCount: count };
   }
 
   /**
@@ -96,14 +109,10 @@ export class NotificationController {
     );
 
     if (result.count === 0) {
-      throw new BadRequestException('Notification not found');
+      throw new NotFoundException('Notification not found');
     }
 
-    return {
-      success: true,
-      message: 'Notification marked as read',
-      data: { updated: result.count },
-    };
+    return { updated: result.count };
   }
 
   /**
@@ -120,11 +129,7 @@ export class NotificationController {
       user.tenantId,
     );
 
-    return {
-      success: true,
-      message: 'All notifications marked as read',
-      data: { updated: result.count },
-    };
+    return { updated: result.count };
   }
 
   /**
@@ -146,12 +151,9 @@ export class NotificationController {
     );
 
     if (result.count === 0) {
-      throw new BadRequestException('Notification not found');
+      throw new NotFoundException('Notification not found');
     }
 
-    return {
-      success: true,
-      message: 'Notification deleted successfully',
-    };
+    return { deleted: true };
   }
 }

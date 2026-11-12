@@ -7,6 +7,7 @@ import {
   Max,
   MaxLength,
   Min,
+  MinLength,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { KitchenStatus } from '../domain/kitchen-status.enum';
@@ -31,6 +32,12 @@ export class ListKitchenTicketsDto {
   @IsString()
   @MaxLength(100)
   search?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  stationId?: string;
 
   @ApiPropertyOptional({ minimum: 0, maximum: 2_147_483_647 })
   @IsOptional()

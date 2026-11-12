@@ -11,7 +11,11 @@ export type RequestContextStore = {
   allowPreAuthUserLookup?: boolean;
   allowPreAuthRefreshTokenLookup?: boolean;
   allowPreAuthInvitationLookup?: boolean;
-  systemOperation?: 'outbox-dispatch' | 'xendit-webhook';
+  allowPublicTenantRegistration?: boolean;
+  systemOperation?:
+    | 'outbox-dispatch'
+    | 'xendit-webhook'
+    | 'subscription-autopay';
   /** Optional W3C traceparent header value when tracing is enabled */
   traceparent?: string;
 };

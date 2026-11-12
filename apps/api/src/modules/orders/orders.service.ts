@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 
 import { OrdersRepository } from './orders.repository';
 import { OrderMode, OrderStatus } from '@prisma/client';
@@ -9,6 +9,8 @@ import { InventoryReservationService } from '../inventory/inventory-reservation.
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     private readonly ordersRepository: OrdersRepository,
     private readonly events: DomainEventBus,
@@ -62,6 +64,11 @@ export class OrdersService {
       orderItems,
       orderMode,
     );
+    if (order.planUsage.overLimit) {
+      this.logger.warn(
+        `Tenant ${tenantId} exceeded its monthly order allowance for ${order.planUsage.periodKey}`,
+      );
+    }
 
     await this.events.publish({
       type: DOMAIN_EVENTS.ORDER_CREATED,

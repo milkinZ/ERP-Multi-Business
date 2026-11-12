@@ -1,7 +1,10 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Prisma, TenantStatus } from '@prisma/client';
 
@@ -15,6 +18,7 @@ import {
   invoiceExportDateBounds,
 } from '../billing/invoice-export';
 import type { InvoiceExportFilters } from '../billing/dto/invoice-export-query.dto';
+import type { ListPlatformInvoicesDto } from './dto/list-platform-invoices.dto';
 
 import { SuperAdminRepository } from './super-admin.repository';
 import type { PlatformBillingAggregateResponse } from './dto/platform-billing-aggregate-response.dto';
@@ -26,6 +30,10 @@ import {
   SuperAdminAggregate,
   SuperAdminTargetStatus,
 } from './domain/super-admin.aggregate';
+import { getPlanCatalogEntry } from '../subscription/plans/plan-catalog';
+import { DEFAULT_PLAN_MODULE_KEYS } from '../subscription/plans/plan-module-defaults';
+import { BillingService } from '../billing/billing.service';
+import { requestContext } from '../../core/request-context/request-context';
 
 export type SuperAdminActor = {
   platformIdentityId: string;
@@ -39,6 +47,7 @@ export class SuperAdminService {
     private readonly platformAuditLog: PlatformAuditLogService,
     // Prisma is used for transactional cross-tenant orchestration only.
     private readonly prisma: PrismaService,
+    @Optional() private readonly billingService?: BillingService,
   ) {}
 
   // ---- Tenant management -------------------------------------------------
@@ -279,28 +288,152 @@ export class SuperAdminService {
     return this.repository.findAllPlans();
   }
 
-  async createPlan(data: { type: string; name: string; priceCents: number }) {
+  async createPlan(
+    actor: SuperAdminActor,
+    data: {
+      type: string;
+      name: string;
+      priceCents: number;
+      maxOutlets?: number | null;
+      maxUsers?: number | null;
+      maxMonthlyOrders?: number | null;
+      moduleIds?: string[];
+    },
+  ) {
     const existing = await this.repository.findPlanByType(data.type);
     if (existing) {
       throw new ConflictException('A plan with this type already exists');
     }
-    return this.repository.createPlan(data);
+    let defaults: ReturnType<typeof getPlanCatalogEntry>;
+    try {
+      defaults = getPlanCatalogEntry(data.type);
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof Error ? error.message : 'Unsupported plan type',
+      );
+    }
+
+    const defaultModuleKeys = DEFAULT_PLAN_MODULE_KEYS[defaults.type];
+    const modules =
+      data.moduleIds === undefined
+        ? await this.repository.findFeatureModulesByKeys([...defaultModuleKeys])
+        : await this.repository.findFeatureModulesByIds(data.moduleIds);
+    if (
+      modules.length !==
+      (data.moduleIds === undefined
+        ? defaultModuleKeys.length
+        : new Set(data.moduleIds).size)
+    ) {
+      if (data.moduleIds === undefined) {
+        throw new ServiceUnavailableException(
+          'The default plan modules are not fully configured or active',
+        );
+      }
+      throw new NotFoundException(
+        'One or more active feature modules not found',
+      );
+    }
+    const moduleIds = data.moduleIds ?? modules.map((module) => module.id);
+
+    return this.prisma.$transaction(async (tx) => {
+      const plan = await this.repository.createPlan(
+        {
+          ...data,
+          moduleIds,
+          maxOutlets:
+            data.maxOutlets === undefined
+              ? defaults.maxOutlets
+              : data.maxOutlets,
+          maxUsers:
+            data.maxUsers === undefined ? defaults.maxUsers : data.maxUsers,
+          maxMonthlyOrders:
+            data.maxMonthlyOrders === undefined
+              ? defaults.maxMonthlyOrders
+              : data.maxMonthlyOrders,
+        },
+        tx,
+      );
+      await this.platformAuditLog.create(
+        {
+          actor,
+          action: 'super-admin.plan.created',
+          resourceType: 'PLAN',
+          resourceId: plan.id,
+          metadata: {
+            type: plan.type,
+            moduleIds,
+          },
+        },
+        tx,
+      );
+      return plan;
+    });
   }
 
-  async updatePlan(id: string, data: { name?: string; priceCents?: number }) {
+  async updatePlan(
+    actor: SuperAdminActor,
+    id: string,
+    data: {
+      name?: string;
+      priceCents?: number;
+      maxOutlets?: number | null;
+      maxUsers?: number | null;
+      maxMonthlyOrders?: number | null;
+      moduleIds?: string[];
+    },
+  ) {
     const plan = await this.repository.findPlanById(id);
     if (!plan) {
       throw new NotFoundException('Plan not found');
     }
-    return this.repository.updatePlan(id, data);
+    const moduleIds = data.moduleIds;
+    if (moduleIds !== undefined) {
+      const modules = await this.repository.findFeatureModulesByIds(moduleIds);
+      if (modules.length !== new Set(moduleIds).size) {
+        throw new NotFoundException(
+          'One or more active feature modules not found',
+        );
+      }
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await this.repository.updatePlan(id, data, tx);
+      await this.platformAuditLog.create(
+        {
+          actor,
+          action: 'super-admin.plan.updated',
+          resourceType: 'PLAN',
+          resourceId: id,
+          metadata: {
+            changedFields: Object.keys(data),
+            moduleIds:
+              moduleIds ?? plan.modules?.map((item) => item.moduleId) ?? [],
+          },
+        },
+        tx,
+      );
+      return updated;
+    });
   }
 
-  async deletePlan(id: string) {
+  async deletePlan(actor: SuperAdminActor, id: string) {
     const plan = await this.repository.findPlanById(id);
     if (!plan) {
       throw new NotFoundException('Plan not found');
     }
-    return this.repository.softDeletePlan(id);
+    return this.prisma.$transaction(async (tx) => {
+      const deleted = await this.repository.softDeletePlan(id, tx);
+      await this.platformAuditLog.create(
+        {
+          actor,
+          action: 'super-admin.plan.archived',
+          resourceType: 'PLAN',
+          resourceId: id,
+          metadata: { type: plan.type },
+        },
+        tx,
+      );
+      return deleted;
+    });
   }
 
   // ---- Subscriptions -----------------------------------------------------
@@ -578,9 +711,127 @@ export class SuperAdminService {
     });
   }
 
-  async listInvoices() {
-    const invoices = await this.repository.findAllInvoices();
-    return invoices.map((invoice) => this.toPlatformInvoiceResponse(invoice));
+  async listInvoices(query: ListPlatformInvoicesDto) {
+    const dateBounds = invoiceExportDateBounds(query);
+    const result = await this.repository.findAllInvoices(
+      {
+        ...(query.tenantId ? { tenantId: query.tenantId } : {}),
+        ...(query.subscriptionId
+          ? { subscriptionId: query.subscriptionId }
+          : {}),
+        ...(query.status ? { status: query.status } : {}),
+        ...(dateBounds.from || dateBounds.to
+          ? {
+              createdAt: {
+                ...(dateBounds.from ? { gte: dateBounds.from } : {}),
+                ...(dateBounds.to ? { lte: dateBounds.to } : {}),
+              },
+            }
+          : {}),
+      },
+      query.page,
+      query.limit,
+    );
+    return {
+      ...result,
+      data: result.data.map((invoice) =>
+        this.toPlatformInvoiceResponse(invoice),
+      ),
+    };
+  }
+
+  async executePlatformBilling(
+    actor: SuperAdminActor,
+    tenantId: string,
+    subscriptionId: string,
+    action: 'execute' | 'renew',
+  ) {
+    const subscription =
+      await this.repository.findSubscriptionById(subscriptionId);
+    if (!subscription || subscription.tenantId !== tenantId) {
+      throw new NotFoundException('Subscription not found for tenant');
+    }
+
+    await this.platformAuditLog.create({
+      actor,
+      action: `super-admin.billing.${action}.requested`,
+      resourceType: 'SUBSCRIPTION',
+      resourceId: subscriptionId,
+      targetTenantId: tenantId,
+      metadata: { subscriptionId, action, outcome: 'REQUESTED' },
+    });
+
+    const billing = this.requireBillingService();
+    return requestContext.run(
+      { tenantId, platformIdentityId: actor.platformIdentityId },
+      () =>
+        action === 'execute'
+          ? billing.executeBilling(subscriptionId)
+          : billing.renewSubscription(subscriptionId),
+    );
+  }
+
+  async cancelPlatformPendingInvoice(
+    actor: SuperAdminActor,
+    tenantId: string,
+    invoiceId: string,
+  ) {
+    const invoice = await this.repository.findInvoiceById(invoiceId);
+    if (!invoice || invoice.tenantId !== tenantId) {
+      throw new NotFoundException('Invoice not found for tenant');
+    }
+
+    await this.platformAuditLog.create({
+      actor,
+      action: 'super-admin.billing.invoice-cancel.requested',
+      resourceType: 'INVOICE',
+      resourceId: invoiceId,
+      targetTenantId: tenantId,
+      metadata: { invoiceNumber: invoice.invoiceNumber, outcome: 'REQUESTED' },
+    });
+
+    return requestContext.run(
+      { tenantId, platformIdentityId: actor.platformIdentityId },
+      () => this.requireBillingService().cancelPendingInvoice(invoiceId),
+    );
+  }
+
+  async refundPlatformInvoice(
+    actor: SuperAdminActor,
+    tenantId: string,
+    invoiceId: string,
+    amountCents: number,
+    reason: string,
+  ) {
+    const invoice = await this.repository.findInvoiceById(invoiceId);
+    if (!invoice || invoice.tenantId !== tenantId) {
+      throw new NotFoundException('Invoice not found for tenant');
+    }
+
+    await this.platformAuditLog.create({
+      actor,
+      action: 'super-admin.billing.invoice-refund.requested',
+      resourceType: 'INVOICE',
+      resourceId: invoiceId,
+      targetTenantId: tenantId,
+      metadata: {
+        amountCents,
+        reason,
+        invoiceNumber: invoice.invoiceNumber,
+        outcome: 'REQUESTED',
+      },
+    });
+
+    return requestContext.run(
+      { tenantId, platformIdentityId: actor.platformIdentityId },
+      () =>
+        this.requireBillingService().refundInvoice(
+          invoiceId,
+          amountCents,
+          reason,
+          { type: 'PLATFORM_IDENTITY', id: actor.platformIdentityId },
+        ),
+    );
   }
 
   async getBillingAggregate(): Promise<PlatformBillingAggregateResponse> {
@@ -598,6 +849,8 @@ export class SuperAdminService {
         from: filters.from ?? null,
         to: filters.to ?? null,
         status: filters.status ?? null,
+        tenantId: filters.tenantId ?? null,
+        subscriptionId: filters.subscriptionId ?? null,
       },
     });
 
@@ -606,6 +859,10 @@ export class SuperAdminService {
         this.repository.findInvoiceExportPage(
           {
             deletedAt: null,
+            ...(filters.tenantId ? { tenantId: filters.tenantId } : {}),
+            ...(filters.subscriptionId
+              ? { subscriptionId: filters.subscriptionId }
+              : {}),
             ...(filters.status ? { status: filters.status } : {}),
             ...(dateBounds.from || dateBounds.to
               ? {
@@ -640,13 +897,182 @@ export class SuperAdminService {
     return this.toPlatformInvoiceResponse(invoice);
   }
 
+  async getPlatformInvoiceRefunds(tenantId: string, invoiceId: string) {
+    const invoice = await this.repository.findInvoiceById(invoiceId);
+    if (!invoice || invoice.tenantId !== tenantId) {
+      throw new NotFoundException('Invoice not found for tenant');
+    }
+
+    return requestContext.run({ tenantId }, () =>
+      this.requireBillingService().getInvoiceRefunds(invoiceId),
+    );
+  }
+
   // ---- Feature flags -----------------------------------------------------
 
   async listFeatureFlags() {
     return this.repository.findAllFeatureFlags();
   }
 
+  listFeatureModules() {
+    return this.repository.findAllFeatureModules();
+  }
+
+  async updateFeatureModule(
+    actor: SuperAdminActor,
+    id: string,
+    data: {
+      name?: string;
+      description?: string | null;
+      monthlyPriceCents?: number;
+      isActive?: boolean;
+    },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.featureModule.findUnique({ where: { id } });
+      if (!current) throw new NotFoundException('Feature module not found');
+      const updated = await tx.featureModule.update({
+        where: { id },
+        data: {
+          ...data,
+          ...(data.name !== undefined ? { name: data.name.trim() } : {}),
+          ...(data.description !== undefined
+            ? { description: data.description?.trim() || null }
+            : {}),
+        },
+      });
+      await this.platformAuditLog.create(
+        {
+          actor,
+          action: 'super-admin.feature-module.updated',
+          resourceType: 'FEATURE_MODULE',
+          resourceId: id,
+          metadata: {
+            changedFields: Object.keys(data),
+            oldMonthlyPriceCents: current.monthlyPriceCents,
+            newMonthlyPriceCents: updated.monthlyPriceCents,
+          },
+        },
+        tx,
+      );
+      return updated;
+    });
+  }
+
+  async listTenantFeatureFlags(tenantId: string) {
+    const tenant = await this.repository.findTenantById(tenantId);
+    if (!tenant) throw new NotFoundException('Tenant not found');
+    return requestContext.run({ tenantId }, async () => {
+      const [flags, subscription, modules] = await Promise.all([
+        this.prisma.featureFlag.findMany({
+          where: { tenantId, deletedAt: null },
+          orderBy: { key: 'asc' },
+        }),
+        this.prisma.subscription.findFirst({
+          where: { tenantId, deletedAt: null },
+          select: {
+            plan: { select: { modules: { select: { moduleId: true } } } },
+            modules: {
+              where: { status: { in: ['ACTIVE', 'PENDING_REMOVE'] } },
+              select: { moduleId: true, status: true },
+            },
+          },
+        }),
+        this.prisma.featureModule.findMany({
+          orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
+        }),
+      ]);
+      const entitledModuleIds = new Set([
+        ...(subscription?.plan.modules.map((item) => item.moduleId) ?? []),
+        ...(subscription?.modules.map((item) => item.moduleId) ?? []),
+      ]);
+      return {
+        flags,
+        modules,
+        entitledModuleIds: [...entitledModuleIds],
+      };
+    });
+  }
+
+  async updateTenantFeatureFlag(
+    actor: SuperAdminActor,
+    tenantId: string,
+    key: string,
+    enabled: boolean,
+  ) {
+    const tenant = await this.repository.findTenantById(tenantId);
+    if (!tenant) throw new NotFoundException('Tenant not found');
+
+    return requestContext.run(
+      { tenantId, platformIdentityId: actor.platformIdentityId },
+      () =>
+        this.prisma.$transaction(async (tx) => {
+          const module = await tx.featureModule.findUnique({
+            where: { key },
+            select: { id: true },
+          });
+          if (enabled && module) {
+            const subscription = await tx.subscription.findFirst({
+              where: { tenantId, deletedAt: null },
+              select: {
+                id: true,
+                plan: {
+                  select: {
+                    modules: {
+                      where: { moduleId: module.id },
+                      select: { moduleId: true },
+                    },
+                  },
+                },
+              },
+            });
+            const purchasedModule = subscription
+              ? await tx.subscriptionFeatureModule.findFirst({
+                  where: {
+                    subscriptionId: subscription.id,
+                    tenantId,
+                    moduleId: module.id,
+                    status: 'ACTIVE',
+                  },
+                  select: { id: true },
+                })
+              : null;
+            if (!subscription?.plan.modules.length && !purchasedModule) {
+              throw new ConflictException(
+                'This module is not included in the tenant plan or active add-ons',
+              );
+            }
+          }
+
+          const flag = await tx.featureFlag.upsert({
+            where: { tenantId_key: { tenantId, key } },
+            create: { tenantId, key, enabled },
+            update: { enabled, deletedAt: null },
+          });
+          await this.platformAuditLog.create(
+            {
+              actor,
+              action: 'super-admin.tenant-feature-flag.updated',
+              resourceType: 'FEATURE_FLAG',
+              resourceId: flag.id,
+              targetTenantId: tenantId,
+              metadata: { key, enabled },
+            },
+            tx,
+          );
+          return flag;
+        }),
+    );
+  }
+
   // ---- Helpers -----------------------------------------------------------
+
+  private requireBillingService(): BillingService {
+    if (!this.billingService) {
+      throw new Error('BillingService is not available in the platform module');
+    }
+    return this.billingService;
+  }
 
   private async persistAggregateEvents(
     aggregate: SuperAdminAggregate,
@@ -714,6 +1140,7 @@ export class SuperAdminService {
     subscriptionId: string | null;
     invoiceNumber: string;
     amountCents: number;
+    refundedAmountCents: number;
     currency: string;
     status: string;
     dueAt: Date | null;
@@ -727,6 +1154,7 @@ export class SuperAdminService {
       subscriptionId: invoice.subscriptionId,
       invoiceNumber: invoice.invoiceNumber,
       amountCents: invoice.amountCents,
+      refundedAmountCents: invoice.refundedAmountCents,
       currency: invoice.currency,
       status: invoice.status,
       dueAt: invoice.dueAt,

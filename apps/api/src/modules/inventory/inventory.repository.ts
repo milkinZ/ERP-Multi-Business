@@ -220,11 +220,12 @@ export class InventoryRepository extends BaseRepository {
         const items = await tx.$queryRaw<
           Array<{
             id: string;
+            unit: string | null;
             valuationMethod: InventoryValuationMethod | null;
             valuationLockedAt: Date | null;
           }>
         >`
-          SELECT "id", "valuationMethod", "valuationLockedAt"
+          SELECT "id", "unit", "valuationMethod", "valuationLockedAt"
           FROM "InventoryItem"
           WHERE "id" = ${inventoryItemId} AND "tenantId" = ${tenantId}
           FOR UPDATE
@@ -496,6 +497,7 @@ export class InventoryRepository extends BaseRepository {
                   receivedQuantity: layer.receivedQuantity,
                   remainingQuantity: layer.quantity,
                   unitCost,
+                  unit: items[0].unit,
                   createdAt: layer.createdAt,
                 },
               });
@@ -723,6 +725,17 @@ export class InventoryRepository extends BaseRepository {
                     },
                   },
                 },
+                RecipeSnapshot: {
+                  include: {
+                    Items: {
+                      select: {
+                        inventoryItemId: true,
+                        ingredientName: true,
+                        quantity: true,
+                      },
+                    },
+                  },
+                },
               },
             },
           },
@@ -754,13 +767,22 @@ export class InventoryRepository extends BaseRepository {
         for (const orderItem of hasCommittedReservation
           ? []
           : order.SalesOrderItem) {
-          const recipe = orderItem.Product.Recipe;
-          if (!recipe) continue;
-
-          for (const recipeItem of recipe.RecipeItem) {
+          const recipeItems =
+            orderItem.RecipeSnapshot?.Items.map((item) => ({
+              inventoryItemId: item.inventoryItemId,
+              ingredientName: item.ingredientName,
+              quantity: item.quantity,
+            })) ??
+            orderItem.Product.Recipe?.RecipeItem.map((recipeItem) => ({
+              inventoryItemId: recipeItem.InventoryItem.id,
+              ingredientName: recipeItem.InventoryItem.name,
+              quantity: recipeItem.quantity,
+            })) ??
+            [];
+          for (const recipeItem of recipeItems) {
             const usage = recipeItem.quantity * orderItem.quantity;
 
-            const inventoryItemId = recipeItem.InventoryItem.id;
+            const inventoryItemId = recipeItem.inventoryItemId;
             await this.costing.lockItem(tx, tenantId, inventoryItemId);
 
             const stock = await tx.inventoryStock.findFirst({
@@ -769,13 +791,13 @@ export class InventoryRepository extends BaseRepository {
 
             if (!stock) {
               throw new BadRequestException(
-                `Stock not found for ingredient ${recipeItem.InventoryItem.name}`,
+                `Stock not found for ingredient ${recipeItem.ingredientName}`,
               );
             }
 
             if (stock.quantity < usage) {
               throw new BadRequestException(
-                `Insufficient stock for ingredient ${recipeItem.InventoryItem.name}`,
+                `Insufficient stock for ingredient ${recipeItem.ingredientName}`,
               );
             }
 
@@ -786,7 +808,7 @@ export class InventoryRepository extends BaseRepository {
 
             if (updatedStock.count !== 1) {
               throw new BadRequestException(
-                `Insufficient stock for ingredient ${recipeItem.InventoryItem.name}`,
+                `Insufficient stock for ingredient ${recipeItem.ingredientName}`,
               );
             }
 

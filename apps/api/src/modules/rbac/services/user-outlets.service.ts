@@ -7,20 +7,33 @@ export class UserOutletsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getUserOutlets(tenantId: string, userId: string) {
-    const rows = await this.prisma.userOutlet.findMany({
-      where: { tenantId, userId, deletedAt: null },
-      include: { outlet: true },
-      orderBy: { createdAt: 'desc' },
-    });
+    const [user, rows] = await Promise.all([
+      this.prisma.user.findFirst({
+        where: { id: userId, tenantId, deletedAt: null },
+        select: { tenantWideNotificationAccess: true },
+      }),
+      this.prisma.userOutlet.findMany({
+        where: { tenantId, userId, deletedAt: null },
+        include: { outlet: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+    if (!user) throw new NotFoundException('User not found');
 
     return {
       userId,
       outletIds: rows.map((r) => r.outletId),
       outlets: rows.map((r) => r.outlet),
+      tenantWideNotificationAccess: user.tenantWideNotificationAccess,
     };
   }
 
-  async setUserOutlets(tenantId: string, userId: string, outletIds: string[]) {
+  async setUserOutlets(
+    tenantId: string,
+    userId: string,
+    outletIds: string[],
+    tenantWideNotificationAccess?: boolean,
+  ) {
     const uniqueOutletIds = [...new Set(outletIds)];
 
     await this.prisma.$transaction(async (transaction) => {
@@ -29,6 +42,12 @@ export class UserOutletsService {
         select: { id: true },
       });
       if (!user) throw new NotFoundException('User not found');
+      if (tenantWideNotificationAccess !== undefined) {
+        await transaction.user.updateMany({
+          where: { id: userId, tenantId, deletedAt: null },
+          data: { tenantWideNotificationAccess },
+        });
+      }
 
       if (uniqueOutletIds.length) {
         const outlets = await transaction.outlet.findMany({

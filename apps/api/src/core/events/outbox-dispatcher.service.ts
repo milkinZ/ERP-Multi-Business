@@ -58,6 +58,10 @@ const getEventTenantId = (event: DomainEvent): string | undefined => {
     : undefined;
 };
 
+const MAX_DISPATCH_ATTEMPTS = 5;
+const RETRY_BASE_DELAY_MS = 60_000;
+const MAX_RETRY_DELAY_MS = 15 * 60_000;
+
 @Injectable()
 export class OutboxDispatcherService {
   private readonly logger = new Logger(OutboxDispatcherService.name);
@@ -85,8 +89,12 @@ export class OutboxDispatcherService {
       // ignore count errors
     }
 
+    const now = new Date();
     const events = await this.prisma.outboxEvent.findMany({
-      where: { status: 'PENDING' },
+      where: {
+        status: 'PENDING',
+        OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
+      },
       take: limit,
       orderBy: { createdAt: 'asc' },
     });
@@ -100,7 +108,10 @@ export class OutboxDispatcherService {
           parsed = JSON.parse(raw);
         }
 
-        const event = normalizeDomainEvent(parsed);
+        const event = {
+          ...normalizeDomainEvent(parsed),
+          eventId: outbox.id,
+        };
 
         const tenantId = outbox.tenantId ?? getEventTenantId(event);
         if (!tenantId) {
@@ -155,7 +166,12 @@ export class OutboxDispatcherService {
 
               await this.prisma.outboxEvent.update({
                 where: { id: outbox.id },
-                data: { status: 'PROCESSED', processedAt: new Date() },
+                data: {
+                  status: 'PROCESSED',
+                  processedAt: new Date(),
+                  nextAttemptAt: null,
+                  error: null,
+                },
               });
             },
           );
@@ -174,8 +190,21 @@ export class OutboxDispatcherService {
       } catch (err: unknown) {
         const message =
           err instanceof Error ? err.message : 'Unknown outbox dispatch error';
+        const attemptCount = outbox.attemptCount + 1;
+        const exhausted = attemptCount >= MAX_DISPATCH_ATTEMPTS;
+        const retryDelayMs = Math.min(
+          RETRY_BASE_DELAY_MS * 2 ** (attemptCount - 1),
+          MAX_RETRY_DELAY_MS,
+        );
+        const nextAttemptAt = exhausted
+          ? null
+          : new Date(Date.now() + retryDelayMs);
 
-        this.logger.error(`Outbox dispatch failed: ${message}`);
+        this.logger.error(
+          exhausted
+            ? `Outbox dispatch exhausted ${attemptCount} attempts: ${message}`
+            : `Outbox dispatch failed (attempt ${attemptCount}/${MAX_DISPATCH_ATTEMPTS}); retry scheduled at ${nextAttemptAt?.toISOString()}: ${message}`,
+        );
 
         try {
           this.metrics?.domainEventsFailed?.inc({ event: outbox.type }, 1);
@@ -186,7 +215,9 @@ export class OutboxDispatcherService {
         await this.prisma.outboxEvent.update({
           where: { id: outbox.id },
           data: {
-            status: 'FAILED',
+            status: exhausted ? 'FAILED' : 'PENDING',
+            attemptCount,
+            nextAttemptAt,
             error: message,
           },
         });

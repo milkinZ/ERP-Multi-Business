@@ -4,6 +4,7 @@ import { KitchenService } from './kitchen.service';
 describe('KitchenController', () => {
   const getQueue = jest.fn();
   const getTicket = jest.fn();
+  const enqueueTicket = jest.fn();
   const getSettings = jest.fn();
   const updateWaitThreshold = jest.fn();
   const setPriority = jest.fn();
@@ -15,6 +16,7 @@ describe('KitchenController', () => {
   const service = {
     getQueue,
     getTicket,
+    enqueueTicket,
     getSettings,
     updateWaitThreshold,
     setPriority,
@@ -24,7 +26,11 @@ describe('KitchenController', () => {
     cancel,
     recall,
   } as unknown as KitchenService;
-  const user = { tenantId: 'tenant-a', outletId: 'outlet-a' } as never;
+  const user = {
+    tenantId: 'tenant-a',
+    outletId: 'outlet-a',
+    userId: 'user-a',
+  } as never;
   const actor = { tenantId: 'tenant-a', userId: 'user-a' };
   let controller: KitchenController;
 
@@ -53,16 +59,56 @@ describe('KitchenController', () => {
     expect(getQueue).toHaveBeenCalledWith('tenant-a', 'outlet-a', {
       search: '  order  ',
     });
+
     expect(getTicket).toHaveBeenCalledWith('order-a', 'tenant-a', 'outlet-a');
     expect(startCooking).toHaveBeenCalledWith(
       'order-a',
       'tenant-a',
       'outlet-a',
+      'user-a',
+      undefined,
     );
-    expect(markReady).toHaveBeenCalledWith('order-a', 'tenant-a', 'outlet-a');
-    expect(markServed).toHaveBeenCalledWith('order-a', 'tenant-a', 'outlet-a');
-    expect(cancel).toHaveBeenCalledWith('order-a', 'tenant-a', 'outlet-a');
-    expect(recall).toHaveBeenCalledWith('order-a', 'tenant-a', 'outlet-a');
+    expect(markReady).toHaveBeenCalledWith(
+      'order-a',
+      'tenant-a',
+      'outlet-a',
+      'user-a',
+      undefined,
+    );
+    expect(markServed).toHaveBeenCalledWith(
+      'order-a',
+      'tenant-a',
+      'outlet-a',
+      'user-a',
+      undefined,
+    );
+    expect(cancel).toHaveBeenCalledWith(
+      'order-a',
+      'tenant-a',
+      'outlet-a',
+      'user-a',
+      undefined,
+    );
+    expect(recall).toHaveBeenCalledWith(
+      'order-a',
+      'tenant-a',
+      'outlet-a',
+      'user-a',
+      undefined,
+    );
+  });
+
+  it('uses authenticated tenant, outlet, and actor for explicit enqueue', async () => {
+    enqueueTicket.mockResolvedValue({});
+
+    await controller.enqueueTicket('order-a', user);
+
+    expect(enqueueTicket).toHaveBeenCalledWith(
+      'order-a',
+      'tenant-a',
+      'outlet-a',
+      'user-a',
+    );
   });
 
   it('uses authenticated tenant and user for Kitchen settings and priority', async () => {

@@ -33,6 +33,7 @@ export type RecipeItem = {
   recipeId: string;
   inventoryItemId: string;
   quantity: number;
+  unit: string | null;
   InventoryItem: RecipeIngredient;
 };
 
@@ -51,7 +52,11 @@ export type Recipe = {
   id: string;
   tenantId: string;
   productId: string;
+  revision: number;
+  isActive: boolean;
+  archivedAt: string | null;
   createdAt: string;
+  updatedAt: string;
   Product: RecipeProduct;
   RecipeItem: RecipeItem[];
 };
@@ -61,6 +66,10 @@ export type RecipeSummary = {
   tenantId: string;
   productId: string;
   createdAt: string;
+  updatedAt: string;
+  revision: number;
+  isActive: boolean;
+  archivedAt: string | null;
   Product: Pick<RecipeProduct, "id" | "name" | "sku" | "isActive">;
   _count: { RecipeItem: number };
 };
@@ -79,6 +88,7 @@ export type RecipeListQuery = {
   page: number;
   limit: number;
   search?: string;
+  includeArchived?: boolean;
 };
 
 export type CreateRecipeInput = {
@@ -86,6 +96,7 @@ export type CreateRecipeInput = {
   items: Array<{
     inventoryItemId: string;
     quantity: number;
+    unit?: string;
   }>;
 };
 
@@ -104,6 +115,7 @@ export function getRecipes(accessToken: string, query: RecipeListQuery) {
     limit: String(query.limit),
   });
   if (query.search) params.set("search", query.search);
+  if (query.includeArchived) params.set("includeArchived", "true");
   return apiRequest<RecipePage>(`/recipes?${params.toString()}`, {
     headers: { Authorization: ["Bearer", accessToken].join(" ") },
   });
@@ -141,4 +153,36 @@ export function createRecipe(accessToken: string, input: CreateRecipeInput) {
     headers: { Authorization: `Bearer ${accessToken}` },
     body: JSON.stringify(input),
   });
+}
+
+export function updateRecipe(
+  accessToken: string,
+  productId: string,
+  input: CreateRecipeInput & { expectedRevision: number },
+) {
+  return apiRequest<Recipe>(`/recipes/${encodeURIComponent(productId)}`, {
+    method: "PUT",
+    headers: {
+      Authorization: ["Bearer", accessToken].join(" "),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+export function archiveRecipe(accessToken: string, productId: string) {
+  return apiRequest<Recipe>(`/recipes/${encodeURIComponent(productId)}`, {
+    method: "DELETE",
+    headers: { Authorization: ["Bearer", accessToken].join(" ") },
+  });
+}
+
+export function restoreRecipe(accessToken: string, productId: string) {
+  return apiRequest<Recipe>(
+    `/recipes/${encodeURIComponent(productId)}/restore`,
+    {
+      method: "POST",
+      headers: { Authorization: ["Bearer", accessToken].join(" ") },
+    },
+  );
 }

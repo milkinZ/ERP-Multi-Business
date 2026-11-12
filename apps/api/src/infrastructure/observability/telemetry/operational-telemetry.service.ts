@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../../core/database/prisma.service';
 import { OperationalTelemetryQueryDto } from './dto/operational-telemetry-query.dto';
+import { PlatformSchedulerExecutionService } from '../../scheduler/platform-scheduler-execution.service';
 
 const RETENTION_DAYS = 30;
 const MAX_BUFFERED_LOGS = 5_000;
@@ -44,7 +45,10 @@ export class OperationalTelemetryService implements OnModuleDestroy {
   private flushing = false;
   private lastBufferWarningAt = 0;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly schedulerExecutions: PlatformSchedulerExecutionService,
+  ) {}
 
   recordHttpRequest(
     methodValue: string,
@@ -179,39 +183,72 @@ export class OperationalTelemetryService implements OnModuleDestroy {
   @Cron(CronExpression.EVERY_MINUTE, { name: 'operational-telemetry-flush' })
   async flush(): Promise<void> {
     if (this.flushing) return;
-    this.flushing = true;
-    try {
-      await this.flushMetrics();
-      await this.flushLogs();
-    } finally {
-      this.flushing = false;
-    }
+    await this.schedulerExecutions.execute(
+      'operational-telemetry-flush',
+      async () => {
+        this.flushing = true;
+        try {
+          const results = await Promise.allSettled([
+            this.flushMetrics(),
+            this.flushLogs(),
+          ]);
+          const failures: unknown[] = [];
+          for (const result of results) {
+            if (result.status === 'rejected') {
+              failures.push(result.reason as unknown);
+            }
+          }
+          if (failures.length > 0) {
+            throw new AggregateError(
+              failures,
+              'Operational telemetry flush failed',
+            );
+          }
+        } finally {
+          this.flushing = false;
+        }
+      },
+    );
   }
 
   @Cron('0 3 * * *', { name: 'operational-telemetry-retention' })
   async purgeExpired(): Promise<void> {
-    const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1_000);
-    try {
-      const [events, metrics] = await this.prisma.$transaction([
-        this.prisma.operationalEventLog.deleteMany({
-          where: { createdAt: { lt: cutoff } },
-        }),
-        this.prisma.operationalMetricBucket.deleteMany({
-          where: { bucketStart: { lt: cutoff } },
-        }),
-      ]);
-      this.logger.log(
-        `Operational telemetry retention purged ${events.count} events and ${metrics.count} metric buckets`,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Operational telemetry retention failed: ${this.errorCode(error)}`,
-      );
-    }
+    await this.schedulerExecutions.execute(
+      'operational-telemetry-retention',
+      async () => {
+        const cutoff = new Date(
+          Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1_000,
+        );
+        try {
+          const [events, metrics] = await this.prisma.$transaction([
+            this.prisma.operationalEventLog.deleteMany({
+              where: { createdAt: { lt: cutoff } },
+            }),
+            this.prisma.operationalMetricBucket.deleteMany({
+              where: { bucketStart: { lt: cutoff } },
+            }),
+          ]);
+          this.logger.log(
+            `Operational telemetry retention purged ${events.count} events and ${metrics.count} metric buckets`,
+          );
+        } catch (error) {
+          this.logger.error(
+            `Operational telemetry retention failed: ${this.errorCode(error)}`,
+          );
+          throw error;
+        }
+      },
+    );
   }
 
   async onModuleDestroy(): Promise<void> {
-    await this.flush();
+    try {
+      await this.flush();
+    } catch (error) {
+      this.logger.error(
+        `Operational telemetry shutdown flush failed: ${this.errorCode(error)}`,
+      );
+    }
   }
 
   private async flushMetrics(): Promise<void> {
@@ -262,6 +299,7 @@ export class OperationalTelemetryService implements OnModuleDestroy {
       this.logger.error(
         `Operational metric flush failed; batch retained for retry: ${this.errorCode(error)}`,
       );
+      throw error;
     }
   }
 
@@ -288,6 +326,7 @@ export class OperationalTelemetryService implements OnModuleDestroy {
       this.logger.error(
         `Operational event flush failed; batch retained for retry: ${this.errorCode(error)}`,
       );
+      throw error;
     }
   }
 

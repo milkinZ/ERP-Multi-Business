@@ -365,8 +365,10 @@ export class ReservationRepository extends BaseRepository {
     requirement: StockRequirement,
   ) {
     let remainingQuantity = requirement.quantity;
-    const itemRows = await tx.$queryRaw<Array<{ id: string }>>`
-      SELECT "id"
+    const itemRows = await tx.$queryRaw<
+      Array<{ id: string; unit: string | null }>
+    >`
+      SELECT "id", "unit"
       FROM "InventoryItem"
       WHERE "id" = ${requirement.inventoryItemId}
         AND "tenantId" = ${tenantId}
@@ -423,6 +425,7 @@ export class ReservationRepository extends BaseRepository {
           referenceType: ACTIVE_RESERVATION_REF,
           referenceId: order.id,
           quantity: quantityToReserve,
+          unit: itemRows[0].unit,
           beforeQuantity: stock.quantity,
           afterQuantity: stock.quantity - quantityToReserve,
           note: 'Reserved stock for order',
@@ -444,6 +447,7 @@ export class ReservationRepository extends BaseRepository {
       warehouseId: string | null;
       inventoryItemId: string;
       quantity: number;
+      unit: string | null;
     },
     referenceId: string | null,
     note: string,
@@ -493,6 +497,7 @@ export class ReservationRepository extends BaseRepository {
         warehouseId: reservation.warehouseId,
         inventoryItemId: reservation.inventoryItemId,
         type: InventoryMovementType.RETURN,
+        unit: reservation.unit,
         referenceType: RELEASE_MOVEMENT_REF,
         referenceId,
         quantity: reservation.quantity,

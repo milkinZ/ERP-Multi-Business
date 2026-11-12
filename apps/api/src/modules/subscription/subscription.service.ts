@@ -14,6 +14,9 @@ import { SubscriptionRepository } from './domain/subscription.repository';
 import { PlanRepository } from './plans/plan.repository';
 import { TenantContextService } from '../tenants/tenant-context.service';
 import { SubscriptionHistoryQueryDto } from './dto/subscription-history-query.dto';
+import { PlanEntitlementsService } from './plans/plan-entitlements.service';
+import { UpdateSubscriptionModulesDto } from './dto/update-subscription-modules.dto';
+import { requestContext } from '../../core/request-context/request-context';
 
 @Injectable()
 export class SubscriptionService {
@@ -21,6 +24,7 @@ export class SubscriptionService {
     private readonly subscriptionRepository: SubscriptionRepository,
     private readonly planRepository: PlanRepository,
     private readonly tenantContext: TenantContextService,
+    private readonly planEntitlements: PlanEntitlementsService,
   ) {}
 
   async getCurrentSubscription() {
@@ -35,6 +39,10 @@ export class SubscriptionService {
     }
 
     return subscription.toJSON();
+  }
+
+  getCurrentUsage() {
+    return this.planEntitlements.getUsage(this.tenantContext.requireTenant());
   }
 
   async getSubscriptionById(id: string) {
@@ -81,6 +89,9 @@ export class SubscriptionService {
       type: plan.type,
       name: plan.name,
       priceCents: plan.priceCents,
+      maxOutlets: plan.maxOutlets,
+      maxUsers: plan.maxUsers,
+      maxMonthlyOrders: plan.maxMonthlyOrders,
     }));
   }
 
@@ -131,7 +142,6 @@ export class SubscriptionService {
         'Cannot change plan on a non-active subscription',
       );
     }
-
     const newPlan = await this.planRepository.findById(planId);
     if (!newPlan) {
       throw new NotFoundException('Plan not found');
@@ -148,6 +158,56 @@ export class SubscriptionService {
     await this.subscriptionRepository.save(subscription);
 
     return subscription.toJSON();
+  }
+
+  async getSubscriptionModules(subscriptionId: string) {
+    const tenantId = this.tenantContext.requireTenant();
+    const modules = await this.planRepository.getSubscriptionModuleSelection(
+      subscriptionId,
+      tenantId,
+    );
+    if (!modules) throw new NotFoundException('Subscription not found');
+    return modules;
+  }
+
+  async scheduleSubscriptionModules(
+    subscriptionId: string,
+    input: UpdateSubscriptionModulesDto,
+  ) {
+    const tenantId = this.tenantContext.requireTenant();
+    const subscription = await this.subscriptionRepository.findById(
+      subscriptionId,
+      tenantId,
+    );
+    if (!subscription) throw new NotFoundException('Subscription not found');
+    if (!subscription.isActive()) {
+      throw new BadRequestException(
+        'Modules can only be changed on an active subscription',
+      );
+    }
+
+    const availableModules = await this.planRepository.listFeatureModules();
+    const availableIds = new Set(availableModules.map((module) => module.id));
+    if (input.moduleIds.some((id) => !availableIds.has(id))) {
+      throw new NotFoundException(
+        'One or more active feature modules not found',
+      );
+    }
+    const userId = requestContext.get().userId;
+    if (!userId) {
+      throw new BadRequestException('Authenticated tenant user is required');
+    }
+    const result = await this.planRepository.scheduleSubscriptionModules(
+      subscriptionId,
+      tenantId,
+      input.moduleIds,
+      userId,
+    );
+    if (!result) throw new NotFoundException('Subscription not found');
+    return {
+      effectiveAt: 'NEXT_RENEWAL' as const,
+      modules: result,
+    };
   }
 
   async cancelSubscription(subscriptionId: string, reason?: string) {

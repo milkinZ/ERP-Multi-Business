@@ -2,8 +2,8 @@ import { z } from "zod"
 
 const itemSchema = z.object({
   inventoryItemId: z.string().trim().min(1, "Inventory item is required"),
-  quantity: z.coerce.number().int("Quantity must be a whole number").positive("Quantity must be greater than zero"),
-  unitPrice: z.coerce.number().int("Unit price must be a whole number").nonnegative("Unit price cannot be negative"),
+  quantity: z.coerce.number().min(0.000001, "Quantity must be greater than zero").refine((quantity) => Math.abs(quantity * 1_000_000 - Math.round(quantity * 1_000_000)) < 0.000001, "Use at most six decimal places"),
+  unitPrice: z.coerce.number().nonnegative("Unit price cannot be negative").refine((unitPrice) => Math.abs(unitPrice * 1_000_000 - Math.round(unitPrice * 1_000_000)) < 0.000001, "Use at most six decimal places"),
 })
 
 export const purchaseOrderSchema = z.object({
@@ -20,4 +20,5 @@ export const purchaseOrderSchema = z.object({
   }),
 })
 
-export type PurchaseOrderFormValues = z.infer<typeof purchaseOrderSchema>
+export type PurchaseOrderFormInput = z.input<typeof purchaseOrderSchema>
+export type PurchaseOrderFormValues = z.output<typeof purchaseOrderSchema>

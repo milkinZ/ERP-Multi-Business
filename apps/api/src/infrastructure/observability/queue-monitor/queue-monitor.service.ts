@@ -15,6 +15,17 @@ export type QueueSnapshot = {
   completed: number;
 };
 
+export type FailedJobSummary = {
+  queueName: QueueName;
+  jobName: string;
+  failedAt: Date;
+  attemptsMade: number;
+  maxAttempts: number;
+};
+
+const FAILED_JOBS_PER_QUEUE = 10;
+const MAX_FAILED_JOB_SUMMARIES = 50;
+
 /**
  * Queue-monitoring service.
  *
@@ -54,6 +65,33 @@ export class QueueMonitorService implements OnModuleDestroy {
       this.logger.warn(`Failed to snapshot queue ${name}: ${err}`);
       return null;
     }
+  }
+
+  async getFailedJobSummaries(): Promise<FailedJobSummary[]> {
+    const queueNames = Object.values(QUEUE_NAMES) as QueueName[];
+    const perQueue = await Promise.all(
+      queueNames.map(async (queueName) => {
+        const queue = this.queueService.getQueue(queueName);
+        const jobs = await queue.getFailed(0, FAILED_JOBS_PER_QUEUE - 1);
+        return jobs.map((job) => ({
+          queueName,
+          jobName: this.safeJobName(job.name),
+          failedAt: new Date(job.finishedOn ?? job.timestamp),
+          attemptsMade: Math.max(0, job.attemptsMade),
+          maxAttempts: Math.max(1, Number(job.opts.attempts ?? 1)),
+        }));
+      }),
+    );
+
+    return perQueue
+      .flat()
+      .sort((left, right) => right.failedAt.getTime() - left.failedAt.getTime())
+      .slice(0, MAX_FAILED_JOB_SUMMARIES);
+  }
+
+  private safeJobName(name: string | undefined): string {
+    const safeName = name?.replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 80);
+    return safeName || 'unknown';
   }
 
   private async snapshot(

@@ -30,6 +30,7 @@ export function UserDetailWorkspace({ userId }: UserDetailWorkspaceProps) {
   const [selectedOutletIds, setSelectedOutletIds] = useState<string[] | null>(
     null,
   );
+  const [selectedTenantWideNotificationAccess, setSelectedTenantWideNotificationAccess] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const token = useAuthStore((state) => state.accessToken);
@@ -108,11 +109,17 @@ export function UserDetailWorkspace({ userId }: UserDetailWorkspaceProps) {
       ),
   });
   const outletsMutation = useMutation({
-    mutationFn: (outletIds: string[]) =>
-      setUserOutlets(token as string, userId, outletIds),
+    mutationFn: (input: { outletIds: string[]; tenantWideNotificationAccess: boolean }) =>
+      setUserOutlets(
+        token as string,
+        userId,
+        input.outletIds,
+        input.tenantWideNotificationAccess,
+      ),
     retry: 0,
     onSuccess: async () => {
       setSelectedOutletIds(null);
+      setSelectedTenantWideNotificationAccess(null);
       setError(null);
       await invalidateUser();
     },
@@ -170,6 +177,10 @@ export function UserDetailWorkspace({ userId }: UserDetailWorkspaceProps) {
   const currentRoleIds = selectedRoleIds ?? userRolesQuery.data?.roleIds ?? [];
   const currentOutletIds =
     selectedOutletIds ?? userOutletsQuery.data?.outletIds ?? [];
+  const currentTenantWideNotificationAccess =
+    selectedTenantWideNotificationAccess ??
+    userOutletsQuery.data?.tenantWideNotificationAccess ??
+    false;
   const roleOptionsReady =
     canManage && canReadRoles && !rolesQuery.isError && !userRolesQuery.isError;
   const outletOptionsReady =
@@ -358,14 +369,43 @@ export function UserDetailWorkspace({ userId }: UserDetailWorkspaceProps) {
                       </label>
                     ))}
                   </div>
+                  <label className="flex items-start gap-3 rounded-xl border border-border p-3 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={currentTenantWideNotificationAccess}
+                      onChange={(event) =>
+                        setSelectedTenantWideNotificationAccess(
+                          event.target.checked,
+                        )
+                      }
+                    />
+                    <span>
+                      <span className="font-medium text-foreground">
+                        Tenant-wide notification scope
+                      </span>
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        Explicitly authorize this user to receive tenant-wide
+                        notifications when their role has the required event
+                        permission. This does not grant access to outlet-specific
+                        notifications.
+                      </span>
+                    </span>
+                  </label>
                   <button
                     type="button"
                     disabled={
                       !outletOptionsReady ||
                       outletsMutation.isPending ||
-                      selectedOutletIds === null
+                      (selectedOutletIds === null &&
+                        selectedTenantWideNotificationAccess === null)
                     }
-                    onClick={() => outletsMutation.mutate(currentOutletIds)}
+                    onClick={() =>
+                      outletsMutation.mutate({
+                        outletIds: currentOutletIds,
+                        tenantWideNotificationAccess:
+                          currentTenantWideNotificationAccess,
+                      })
+                    }
                     className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                   >
                     {outletsMutation.isPending

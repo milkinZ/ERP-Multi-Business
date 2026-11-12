@@ -1,0 +1,2 @@
+ALTER INDEX "TaxRule_tenantId_kind_transactionType_effectiveFrom_effectiveTo"
+RENAME TO "TaxRule_tenantId_kind_transactionType_effectiveFrom_effecti_idx";

@@ -72,15 +72,59 @@
   }
 }
 
-* { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+* {
+  box-sizing: border-box;
+}
+html {
+  scroll-behavior: smooth;
+}
 body {
   margin: 0;
   background:
-    radial-gradient(circle at top left, rgba(96, 165, 250, 0.2), transparent 28%),
-    linear-gradient(180deg, var(--background) 0%, color-mix(in srgb, var(--background) 88%, white) 100%);
+    radial-gradient(
+      circle at top left,
+      rgba(96, 165, 250, 0.2),
+      transparent 28%
+    ),
+    linear-gradient(
+      180deg,
+      var(--background) 0%,
+      color-mix(in srgb, var(--background) 88%, white) 100%
+    );
   color: var(--foreground);
   font-family: "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
 }
-button, input, select, textarea { font: inherit; }
-a { color: inherit; text-decoration: none; }
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+@media print {
+  body:has(.kitchen-ticket-print) * {
+    visibility: hidden !important;
+  }
+
+  body:has(.kitchen-ticket-print) .kitchen-ticket-print,
+  body:has(.kitchen-ticket-print) .kitchen-ticket-print * {
+    visibility: visible !important;
+  }
+
+  body:has(.kitchen-ticket-print) .kitchen-ticket-print {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    margin: 0;
+    border: 0;
+    box-shadow: none;
+  }
+
+  body:has(.kitchen-ticket-print) .kitchen-ticket-print-actions {
+    display: none !important;
+  }
+}

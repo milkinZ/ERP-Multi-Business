@@ -1,14 +1,20 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useEffect, useState } from "react"
 import Link from "next/link"
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { EmptyState, SectionHeader, StatusBadge, UnavailableState } from "@/components/data-display/states"
 import { ApiError } from "@/lib/api/client"
 import { hasPermission } from "@/lib/permissions"
 import { useAuthStore } from "@/stores/auth.store"
-import { billingKeys, getCurrentSubscription, getSubscriptionHistory } from "@/features/erp/billing/api/queries"
+import {
+  billingKeys,
+  getCurrentSubscription,
+  getSubscriptionHistory,
+  getSubscriptionModules,
+  updateSubscriptionModules,
+} from "@/features/erp/billing/api/queries"
 
 function statusTone(status: string) {
   if (status === "ACTIVE") return "success" as const
@@ -23,10 +29,13 @@ function formatDate(value?: string | null) {
 
 export function SubscriptionWorkspace() {
   const [historySkip, setHistorySkip] = useState(0)
+  const [selectedModuleIds, setSelectedModuleIds] = useState<string[]>([])
+  const queryClient = useQueryClient()
   const token = useAuthStore((state) => state.accessToken)
   const session = useAuthStore((state) => state.session)
   const tenantId = session?.tenantId
   const canRead = hasPermission(session, "subscription.read")
+  const canUpdate = hasPermission(session, "subscription.update")
 
   const query = useQuery({
     queryKey: tenantId ? billingKeys.subscription(tenantId) : ["subscriptions", "unauthenticated", "current"],
@@ -43,6 +52,40 @@ export function SubscriptionWorkspace() {
     enabled: Boolean(token && tenantId && canRead && query.data?.id),
     staleTime: 30_000,
   })
+  const modulesQuery = useQuery({
+    queryKey: ["subscription-modules", tenantId, query.data?.id],
+    queryFn: () => {
+      if (!token || !query.data?.id) throw new Error("Subscription is unavailable")
+      return getSubscriptionModules(token, query.data.id)
+    },
+    enabled: Boolean(token && tenantId && canRead && query.data?.id),
+    staleTime: 30_000,
+  })
+  const updateModules = useMutation({
+    mutationFn: () => {
+      if (!token || !query.data?.id) throw new Error("Subscription is unavailable")
+      return updateSubscriptionModules(token, query.data.id, selectedModuleIds)
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["subscription-modules", tenantId, query.data?.id],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["subscription-history", tenantId, query.data?.id],
+        }),
+      ])
+    },
+  })
+  useEffect(() => {
+    if (modulesQuery.data) {
+      setSelectedModuleIds(
+        modulesQuery.data.modules
+          .filter((module) => module.selected && !module.isIncluded)
+          .map((module) => module.id),
+      )
+    }
+  }, [modulesQuery.data])
 
   if (!canRead) {
     return <UnavailableState title="Subscription access is restricted" description="Your current tenant session does not include the subscription.read permission." />
@@ -94,6 +137,102 @@ export function SubscriptionWorkspace() {
         <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Invoices and billing actions</h2>
         <p className="mt-2 text-sm text-[var(--muted-foreground)]">Invoice records and supported billing actions remain in the Billing module. No unsupported plan-management controls are shown here.</p>
         <Link href="/app/billing" className="mt-4 inline-flex rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--foreground)]">Open billing</Link>
+      </section>
+
+      <section className="rounded-[24px] border border-[var(--border)] bg-[var(--panel)] p-5">
+        <SectionHeader eyebrow="Modular subscription" title="Optional modules" />
+        <p className="mb-4 text-sm text-[var(--muted-foreground)]">
+          Select paid modules in addition to your package. Additions and removals take effect at the next renewal; the monthly amount shown is an estimate based on current catalog prices.
+        </p>
+        {modulesQuery.isPending ? (
+          <div className="h-24 animate-pulse rounded-2xl bg-[var(--muted)]" />
+        ) : modulesQuery.isError ? (
+          <UnavailableState title="Modules unavailable" description="The subscription module catalog could not be loaded." />
+        ) : (
+          <>
+            <div className="divide-y divide-[var(--border)]">
+              {modulesQuery.data.modules.map((module) => {
+                const checked =
+                  module.isIncluded || selectedModuleIds.includes(module.id)
+                return (
+                  <label key={module.id} className="flex items-center gap-3 py-3 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={
+                        !canUpdate ||
+                        module.isIncluded ||
+                        (!module.isActive && !module.selected) ||
+                        updateModules.isPending
+                      }
+                      onChange={(event) =>
+                        setSelectedModuleIds((current) =>
+                          event.target.checked
+                            ? [...current, module.id]
+                            : current.filter((id) => id !== module.id),
+                        )
+                      }
+                    />
+                    <span className="flex-1">
+                      {module.name}
+                      {module.isIncluded ? (
+                        <span className="ml-2 text-xs text-[var(--muted-foreground)]">Included in package</span>
+                      ) : null}
+                      {module.status === "PENDING_ADD" ? (
+                        <span className="ml-2 text-xs text-[var(--primary)]">Starts next renewal</span>
+                      ) : null}
+                      {module.status === "PENDING_REMOVE" ? (
+                        <span className="ml-2 text-xs text-[var(--primary)]">Ends next renewal</span>
+                      ) : null}
+                    </span>
+                    {!module.isIncluded ? (
+                      <span>{module.monthlyPriceCents.toLocaleString("id-ID")} IDR/month</span>
+                    ) : null}
+                  </label>
+                )
+              })}
+            </div>
+            <p className="mt-4 text-sm font-semibold">
+              Estimated monthly total: IDR{" "}
+              {(
+                subscription.priceCents +
+                modulesQuery.data.modules.reduce(
+                  (total, module) =>
+                    total +
+                    (!module.isIncluded && selectedModuleIds.includes(module.id)
+                      ? module.monthlyPriceCents
+                      : 0),
+                  0,
+                )
+              ).toLocaleString("id-ID")}
+            </p>
+            {updateModules.isError ? (
+              <p role="alert" className="mt-3 text-sm text-red-600">
+                {updateModules.error instanceof Error
+                  ? updateModules.error.message
+                  : "Module selection could not be saved."}
+              </p>
+            ) : null}
+            {canUpdate ? (
+              <button
+                type="button"
+                disabled={
+                  updateModules.isPending ||
+                  [...selectedModuleIds].sort().join("|") ===
+                    modulesQuery.data.modules
+                      .filter((module) => module.selected && !module.isIncluded)
+                      .map((module) => module.id)
+                      .sort()
+                      .join("|")
+                }
+                onClick={() => updateModules.mutate()}
+                className="mt-4 rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold disabled:opacity-50"
+              >
+                {updateModules.isPending ? "Saving..." : "Schedule module changes"}
+              </button>
+            ) : null}
+          </>
+        )}
       </section>
 
       <section className="rounded-[24px] border border-[var(--border)] bg-[var(--panel)] p-5">

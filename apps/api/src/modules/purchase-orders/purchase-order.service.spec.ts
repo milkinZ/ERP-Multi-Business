@@ -5,6 +5,7 @@ import { DomainEventBus } from '../../core/events/domain-event-bus.service';
 import { InventoryCostingService } from '../inventory/inventory-costing.service';
 import { PurchaseOrderRepository } from './purchase-order.repository';
 import { PurchaseOrderService } from './purchase-order.service';
+import { AccountingService } from '../finance/accounting.service';
 
 function purchaseOrder(
   status: PurchaseOrderStatus = PurchaseOrderStatus.DRAFT,
@@ -47,6 +48,9 @@ describe('PurchaseOrderService', () => {
   } as unknown as PurchaseOrderRepository;
   const publish = jest.fn();
   const events = { publish } as unknown as DomainEventBus;
+  const accounting = {
+    postJournal: jest.fn().mockResolvedValue({ id: 'journal-a' }),
+  } as unknown as AccountingService;
   let service: PurchaseOrderService;
 
   beforeEach(() => {
@@ -56,6 +60,7 @@ describe('PurchaseOrderService', () => {
       events,
       repository,
       new InventoryCostingService(),
+      accounting,
     );
   });
 
@@ -95,7 +100,7 @@ describe('PurchaseOrderService', () => {
     });
     warehouseFindFirst.mockResolvedValue({ isActive: true });
     inventoryFindMany.mockResolvedValue([
-      { id: 'item-a', tenantId: 'tenant-a' },
+      { id: 'item-a', tenantId: 'tenant-a', unit: 'kg' },
     ]);
     prisma.purchaseOrder.count.mockResolvedValue(0);
     createPurchaseOrder.mockResolvedValue({ id: 'po-a', tenantId: 'tenant-a' });
@@ -104,14 +109,28 @@ describe('PurchaseOrderService', () => {
       service.create('tenant-a', 'user-a', {
         supplierId: 'supplier-a',
         warehouseId: 'warehouse-a',
-        items: [{ inventoryItemId: 'item-a', quantity: 3, unitPrice: 100 }],
+        items: [
+          {
+            inventoryItemId: 'item-a',
+            quantity: 3,
+            unit: 'kg',
+            unitPrice: 100,
+          },
+        ],
       }),
     ).resolves.toEqual(expect.objectContaining({ tenantId: 'tenant-a' }));
     expect(createPurchaseOrder).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: 'tenant-a',
         supplierId: 'supplier-a',
-        items: [{ inventoryItemId: 'item-a', quantity: 3, unitPrice: 100 }],
+        items: [
+          {
+            inventoryItemId: 'item-a',
+            quantity: 3,
+            unit: 'kg',
+            unitPrice: 100,
+          },
+        ],
       }),
     );
     expect(publish).toHaveBeenCalledTimes(1);
@@ -223,6 +242,35 @@ describe('PurchaseOrderService', () => {
     ).rejects.toThrow(
       new BadRequestException('Warehouse is required for receiving/receipting'),
     );
+  });
+
+  it('rejects invalid return idempotency keys before opening a transaction', async () => {
+    await expect(
+      service.returnPurchaseOrder('tenant-a', 'po-a', 'user-a', 'bad key', {
+        items: [{ purchaseOrderReceiptItemId: 'receipt-item-a', quantity: 1 }],
+      }),
+    ).rejects.toThrow(
+      new BadRequestException(
+        'A valid Idempotency-Key header of 1 to 128 visible ASCII characters is required',
+      ),
+    );
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects duplicate return lines before opening a transaction', async () => {
+    await expect(
+      service.returnPurchaseOrder('tenant-a', 'po-a', 'user-a', 'return-key', {
+        items: [
+          { purchaseOrderReceiptItemId: 'receipt-item-a', quantity: 1 },
+          { purchaseOrderReceiptItemId: 'receipt-item-a', quantity: 1 },
+        ],
+      }),
+    ).rejects.toThrow(
+      new BadRequestException(
+        'A purchase order receipt item may only appear once per return',
+      ),
+    );
+    expect(transaction).not.toHaveBeenCalled();
   });
 
   it('returns a successful result after deleting a draft purchase order', async () => {

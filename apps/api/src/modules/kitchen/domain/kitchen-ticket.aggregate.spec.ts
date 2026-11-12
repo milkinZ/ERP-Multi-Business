@@ -10,6 +10,10 @@ describe('KitchenTicketAggregate', () => {
       tenantId: 'tenant-a',
       outletId: 'outlet-a',
       items: [],
+      assignedUser: null,
+      releasedAt: new Date('2026-01-01T00:00:00.000Z'),
+      startedAt: null,
+      readyAt: null,
       createdById: null,
     });
 

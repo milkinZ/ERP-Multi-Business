@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { OrdersRepository } from './orders.repository';
@@ -16,7 +17,10 @@ describe('OrdersRepository', () => {
     transaction.mockImplementation(
       (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
     );
-    repository = new OrdersRepository({ $transaction: transaction } as never);
+    repository = new OrdersRepository(
+      { $transaction: transaction } as never,
+      { getForTenant: jest.fn() } as never,
+    );
   });
 
   it('cancels the order and releases reservations in one transaction', async () => {
@@ -64,5 +68,106 @@ describe('OrdersRepository', () => {
     ).rejects.toBe(failure);
 
     expect(findFirst).not.toHaveBeenCalled();
+  });
+
+  it('rejects a new order beyond the monthly cap before writing the order', async () => {
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ currencyCode: 'IDR' }]),
+      subscriptionMonthlyUsage: {
+        upsert: jest.fn().mockResolvedValue({ orderCount: 2 }),
+      },
+      salesOrder: {
+        create: jest.fn(),
+        findUnique: jest.fn(),
+      },
+      salesOrderItem: { createMany: jest.fn() },
+    };
+    const getForTenant = jest.fn().mockResolvedValue({
+      planType: 'FREE',
+      maxMonthlyOrders: 1,
+    });
+    transaction.mockImplementation(
+      (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
+    );
+    repository = new OrdersRepository(
+      { $transaction: transaction } as never,
+      { getForTenant } as never,
+    );
+
+    await expect(
+      repository.createOrder('tenant-a', null, 'ORDER-OVER-LIMIT', 100, []),
+    ).rejects.toThrow(ConflictException);
+
+    expect(tx.subscriptionMonthlyUsage.upsert).toHaveBeenCalled();
+    expect(tx.salesOrder.create).not.toHaveBeenCalled();
+    expect(tx.salesOrderItem.createMany).not.toHaveBeenCalled();
+  });
+
+  it('allows the order that reaches the monthly cap and supports unlimited plans', async () => {
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ currencyCode: 'IDR' }]),
+      subscriptionMonthlyUsage: {
+        upsert: jest.fn().mockResolvedValue({ orderCount: 1 }),
+      },
+      salesOrder: {
+        create: jest.fn().mockResolvedValue({ id: 'order-a' }),
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'order-a',
+          SalesOrderItem: [],
+        }),
+      },
+      salesOrderItem: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    };
+    const getForTenant = jest.fn().mockResolvedValue({
+      planType: 'ENTERPRISE',
+      maxMonthlyOrders: 1,
+    });
+    transaction.mockImplementation(
+      (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
+    );
+    repository = new OrdersRepository(
+      { $transaction: transaction } as never,
+      { getForTenant } as never,
+    );
+
+    const created = await repository.createOrder(
+      'tenant-a',
+      null,
+      'ORDER-AT-LIMIT',
+      100,
+      [],
+    );
+
+    expect(created.planUsage).toMatchObject({
+      ordersUsed: 1,
+      monthlyOrderLimit: 1,
+      limitReached: true,
+      overLimit: false,
+    });
+    expect(tx.salesOrder.create).toHaveBeenCalledTimes(1);
+    expect(tx.salesOrderItem.createMany).toHaveBeenCalledWith({ data: [] });
+
+    getForTenant.mockResolvedValue({
+      planType: 'ENTERPRISE',
+      maxMonthlyOrders: null,
+    });
+    tx.subscriptionMonthlyUsage.upsert.mockResolvedValue({
+      orderCount: 2000,
+    });
+    const unlimited = await repository.createOrder(
+      'tenant-a',
+      null,
+      'ORDER-UNLIMITED',
+      100,
+      [],
+    );
+
+    expect(unlimited.planUsage).toMatchObject({
+      ordersUsed: 2000,
+      monthlyOrderLimit: null,
+      limitReached: false,
+      overLimit: false,
+    });
+    expect(tx.salesOrder.create).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { BaseRepository } from '../../core/database/repositories/base.repository';
 import { PrismaService } from '../../core/database/prisma.service';
 
@@ -75,8 +76,11 @@ export class OutletsRepository extends BaseRepository {
       .then((outlet) => (outlet ? { ...outlet, isActive: true } : null));
   }
 
-  async create(data: { tenantId: string; name: string }) {
-    return this.prisma.outlet.create({
+  async create(
+    data: { tenantId: string; name: string },
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ) {
+    return client.outlet.create({
       data: {
         name: data.name,
         tenantId: data.tenantId,

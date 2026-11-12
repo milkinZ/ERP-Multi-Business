@@ -6,6 +6,7 @@ import { getWorkerOptions } from "../queue/worker-config";
 import type { NotificationDispatchJobPayload } from "../queue/queue.types";
 import { RedisService } from "../shared/redis.service";
 import { wrapProcessor } from "../observability/worker-instrumentation";
+import { NotificationDeliveryService } from "../notifications/notification-delivery.service";
 
 const QUEUE_NAME: QueueName = QUEUE_NAMES.NOTIFICATION_QUEUE;
 
@@ -16,28 +17,17 @@ export class NotificationDispatchProcessor implements OnModuleDestroy {
   private readonly logger = new Logger(NotificationDispatchProcessor.name);
   private readonly worker: Worker;
 
-  constructor(private readonly redis: RedisService) {
+  constructor(
+    private readonly redis: RedisService,
+    private readonly deliveryService: NotificationDeliveryService,
+  ) {
     this.worker = new Worker(
       QUEUE_NAME,
       wrapProcessor("notification.dispatch", async (job: TypedJob) => {
-        const payload = job.data;
-        await Promise.resolve();
-
+        await this.deliveryService.dispatch(job.data);
         this.logger.log(
-          `Processing notification dispatch for tenant=${payload.tenantId} channels=${payload.notification.channels.join(", ")}`,
+          `Notification dispatch completed tenant=${job.data.tenantId} recipient=${job.data.recipientId} type=${job.data.notification.type}`,
         );
-
-        if (payload.notification.channels.includes("EMAIL")) {
-          this.logger.log(
-            `Email notification queued for dispatch: ${payload.notification.type}`,
-          );
-        }
-
-        if (payload.notification.channels.includes("IN_APP")) {
-          this.logger.log(
-            `In-app notification available for recipient=${payload.recipientId ?? "none"}`,
-          );
-        }
       }),
       getWorkerOptions(this.redis.getConnectionOptions()),
     );

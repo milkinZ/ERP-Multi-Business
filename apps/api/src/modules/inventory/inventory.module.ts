@@ -9,9 +9,10 @@ import { PrismaModule } from '../../core/database/prisma.module';
 import { QueueModule } from '../../infrastructure/queue/queue.module';
 import { WarehouseTransferService } from './warehouse-transfer.service';
 import { InventoryCostingService } from './inventory-costing.service';
+import { FeatureFlagsModule } from '../feature-flags/feature-flag.module';
 
 @Module({
-  imports: [PrismaModule, QueueModule],
+  imports: [PrismaModule, QueueModule, FeatureFlagsModule],
   controllers: [InventoryController],
   providers: [
     InventoryService,

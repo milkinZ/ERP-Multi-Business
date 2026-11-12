@@ -35,6 +35,42 @@ describe('SupplierService', () => {
       phone: null,
       email: null,
       address: null,
+      contactPerson: null,
+      taxNumber: null,
+    });
+  });
+
+  it('normalizes and forwards the extended supplier profile fields', async () => {
+    create.mockResolvedValue({ id: 'supplier-a', tenantId: 'tenant-a' });
+    update.mockResolvedValue({ id: 'supplier-a', tenantId: 'tenant-a' });
+
+    await service.create('tenant-a', {
+      name: 'Acme',
+      contactPerson: '  Ada Lovelace ',
+      taxNumber: '  TAX-123 ',
+    });
+    await service.update('supplier-a', 'tenant-a', {
+      contactPerson: '  ',
+      taxNumber: ' TAX-456 ',
+    });
+
+    expect(create).toHaveBeenLastCalledWith({
+      tenantId: 'tenant-a',
+      name: 'Acme',
+      phone: null,
+      email: null,
+      address: null,
+      contactPerson: 'Ada Lovelace',
+      taxNumber: 'TAX-123',
+    });
+    expect(update).toHaveBeenLastCalledWith('supplier-a', 'tenant-a', {
+      name: undefined,
+      phone: undefined,
+      email: undefined,
+      address: undefined,
+      contactPerson: null,
+      taxNumber: 'TAX-456',
+      isActive: undefined,
     });
   });
 
@@ -53,6 +89,8 @@ describe('SupplierService', () => {
       phone: undefined,
       email: undefined,
       address: undefined,
+      contactPerson: undefined,
+      taxNumber: undefined,
       isActive: undefined,
     });
     expect(remove).toHaveBeenCalledWith('supplier-b', 'tenant-a');

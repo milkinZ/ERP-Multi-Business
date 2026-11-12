@@ -7,11 +7,13 @@ describe('WebsocketGateway', () => {
   const joinTenantRoom = jest.fn().mockResolvedValue(undefined);
   const joinOutletRoom = jest.fn().mockResolvedValue(undefined);
   const joinUserRoom = jest.fn().mockResolvedValue(undefined);
+  const joinKitchenRoom = jest.fn().mockResolvedValue(undefined);
   const leaveAllRooms = jest.fn().mockResolvedValue(undefined);
   const websocketService = {
     joinTenantRoom,
     joinOutletRoom,
     joinUserRoom,
+    joinKitchenRoom,
     leaveAllRooms,
   } as unknown as WebsocketService;
   const metrics = {
@@ -27,7 +29,7 @@ describe('WebsocketGateway', () => {
     jest.clearAllMocks();
   });
 
-  it('joins authenticated clients to tenant, outlet, and user rooms', async () => {
+  it('joins authenticated clients to tenant, outlet, user, and Kitchen rooms', async () => {
     const client = {
       id: 'socket-a',
       data: {
@@ -42,6 +44,11 @@ describe('WebsocketGateway', () => {
     expect(joinTenantRoom).toHaveBeenCalledWith(client, 'tenant-a');
     expect(joinOutletRoom).toHaveBeenCalledWith(client, 'outlet-a');
     expect(joinUserRoom).toHaveBeenCalledWith(client, 'user-a');
+    expect(joinKitchenRoom).toHaveBeenCalledWith(
+      client,
+      'tenant-a',
+      'outlet-a',
+    );
     expect(client.disconnect).not.toHaveBeenCalled();
     // eslint-disable-next-line @typescript-eslint/unbound-method
     expect(metrics.websocketConnections.inc).toHaveBeenCalledWith(
@@ -64,6 +71,7 @@ describe('WebsocketGateway', () => {
     expect(joinTenantRoom).not.toHaveBeenCalled();
     expect(joinOutletRoom).not.toHaveBeenCalled();
     expect(joinUserRoom).not.toHaveBeenCalled();
+    expect(joinKitchenRoom).not.toHaveBeenCalled();
   });
 
   it('leaves rooms during disconnect cleanup', async () => {

@@ -80,20 +80,26 @@ describe('Ingredient lifecycle PostgreSQL integration', () => {
   it('updates one inventory record and protects stock history', async () => {
     const updated = await service.update(inventoryItemId, tenantId, {
       name: 'Arabica beans',
-      unit: 'g',
       isActive: false,
     });
     expect(updated).toMatchObject({
       id: inventoryItemId,
       name: 'Arabica beans',
-      unit: 'g',
+      unit: 'kg',
       InventoryItem: {
         id: inventoryItemId,
         name: 'Arabica beans',
-        unit: 'g',
+        unit: 'kg',
         isActive: false,
       },
     });
+    await expect(
+      service.update(inventoryItemId, tenantId, { unit: 'g' }),
+    ).rejects.toThrow(
+      new BadRequestException(
+        'Use the audited unit conversion operation to change an ingredient unit',
+      ),
+    );
 
     await prisma.inventoryStock.create({
       data: {
@@ -104,10 +110,10 @@ describe('Ingredient lifecycle PostgreSQL integration', () => {
       },
     });
     await expect(
-      service.update(inventoryItemId, tenantId, { unit: 'kg' }),
+      service.update(inventoryItemId, tenantId, { unit: 'g' }),
     ).rejects.toThrow(
       new BadRequestException(
-        'Ingredient unit cannot change after stock, movement, or recipe usage exists',
+        'Use the audited unit conversion operation to change an ingredient unit',
       ),
     );
 
@@ -121,10 +127,10 @@ describe('Ingredient lifecycle PostgreSQL integration', () => {
       },
     });
     await expect(
-      service.update(inventoryItemId, tenantId, { unit: 'kg' }),
+      service.update(inventoryItemId, tenantId, { unit: 'g' }),
     ).rejects.toThrow(
       new BadRequestException(
-        'Ingredient unit cannot change after stock, movement, or recipe usage exists',
+        'Use the audited unit conversion operation to change an ingredient unit',
       ),
     );
 

@@ -7,9 +7,12 @@
 - Renewal applies the pending plan before emitting the plan-changed and subscription-renewed events and before generating the renewal invoice.
 - Renewal stores the period end and is idempotent for the same billing period; invoice creation uses a unique subscription/month key, with the invoice and required outbox events committed atomically.
 - Subscription reads derive tenant scope from the authenticated backend context.
+- `GET /subscriptions/usage` reports plan entitlements, active/pending outlet and user counts, monthly orders, and over-limit orders. Outlet/user creation is blocked at approved limits; orders remain allowed and record overage.
+- Plan entitlements are FREE (1 outlet/3 users/500 monthly orders), STARTER (3/10/5,000), BUSINESS (10/50/50,000), and ENTERPRISE (unlimited).
 - Billing actions remain exposed by the Billing module and are not duplicated here.
 - `GET /super-admin/subscriptions` and `GET /super-admin/subscriptions/:id` are platform-scoped reads protected by `super-admin.read` and return explicit subscription, plan, and tenant-summary fields.
 - `PUT /super-admin/tenants/:tenantId/plan` is the only verified platform subscription mutation and is protected by `super-admin.manage.subscriptions`.
+- Platform billing actions for subscription execution/renewal are protected by `super-admin.manage.billing`, confirmed explicitly, and run inside the server-selected tenant context.
 - Tenant subscription and outbox changes persist in one database transaction. Failed persistence retains pending aggregate events for retry.
 - Platform plan changes are also scheduled for the next renewal and persist the pending plan, platform audit, and scheduling outbox event in the same transaction.
 - The platform UI is available at `/platform/subscriptions` and `/platform/subscriptions/:subscriptionId` using those contracts.
@@ -21,9 +24,10 @@
 
 ### BACKEND CONTRACT GAP
 
-- No usage limits, feature entitlements, billing cycle, renewal date, trial dates, currency, or payment relationship are returned by the current subscription response.
-- No platform subscription lifecycle mutation endpoint is exposed for activate, suspend, cancel, renew, or execute-billing actions; the platform UI intentionally does not show those controls.
-- Platform billing and invoice navigation remains unavailable because no cross-tenant billing detail contract was verified for a subscription detail record.
+- Usage limits and monthly usage are available through the dedicated usage endpoint; they are not embedded into the current-subscription response.
+- Billing execution and renewal are exposed to platform operators through the audited Billing workflow. Other subscription lifecycle mutation contracts (activate, suspend, cancel) remain unavailable.
+- Recurring Autopay now supports tenant consent, AES-256-GCM token storage, operator-controlled MIT-channel allowlisting, scheduled retries (maximum three attempts within seven days), and local revocation. PostgreSQL concurrency verification and live provider verification remain outstanding; provider-side token revocation is not implemented because no verified provider contract is available.
+- Platform invoice detail and refund history are available from the billing workspace; the subscription detail page does not yet link to a filtered invoice history.
 
 ### ARCHITECTURE GAP
 
@@ -38,6 +42,7 @@
 ### FINANCIAL SAFETY GAP
 
 - Subscription page intentionally does not duplicate billing mutations. Execute and renew remain in Billing with mutation retry disabled and unknown-result handling.
+- Subscription plan quota enforcement and overage recording are implemented. Automatic recurring charges are gated on payment-token consent, encryption, operator-approved MIT channels, and bounded retry processing. Unknown payment outcomes are not retried automatically.
 
 ### REALTIME INFRASTRUCTURE GAP
 

@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { assertSafeIntegrationEnvironment } from '../../test/integration-environment';
 import { BillingRepository } from './billing.repository';
 import { BillingService } from './billing.service';
+import { AutopayService } from './autopay.service';
 import { SubscriptionRepository } from '../subscription/domain/subscription.repository';
 import { PlanRepository } from '../subscription/plans/plan.repository';
 import { TenantContextService } from '../tenants/tenant-context.service';
@@ -31,6 +32,9 @@ const webhookController = new WebhookController(
     get: (key: string) =>
       key === 'XENDIT_WEBHOOK_TOKEN' ? 'integration-callback-token' : undefined,
   } as never),
+  {
+    handleXenditPaymentTokenWebhookEvent: jest.fn(),
+  } as unknown as AutopayService,
 );
 
 const tenantA = 'it-xendit-webhook-tenant-a';
@@ -57,7 +61,9 @@ const paymentIds = [
   'it-xendit-payment-created-persist-failure',
   'it-xendit-payment-created-timeout',
   'it-xendit-payment-unauthenticated',
+  'it-xendit-payment-session',
 ];
+const paymentSessionInvoice = 'it-xendit-payment-session-invoice';
 
 type WebhookInput = Parameters<BillingService['handleXenditWebhookEvent']>[0];
 
@@ -80,6 +86,9 @@ function paymentWebhook(
 }
 
 async function cleanup(includeTenants = false) {
+  await prisma.autopayPaymentMethod.deleteMany({
+    where: { tenantId: { in: [tenantA, tenantB] } },
+  });
   await prisma.xenditWebhookReceipt.deleteMany({
     where: { paymentId: { in: paymentIds } },
   });
@@ -87,7 +96,7 @@ async function cleanup(includeTenants = false) {
     where: { tenantId: { in: [tenantA, tenantB] } },
   });
   await prisma.invoice.deleteMany({
-    where: { id: { in: [invoiceA, invoiceB] } },
+    where: { id: { in: [invoiceA, invoiceB, paymentSessionInvoice] } },
   });
   await prisma.subscription.deleteMany({ where: { id: subscriptionId } });
   if (createdTestPlan) {
@@ -192,6 +201,73 @@ describe('Xendit webhook idempotency PostgreSQL integration', () => {
       invoiceNumber: 'IT-XENDIT-DUPLICATE',
       providerReferenceId: `INV-${paymentIds[0]}`,
       providerPaymentRequestId: `pr-${paymentIds[0]}`,
+    });
+
+    it('correlates a hosted Autopay Payment Session capture to its invoice', async () => {
+      const paymentId = paymentIds[16];
+      const paymentRequestId = `pr-${paymentId}`;
+      const referenceId = `at-session-${paymentId}`;
+      await createInvoice(paymentSessionInvoice, tenantA, {
+        invoiceNumber: 'IT-XENDIT-PAYMENT-SESSION',
+      });
+      const enrollment = await billingRepository.createAutopayEnrollment({
+        tenantId: tenantA,
+        invoiceId: paymentSessionInvoice,
+        referenceId,
+        channelCode: 'CARDS',
+        currency: 'IDR',
+        consentVersion: 'AUTOPAY_TERMS_V1',
+        consentUserId: 'it-xendit-session-user',
+      });
+      await billingRepository.recordAutopayEnrollmentSession(
+        enrollment.id,
+        tenantA,
+        `ps-${paymentId}`,
+      );
+      await expect(
+        billingRepository.claimXenditPaymentRequest(
+          paymentSessionInvoice,
+          tenantA,
+        ),
+      ).resolves.toMatchObject({ claimed: true });
+
+      await expect(
+        billing.handleXenditWebhookEvent(
+          paymentWebhook(paymentId, {
+            paymentRequestId,
+            referenceId,
+          }),
+        ),
+      ).resolves.toBe('PROCESSED');
+      await expect(
+        billing.handleXenditWebhookEvent(
+          paymentWebhook(paymentId, {
+            paymentRequestId,
+            referenceId,
+          }),
+        ),
+      ).resolves.toBe('DUPLICATE');
+
+      await expect(
+        prisma.invoice.findUnique({ where: { id: paymentSessionInvoice } }),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          status: 'PAID',
+          providerReferenceId: referenceId,
+          providerPaymentRequestId: paymentRequestId,
+          providerPaymentId: paymentId,
+        }),
+      );
+      await expect(
+        prisma.xenditPaymentRequestAttempt.findUnique({
+          where: { invoiceId: paymentSessionInvoice },
+        }),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          state: 'COMPLETED',
+          providerPaymentRequestId: paymentRequestId,
+        }),
+      );
     });
     const callback = paymentWebhook(paymentIds[0]);
 

@@ -31,6 +31,7 @@ export class UserOutletsController {
       user.tenantId,
       userId,
       dto.outletIds,
+      dto.tenantWideNotificationAccess,
     );
   }
 }

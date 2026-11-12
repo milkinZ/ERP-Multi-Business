@@ -11,8 +11,13 @@ describe('PlatformSettingsService', () => {
   const createMany = jest.fn();
   const updateMany = jest.fn();
   const auditCreate = jest.fn();
+  const queryRaw = jest.fn((query: TemplateStringsArray) => {
+    expect(query.join('')).toContain(' IS NULL');
+    return Promise.resolve([{ is_null: true }]);
+  });
   const tx = {
     platformSetting: { findUnique, createMany, updateMany },
+    $queryRaw: queryRaw,
   };
   const transaction = jest.fn(
     (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
@@ -42,6 +47,8 @@ describe('PlatformSettingsService', () => {
       'supportUrl',
       'defaultTimezone',
       'defaultCurrency',
+      'autopayEnabled',
+      'mitChannelAllowlist',
     ]);
     const defaultCurrency = settings.find(
       ({ key }) => key === 'defaultCurrency',
@@ -64,6 +71,7 @@ describe('PlatformSettingsService', () => {
       data: [{ key: 'platformName', value: 'New Platform', version: 1 }],
       skipDuplicates: true,
     });
+
     expect(auditCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         actor,
@@ -82,6 +90,16 @@ describe('PlatformSettingsService', () => {
       key: 'platformName',
       value: 'New Platform',
       version: 1,
+    });
+  });
+
+  it('uses a transaction-scoped lock when updating Autopay policy settings', async () => {
+    await service.update(actor, 'mitChannelAllowlist', 'CARDS', 0);
+
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+    expect(createMany).toHaveBeenCalledWith({
+      data: [{ key: 'mitChannelAllowlist', value: 'CARDS', version: 1 }],
+      skipDuplicates: true,
     });
   });
 

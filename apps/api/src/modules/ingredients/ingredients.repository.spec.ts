@@ -33,6 +33,7 @@ describe('IngredientsRepository list contract', () => {
         valuationLockedAt: null,
         tenantId: 'tenant-a',
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        taxCategory: null,
       };
     findMany.mockResolvedValue([item]);
     count.mockResolvedValue(1);
@@ -56,6 +57,7 @@ describe('IngredientsRepository list contract', () => {
         valuationLockedAt: null,
         tenantId: 'tenant-a',
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        taxCategory: null,
       };
     await expect(
       repository.findAll('tenant-a', {

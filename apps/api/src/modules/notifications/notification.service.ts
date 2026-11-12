@@ -1,7 +1,6 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+
 import { PrismaService } from '../../core/database/prisma.service';
-import { QueueService } from '../../infrastructure/queue/queue.service';
-import { QUEUE_NAMES } from '../../infrastructure/queue/queue.constants';
 import {
   NotificationChannel,
   NotificationPayload,
@@ -13,64 +12,99 @@ import {
   NotificationChannelHandler,
   NOTIFICATION_CHANNEL_HANDLERS,
 } from './notification.channel';
+import { NotificationRecipientService } from './notification-recipient.service';
+
+type AuthorizedNotification = Omit<NotificationPayload, 'userId'> & {
+  requiredPermission: string;
+};
+
+const RECIPIENT_BATCH_SIZE = 25;
 
 @Injectable()
 export class NotificationService {
-  private readonly logger = new Logger(NotificationService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly templateService: NotificationTemplateService,
     private readonly preferenceService: NotificationPreferenceService,
+    private readonly recipientService: NotificationRecipientService,
     @Inject(NOTIFICATION_CHANNEL_HANDLERS)
     private readonly channelHandlers: NotificationChannelHandler[],
-    private readonly queueService: QueueService,
   ) {}
 
-  async sendNotification(payload: NotificationPayload) {
-    const template = this.templateService.buildNotification(
-      payload.type,
-      payload.data ?? {},
-      payload.channels,
-    );
+  async dispatchToAuthorizedRecipients(payload: AuthorizedNotification) {
+    const recipientIds = payload.outletId
+      ? await this.recipientService.findForOutlet(
+          payload.tenantId,
+          payload.outletId,
+          payload.requiredPermission,
+        )
+      : await this.recipientService.findForTenant(
+          payload.tenantId,
+          payload.requiredPermission,
+        );
 
-    const channels = payload.channels ?? template.channels;
-    const effectiveChannels = this.preferenceService.getEffectiveChannels(
+    for (
+      let offset = 0;
+      offset < recipientIds.length;
+      offset += RECIPIENT_BATCH_SIZE
+    ) {
+      const batch = recipientIds.slice(offset, offset + RECIPIENT_BATCH_SIZE);
+      await Promise.all(
+        batch.map((userId) => this.sendNotification({ ...payload, userId })),
+      );
+    }
+
+    return { recipientCount: recipientIds.length };
+  }
+
+  async sendNotification(payload: NotificationPayload) {
+    const template =
+      payload.title && payload.message
+        ? undefined
+        : this.templateService.buildNotification(
+            payload.type,
+            payload.data ?? {},
+            payload.channels,
+          );
+    const channels = payload.channels ??
+      template?.channels ?? [
+        NotificationChannel.IN_APP,
+        NotificationChannel.EMAIL,
+      ];
+    const effectiveChannels = await this.preferenceService.getEffectiveChannels(
       payload.userId,
+      payload.tenantId,
+      payload.category,
       channels,
     );
+
+    if (!effectiveChannels.length) return;
 
     const dispatchPayload: NotificationDispatchJobPayload = {
       recipientId: payload.userId,
       tenantId: payload.tenantId,
+      outletId: payload.outletId,
       notification: {
         type: payload.type,
-        title: payload.title ?? template.title,
-        message: payload.message ?? template.message,
+        category: payload.category,
+        sourceEventId: payload.sourceEventId,
+        title: payload.title ?? template?.title,
+        message: payload.message ?? template?.message,
         channels: effectiveChannels,
         data: payload.data ?? {},
       },
     };
 
     const handlers = this.channelHandlers.filter((handler) =>
-      dispatchPayload.notification.channels.includes(handler.channel),
+      effectiveChannels.includes(handler.channel),
     );
-
-    if (handlers.length === 0) {
-      this.logger.warn(
-        `No notification channel handlers found for channels=[${effectiveChannels.join(', ')}]`,
+    if (!handlers.length) {
+      throw new Error(
+        `No handlers registered for notification channels [${effectiveChannels.join(', ')}]`,
       );
-      return;
     }
 
     await Promise.all(handlers.map((handler) => handler.send(dispatchPayload)));
-
-    if (
-      effectiveChannels.includes(NotificationChannel.EMAIL) &&
-      !effectiveChannels.includes(NotificationChannel.IN_APP)
-    ) {
-      this.queueService.getQueue(QUEUE_NAMES.NOTIFICATION_QUEUE);
-    }
   }
 
   async getUserNotifications(
@@ -112,6 +146,24 @@ export class NotificationService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  getUserPreferences(userId: string, tenantId: string) {
+    return this.preferenceService.getUserPreferences(userId, tenantId);
+  }
+
+  updateUserPreferences(
+    userId: string,
+    tenantId: string,
+    preferences: Parameters<
+      NotificationPreferenceService['updateUserPreferences']
+    >[2],
+  ) {
+    return this.preferenceService.updateUserPreferences(
+      userId,
+      tenantId,
+      preferences,
+    );
   }
 
   async markAsRead(id: string, userId: string, tenantId: string) {

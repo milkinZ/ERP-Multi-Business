@@ -20,4 +20,6 @@ export type InvoiceExportFilters = {
   from?: string;
   to?: string;
   status?: string;
+  tenantId?: string;
+  subscriptionId?: string;
 };

@@ -37,6 +37,56 @@ export type PlatformPlan = {
   type: string;
   name: string;
   priceCents: number;
+  maxOutlets: number | null;
+  maxUsers: number | null;
+  maxMonthlyOrders: number | null;
+  modules: Array<{
+    moduleId: string;
+    featureModule: PlatformFeatureModule;
+  }>;
+};
+
+export type PlatformFeatureModule = {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  monthlyPriceCents: number;
+  isActive: boolean;
+};
+
+export type PlatformTenantFeatureFlags = {
+  flags: Array<{
+    id: string;
+    tenantId: string;
+    key: string;
+    enabled: boolean;
+  }>;
+  modules: PlatformFeatureModule[];
+  entitledModuleIds: string[];
+};
+
+export type PlatformTenantProvisionResult = {
+  tenant: Pick<PlatformTenant, "id" | "name" | "businessType"> & {
+    currencyCode: string | null;
+  };
+  subscription: {
+    id: string;
+    tenantId: string;
+    planId: string;
+    status: string;
+    plan: PlatformPlan;
+  };
+  invoice: Pick<
+    PlatformInvoice,
+    "id" | "invoiceNumber" | "amountCents" | "currency" | "status" | "dueAt"
+  >;
+  ownerInvitation: {
+    id: string;
+    email: string;
+    expiresAt: string;
+    status: "PENDING";
+  };
 };
 
 export type PlatformSetting = {
@@ -53,12 +103,23 @@ export type PlatformInvoice = {
   subscriptionId: string | null;
   invoiceNumber: string;
   amountCents: number;
+  refundedAmountCents: number;
   currency: string;
   status: string;
   dueAt: string | null;
   paidAt: string | null;
   createdAt: string;
   tenant: { id: string; name: string };
+};
+
+export type PlatformInvoicePage = {
+  data: PlatformInvoice[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 };
 
 export type PlatformReadinessData = {
@@ -111,6 +172,35 @@ export type PlatformOperationalTelemetry = {
     durationMs: number;
     createdAt: string;
   }>;
+};
+
+export type PlatformSchedulerRun = {
+  id: string;
+  schedulerName: string;
+  status: "RUNNING" | "SUCCEEDED" | "FAILED";
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+  errorCode: string | null;
+};
+
+export type PlatformSchedulerRunList = {
+  data: PlatformSchedulerRun[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+  retentionDays: number;
+};
+
+export type PlatformFailedJobSummary = {
+  queueName: string;
+  jobName: string;
+  failedAt: string;
+  attemptsMade: number;
+  maxAttempts: number;
 };
 
 export type PlatformWorker = {
@@ -222,6 +312,9 @@ export const platformObservabilityKeys = {
   liveness: () => [...platformObservabilityKeys.all, "liveness"] as const,
   queues: () => [...platformObservabilityKeys.all, "queues"] as const,
   telemetry: () => [...platformObservabilityKeys.all, "telemetry"] as const,
+  schedulerRuns: () =>
+    [...platformObservabilityKeys.all, "scheduler-runs"] as const,
+  failedJobs: () => [...platformObservabilityKeys.all, "failed-jobs"] as const,
 };
 
 export const platformAuditKeys = {
@@ -238,6 +331,24 @@ const authHeaders = (accessToken: string) => ({
 export function getPlatformTenants(accessToken: string) {
   return apiRequest<PlatformTenantListResponse>("/super-admin/tenants", {
     headers: authHeaders(accessToken),
+  });
+}
+
+export function createPlatformTenant(
+  accessToken: string,
+  input: {
+    name: string;
+    businessType: "CAFE" | "RETAIL";
+    currencyCode: "IDR";
+    planId: string;
+    moduleIds?: string[];
+    ownerEmail: string;
+  },
+) {
+  return apiRequest<PlatformTenantProvisionResult>("/super-admin/tenants", {
+    method: "POST",
+    headers: authHeaders(accessToken),
+    body: JSON.stringify(input),
   });
 }
 
@@ -272,6 +383,94 @@ export function getPlatformPlans(accessToken: string) {
   return apiRequest<PlatformPlan[]>("/super-admin/plans", {
     headers: authHeaders(accessToken),
   });
+}
+
+export function createPlatformPlan(
+  accessToken: string,
+  input: {
+    type: "FREE" | "STARTER" | "BUSINESS" | "ENTERPRISE";
+    name: string;
+    priceCents: number;
+    maxOutlets: number | null;
+    maxUsers: number | null;
+    maxMonthlyOrders: number | null;
+    moduleIds: string[];
+  },
+) {
+  return apiRequest<PlatformPlan>("/super-admin/plans", {
+    method: "POST",
+    headers: authHeaders(accessToken),
+    body: JSON.stringify(input),
+  });
+}
+
+export function updatePlatformPlan(
+  accessToken: string,
+  planId: string,
+  input: Partial<Omit<PlatformPlan, "id" | "type" | "modules">> & {
+    moduleIds?: string[];
+  },
+) {
+  return apiRequest<PlatformPlan>(
+    `/super-admin/plans/${encodeURIComponent(planId)}`,
+    {
+      method: "PUT",
+      headers: authHeaders(accessToken),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function getPlatformFeatureModules(accessToken: string) {
+  return apiRequest<PlatformFeatureModule[]>("/super-admin/feature-modules", {
+    headers: authHeaders(accessToken),
+  });
+}
+
+export function updatePlatformFeatureModule(
+  accessToken: string,
+  moduleId: string,
+  input: Partial<
+    Pick<
+      PlatformFeatureModule,
+      "name" | "description" | "monthlyPriceCents" | "isActive"
+    >
+  >,
+) {
+  return apiRequest<PlatformFeatureModule>(
+    `/super-admin/feature-modules/${encodeURIComponent(moduleId)}`,
+    {
+      method: "PUT",
+      headers: authHeaders(accessToken),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function getPlatformTenantFeatureFlags(
+  accessToken: string,
+  tenantId: string,
+) {
+  return apiRequest<PlatformTenantFeatureFlags>(
+    `/super-admin/tenants/${encodeURIComponent(tenantId)}/feature-flags`,
+    { headers: authHeaders(accessToken) },
+  );
+}
+
+export function updatePlatformTenantFeatureFlag(
+  accessToken: string,
+  tenantId: string,
+  key: string,
+  enabled: boolean,
+) {
+  return apiRequest<PlatformTenantFeatureFlags["flags"][number]>(
+    `/super-admin/tenants/${encodeURIComponent(tenantId)}/feature-flags/${encodeURIComponent(key)}`,
+    {
+      method: "PUT",
+      headers: authHeaders(accessToken),
+      body: JSON.stringify({ enabled }),
+    },
+  );
 }
 
 export function getPlatformWorkers(accessToken: string) {
@@ -353,20 +552,53 @@ export function updatePlatformSetting(
   );
 }
 
-export function getPlatformInvoices(accessToken: string) {
-  return apiRequest<PlatformInvoice[]>("/super-admin/invoices", {
-    headers: authHeaders(accessToken),
+export function getPlatformInvoices(
+  accessToken: string,
+  filters: {
+    page: number;
+    limit?: number;
+    tenantId?: string;
+    subscriptionId?: string;
+    from?: string;
+    to?: string;
+    status?: string;
+  },
+) {
+  const params = new URLSearchParams({
+    page: String(filters.page),
+    limit: String(filters.limit ?? 25),
   });
+  if (filters.tenantId) params.set("tenantId", filters.tenantId);
+  if (filters.subscriptionId)
+    params.set("subscriptionId", filters.subscriptionId);
+  if (filters.from) params.set("from", filters.from);
+  if (filters.to) params.set("to", filters.to);
+  if (filters.status) params.set("status", filters.status);
+  return apiRequest<PlatformInvoicePage>(
+    `/super-admin/invoices?${params.toString()}`,
+    {
+      headers: authHeaders(accessToken),
+    },
+  );
 }
 
 export function downloadPlatformInvoices(
   accessToken: string,
-  filters: { from?: string; to?: string; status?: string },
+  filters: {
+    from?: string;
+    to?: string;
+    status?: string;
+    tenantId?: string;
+    subscriptionId?: string;
+  },
 ) {
   const params = new URLSearchParams();
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
   if (filters.status) params.set("status", filters.status);
+  if (filters.tenantId) params.set("tenantId", filters.tenantId);
+  if (filters.subscriptionId)
+    params.set("subscriptionId", filters.subscriptionId);
   const query = params.size ? `?${params.toString()}` : "";
   return apiDownload(`/super-admin/invoices-export.csv${query}`, {
     headers: authHeaders(accessToken),
@@ -378,6 +610,59 @@ export function getPlatformInvoice(accessToken: string, invoiceId: string) {
     `/super-admin/invoices/${encodeURIComponent(invoiceId)}`,
     {
       headers: authHeaders(accessToken),
+    },
+  );
+}
+
+export function getPlatformInvoiceRefunds(
+  accessToken: string,
+  tenantId: string,
+  invoiceId: string,
+) {
+  return apiRequest<
+    Array<{
+      id: string;
+      amountCents: number;
+      currency: string;
+      reason: string;
+      status: string;
+      providerStatus: string | null;
+      createdAt: string;
+      processedAt: string | null;
+    }>
+  >(
+    `/super-admin/billing/tenants/${encodeURIComponent(tenantId)}/invoices/${encodeURIComponent(invoiceId)}/refunds`,
+    { headers: authHeaders(accessToken) },
+  );
+}
+
+export function cancelPlatformInvoice(
+  accessToken: string,
+  tenantId: string,
+  invoiceId: string,
+) {
+  return apiRequest<PlatformInvoice>(
+    `/super-admin/billing/tenants/${encodeURIComponent(tenantId)}/invoices/${encodeURIComponent(invoiceId)}/cancel`,
+    {
+      method: "POST",
+      headers: authHeaders(accessToken),
+      body: JSON.stringify({ confirm: true }),
+    },
+  );
+}
+
+export function refundPlatformInvoice(
+  accessToken: string,
+  tenantId: string,
+  invoiceId: string,
+  input: { amountCents: number; reason: string },
+) {
+  return apiRequest(
+    `/super-admin/billing/tenants/${encodeURIComponent(tenantId)}/invoices/${encodeURIComponent(invoiceId)}/refunds`,
+    {
+      method: "POST",
+      headers: authHeaders(accessToken),
+      body: JSON.stringify({ ...input, confirm: true }),
     },
   );
 }
@@ -453,6 +738,27 @@ export function getPlatformOperationalTelemetry(
   const params = new URLSearchParams(range);
   return apiRequest<PlatformOperationalTelemetry>(
     `/super-admin/operational/telemetry?${params.toString()}`,
+    { headers: authHeaders(accessToken) },
+  );
+}
+
+export function getPlatformSchedulerRuns(
+  accessToken: string,
+  params: { page?: number; limit?: number } = {},
+) {
+  const search = new URLSearchParams({
+    page: String(params.page ?? 1),
+    limit: String(params.limit ?? 25),
+  });
+  return apiRequest<PlatformSchedulerRunList>(
+    `/super-admin/operational/scheduler-runs?${search.toString()}`,
+    { headers: authHeaders(accessToken) },
+  );
+}
+
+export function getPlatformFailedJobs(accessToken: string) {
+  return apiRequest<PlatformFailedJobSummary[]>(
+    "/super-admin/operational/failed-jobs",
     { headers: authHeaders(accessToken) },
   );
 }

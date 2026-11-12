@@ -3,6 +3,7 @@ import { AggregateRoot } from '../../../core/domain/aggregate-root';
 export type RecipeItemProps = {
   inventoryItemId: string;
   quantity: number;
+  unit?: string;
 };
 
 export type RecipeProps = {
@@ -39,8 +40,20 @@ export class RecipeAggregate extends AggregateRoot {
         throw new Error('Inventory item id must not be empty');
       }
 
-      if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
-        throw new Error('Inventory item quantity must be a positive integer');
+      if (
+        !Number.isFinite(item.quantity) ||
+        item.quantity <= 0 ||
+        Math.abs(
+          item.quantity * 1_000_000 - Math.round(item.quantity * 1_000_000),
+        ) > 0.000001
+      ) {
+        throw new Error(
+          'Inventory item quantity must be positive with at most six decimal places',
+        );
+      }
+
+      if (item.unit !== undefined && !item.unit.trim()) {
+        throw new Error('Recipe item unit must not be empty');
       }
     });
 

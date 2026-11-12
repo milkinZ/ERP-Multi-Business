@@ -28,8 +28,15 @@ export type CreateIngredientInput = {
 
 export type UpdateIngredientInput = {
   name?: string;
-  unit?: string;
   isActive?: boolean;
+};
+
+export type UnitConversion = {
+  id: string;
+  fromUnit: string;
+  toUnit: string;
+  factor: string;
+  createdAt: string;
 };
 
 export type IngredientListQuery = {
@@ -131,4 +138,46 @@ export function removeIngredient(accessToken: string, ingredientId: string) {
       headers: { Authorization: ["Bearer", accessToken].join(" ") },
     },
   );
+}
+
+export function getUnitConversions(accessToken: string) {
+  return apiRequest<UnitConversion[]>("/ingredients/unit-conversions", {
+    headers: { Authorization: ["Bearer", accessToken].join(" ") },
+  });
+}
+
+export function createUnitConversion(
+  accessToken: string,
+  input: { fromUnit: string; toUnit: string; factor: number },
+) {
+  return apiRequest<UnitConversion>("/ingredients/unit-conversions", {
+    method: "POST",
+    headers: {
+      Authorization: ["Bearer", accessToken].join(" "),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+export function convertIngredientUnit(
+  accessToken: string,
+  ingredientId: string,
+  input: { unit: string; convertHistory: boolean },
+) {
+  return apiRequest<{
+    id: string;
+    fromUnit: string;
+    unit: string;
+    factor: string;
+    convertHistory: boolean;
+    conversionId: string;
+  }>(`/ingredients/${encodeURIComponent(ingredientId)}/convert-unit`, {
+    method: "POST",
+    headers: {
+      Authorization: ["Bearer", accessToken].join(" "),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
 }

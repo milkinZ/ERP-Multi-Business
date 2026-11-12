@@ -15,6 +15,7 @@ import { PermissionGuard } from '../rbac/permission.guard';
 import { SuperAdminController } from './super-admin.controller';
 import { SuperAdminService } from './super-admin.service';
 import { PlatformSettingsService } from './platform-settings.service';
+import { TenantProvisioningService } from './tenant-provisioning.service';
 
 // eslint-disable-next-line @typescript-eslint/unbound-method
 const getBillingAggregate = SuperAdminController.prototype.getBillingAggregate;
@@ -105,6 +106,14 @@ describe('SuperAdminController platform billing aggregate authorization', () => 
       list: jest.fn().mockResolvedValue([]),
       update: jest.fn(),
     };
+    const tenantProvisioning = {
+      createTenant: jest.fn().mockResolvedValue({
+        tenant: { id: 'tenant-created', name: 'Sandbox Cafe' },
+        subscription: { id: 'subscription-created' },
+        invoice: { id: 'invoice-created', status: 'PENDING' },
+        ownerInvitation: { id: 'invitation-created', status: 'PENDING' },
+      }),
+    };
     const identities: Record<
       string,
       {
@@ -132,6 +141,12 @@ describe('SuperAdminController platform billing aggregate authorization', () => 
         userId: 'platform-user',
         platformIdentityId: 'platform-user',
         permissions: ['super-admin.manage.billing'],
+      },
+      'platform-tenant-manager': {
+        scope: 'platform',
+        userId: 'platform-manager',
+        platformIdentityId: 'platform-manager',
+        permissions: ['super-admin.manage.tenants'],
       },
       platform: {
         scope: 'platform',
@@ -167,6 +182,7 @@ describe('SuperAdminController platform billing aggregate authorization', () => 
           PermissionGuard,
           { provide: SuperAdminService, useValue: service },
           { provide: PlatformSettingsService, useValue: platformSettings },
+          { provide: TenantProvisioningService, useValue: tenantProvisioning },
         ],
       })
         .overrideGuard(PlatformJwtAuthGuard)
@@ -210,6 +226,53 @@ describe('SuperAdminController platform billing aggregate authorization', () => 
         .set('x-test-identity', 'platform')
         .expect(200, aggregate);
       expect(service.getBillingAggregate).toHaveBeenCalledTimes(1);
+    });
+
+    it('provisions a tenant only for a platform identity with tenant-management permission', async () => {
+      const input = {
+        name: 'Sandbox Cafe',
+        ownerEmail: 'owner@example.test',
+        planId: 'plan-starter',
+      };
+      await request(httpServer())
+        .post('/super-admin/tenants')
+        .set('x-test-identity', 'platform')
+        .send(input)
+        .expect(403);
+
+      await request(httpServer())
+        .post('/super-admin/tenants')
+        .set('x-test-identity', 'platform-tenant-manager')
+        .send(input)
+        .expect(201, {
+          tenant: { id: 'tenant-created', name: 'Sandbox Cafe' },
+          subscription: { id: 'subscription-created' },
+          invoice: { id: 'invoice-created', status: 'PENDING' },
+          ownerInvitation: { id: 'invitation-created', status: 'PENDING' },
+        });
+      expect(tenantProvisioning.createTenant).toHaveBeenCalledWith(
+        { platformIdentityId: 'platform-manager' },
+        expect.objectContaining({
+          ...input,
+          businessType: 'CAFE',
+          currencyCode: 'IDR',
+        }),
+      );
+    });
+
+    it('validates tenant provisioning input before calling the service', async () => {
+      tenantProvisioning.createTenant.mockClear();
+      await request(httpServer())
+        .post('/super-admin/tenants')
+        .set('x-test-identity', 'platform-tenant-manager')
+        .send({
+          name: 'Invalid',
+          ownerEmail: 'not-an-email',
+          planId: 'plan-starter',
+          businessType: 'UNKNOWN',
+        })
+        .expect(400);
+      expect(tenantProvisioning.createTenant).not.toHaveBeenCalled();
     });
 
     it('rejects a request without authentication', async () => {

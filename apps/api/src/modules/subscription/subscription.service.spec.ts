@@ -14,6 +14,7 @@ import { PlanRepository } from './plans/plan.repository';
 import { SubscriptionService } from './subscription.service';
 import { TenantContextService } from '../tenants/tenant-context.service';
 import { SubscriptionHistoryQueryDto } from './dto/subscription-history-query.dto';
+import { PlanEntitlementsService } from './plans/plan-entitlements.service';
 
 const plan = {
   id: 'plan-a',
@@ -60,11 +61,19 @@ describe('SubscriptionService', () => {
   const tenantContext = {
     requireTenant,
   } as unknown as TenantContextService;
+  const planEntitlements = {
+    getUsage: jest.fn(),
+  } as unknown as PlanEntitlementsService;
   let service: SubscriptionService;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new SubscriptionService(repository, plans, tenantContext);
+    service = new SubscriptionService(
+      repository,
+      plans,
+      tenantContext,
+      planEntitlements,
+    );
   });
 
   it('returns bounded tenant-scoped subscription history', async () => {

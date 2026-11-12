@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -16,17 +17,23 @@ import { EmailService } from '../../infrastructure/email/email.service';
 import { requestContext } from '../../core/request-context/request-context';
 import { PERMISSIONS } from '../rbac/permissions';
 import { TenantRolePolicyService } from '../rbac/services/tenant-role-policy.service';
+import { PlanEntitlementsService } from '../subscription/plans/plan-entitlements.service';
+import { BillingService } from '../billing/billing.service';
 import type { CreateUserInvitationDto } from './dto/create-user-invitation.dto';
 
 const INVITATION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class UsersInvitationsService {
+  private readonly logger = new Logger(UsersInvitationsService.name);
+
   constructor(
     private readonly prisma: DatabaseService,
     private readonly config: ConfigService,
     private readonly email: EmailService,
     private readonly rolePolicy: TenantRolePolicyService,
+    private readonly planEntitlements: PlanEntitlementsService,
+    private readonly billing: BillingService,
   ) {}
 
   async create(
@@ -51,6 +58,11 @@ export class UsersInvitationsService {
     const expiresAt = new Date(Date.now() + INVITATION_LIFETIME_MS);
 
     const invitation = await this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`
+        SELECT "id" FROM "Tenant" WHERE "id" = ${tenantId} FOR UPDATE
+      `;
+      await this.planEntitlements.assertCanCreateUser(tenantId, transaction);
+
       const roles = await transaction.role.findMany({
         where: { id: { in: roleIds }, tenantId },
         select: { id: true },
@@ -236,7 +248,16 @@ export class UsersInvitationsService {
     const passwordHash = await bcrypt.hash(password, 12);
     requestContext.set({ tenantId: invitation.tenantId });
     try {
-      return await this.prisma.$transaction(async (transaction) => {
+      const result = await this.prisma.$transaction(async (transaction) => {
+        await transaction.$queryRaw`
+          SELECT "id" FROM "Tenant" WHERE "id" = ${invitation.tenantId} FOR UPDATE
+        `;
+        await this.planEntitlements.assertCanCreateUser(
+          invitation.tenantId,
+          transaction,
+          false,
+        );
+
         const claimed = await transaction.userInvitation.updateMany({
           where: {
             id: invitation.id,
@@ -292,8 +313,69 @@ export class UsersInvitationsService {
           });
         }
 
-        return { userId: user.id, email: user.email };
+        const selfRegistration = invitation.isSelfRegistration
+          ? await transaction.subscriptionHistory.findFirst({
+              where: {
+                tenantId: invitation.tenantId,
+                eventType: 'TENANT_SELF_REGISTRATION',
+              },
+              select: { subscriptionId: true },
+            })
+          : null;
+        if (invitation.isSelfRegistration && !selfRegistration) {
+          throw new InternalServerErrorException(
+            'Self-registration subscription record was not found',
+          );
+        }
+        if (selfRegistration) {
+          const activatedTenant = await transaction.tenant.updateMany({
+            where: {
+              id: invitation.tenantId,
+              status: 'SUSPENDED',
+              deletedAt: null,
+            },
+            data: { status: 'ACTIVE' },
+          });
+          const activatedSubscription =
+            await transaction.subscription.updateMany({
+              where: {
+                id: selfRegistration.subscriptionId,
+                tenantId: invitation.tenantId,
+                status: 'INACTIVE',
+                deletedAt: null,
+              },
+              data: { status: 'ACTIVE', startedAt: now },
+            });
+          if (
+            activatedTenant.count !== 1 ||
+            activatedSubscription.count !== 1
+          ) {
+            throw new InternalServerErrorException(
+              'The registered workspace could not be activated',
+            );
+          }
+        }
+
+        return {
+          userId: user.id,
+          email: user.email,
+          billingSubscriptionId: selfRegistration?.subscriptionId,
+        };
       });
+      if (result.billingSubscriptionId) {
+        try {
+          await this.billing.executeBilling(result.billingSubscriptionId);
+        } catch (error) {
+          this.logger.error(
+            `Owner account ${result.userId} was created, but initial billing could not be initialized`,
+            error instanceof Error ? error.stack : undefined,
+          );
+          throw new InternalServerErrorException(
+            'Your account was verified, but initial billing could not be initialized. Contact support before retrying.',
+          );
+        }
+      }
+      return { userId: result.userId, email: result.email };
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&

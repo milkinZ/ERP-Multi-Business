@@ -14,6 +14,7 @@ import {
   getKitchenTicket,
   kitchenKeys,
 } from "@/features/erp/kitchen/api/queries";
+import { KitchenItemTimer } from "@/features/erp/kitchen/components/kitchen-item-timer";
 import { hasPermission } from "@/lib/permissions";
 import { useAuthStore } from "@/stores/auth.store";
 
@@ -64,15 +65,24 @@ export function KitchenTicketDetailWorkspace({ orderId }: { orderId: string }) {
 
   const ticket = query.data;
   return (
-    <>
+    <div className="kitchen-ticket-print">
       <PageHeader
         eyebrow="Tenant application / operations"
         title={ticket.ticketNumber}
         description="Kitchen ticket details returned by the tenant-scoped Kitchen API."
         actions={
-          <StatusBadge tone={statusTone(ticket.status)}>
-            {ticket.status}
-          </StatusBadge>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="kitchen-ticket-print-actions rounded-xl border border-border px-4 py-2 text-sm font-semibold text-foreground"
+            >
+              Print ticket
+            </button>
+            <StatusBadge tone={statusTone(ticket.status)}>
+              {ticket.status}
+            </StatusBadge>
+          </div>
         }
       />
       <section className="rounded-3xl border border-border bg-card p-6">
@@ -122,16 +132,48 @@ export function KitchenTicketDetailWorkspace({ orderId }: { orderId: string }) {
           {ticket.items.length ? (
             <ul className="mt-3 divide-y divide-border">
               {ticket.items.map((item) => (
-                <li
-                  key={item.productId}
-                  className="flex justify-between gap-4 py-3 text-sm"
-                >
-                  <span className="text-muted-foreground">
-                    {item.productName}
-                  </span>
-                  <span className="font-semibold text-foreground">
-                    × {item.quantity}
-                  </span>
+                <li key={item.productId} className="py-3 text-sm">
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">
+                      {item.productName}
+                    </span>
+                    <span className="font-semibold text-foreground">
+                      × {item.quantity}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {item.stationName ?? "Not routed"} ·{" "}
+                    <KitchenItemTimer
+                      prepTimeMinutes={item.prepTimeMinutes}
+                      startedAt={item.startedAt}
+                      completedAt={item.completedAt}
+                    />
+                  </p>
+                  {item.ingredients.length ? (
+                    <ul className="mt-2 space-y-1 border-l border-border pl-3 text-xs">
+                      {item.ingredients.map((ingredient) => (
+                        <li
+                          key={ingredient.inventoryItemId}
+                          className="flex justify-between gap-4 text-muted-foreground"
+                        >
+                          <span>{ingredient.name}</span>
+                          <span>
+                            {ingredient.quantity * item.quantity}{" "}
+                            {ingredient.unit}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : item.recipeSnapshotAvailable ? (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      This product had no active recipe when the order was
+                      released.
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Ingredient snapshot is unavailable for this legacy order.
+                    </p>
+                  )}
                 </li>
               ))}
             </ul>
@@ -143,11 +185,11 @@ export function KitchenTicketDetailWorkspace({ orderId }: { orderId: string }) {
         </div>
         <Link
           href="/app/kitchen"
-          className="mt-8 inline-flex rounded-xl border border-border px-4 py-2 text-sm font-semibold text-foreground"
+          className="kitchen-ticket-print-actions mt-8 inline-flex rounded-xl border border-border px-4 py-2 text-sm font-semibold text-foreground"
         >
           Back to Kitchen
         </Link>
       </section>
-    </>
+    </div>
   );
 }

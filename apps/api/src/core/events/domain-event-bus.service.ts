@@ -13,6 +13,7 @@ export class DomainEventBus {
     DomainEventName,
     Set<DomainEventHandler>
   >();
+  private readonly allHandlers = new Set<DomainEventHandler>();
 
   subscribe<TEvent extends DomainEvent>(
     eventName: TEvent['type'],
@@ -29,8 +30,14 @@ export class DomainEventBus {
     };
   }
 
+  subscribeAll(handler: DomainEventHandler) {
+    this.allHandlers.add(handler);
+    return () => this.allHandlers.delete(handler);
+  }
+
   async publish(event: DomainEvent) {
     const handlers = [...(this.handlers.get(event.type) ?? [])];
+    handlers.push(...this.allHandlers);
     const ctx = requestContext.get();
 
     const observabilityContext =

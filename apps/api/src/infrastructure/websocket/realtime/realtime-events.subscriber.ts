@@ -37,7 +37,7 @@ export class RealtimeEventsSubscriber implements OnModuleInit {
     // Route based on payload shape.
     const routing = toRealtimeRoomRouting(event.type, event.payload);
 
-    const rooms = getRealtimeEventRooms(routing);
+    const rooms = getRealtimeEventRooms(routing, event.type);
     if (rooms.length === 0) return;
 
     // DTO-only payload.

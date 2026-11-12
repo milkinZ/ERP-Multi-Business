@@ -17,16 +17,19 @@ import { SubscriptionStatus } from '../subscription/domain/subscription.aggregat
 import {
   XenditPaymentGateway,
   XenditPaymentRequestError,
+  XenditRefundError,
 } from './gateway/xendit-payment.gateway';
 
 function activeSubscription() {
   return {
     id: 'subscription-a',
+    planId: 'plan-a',
     planPriceCents: 49900,
     status: SubscriptionStatus.ACTIVE,
     isActive: () => true,
     activate: jest.fn(),
     markPastDue: jest.fn(),
+    renew: jest.fn(),
   };
 }
 
@@ -47,6 +50,9 @@ describe('BillingService', () => {
   const claimXenditPaymentRequest = jest.fn();
   const completeXenditPaymentRequest = jest.fn();
   const recordXenditPaymentRequestOutcome = jest.fn();
+  const claimInvoiceRefund = jest.fn();
+  const recordInvoiceRefundOutcome = jest.fn();
+  const findInvoiceRefundById = jest.fn();
   type XenditWebhookInput = Parameters<
     BillingRepository['processXenditWebhookEvent']
   >[0];
@@ -71,6 +77,9 @@ describe('BillingService', () => {
     claimXenditPaymentRequest,
     completeXenditPaymentRequest,
     recordXenditPaymentRequestOutcome,
+    claimInvoiceRefund,
+    recordInvoiceRefundOutcome,
+    findInvoiceRefundById,
     processXenditWebhookEvent,
   } as unknown as BillingRepository;
   const findById = jest.fn();
@@ -79,13 +88,26 @@ describe('BillingService', () => {
     findById,
     save,
   } as unknown as SubscriptionRepository;
-  const planRepository = {} as PlanRepository;
+  type GetRecurringPriceCents = PlanRepository['getRecurringPriceCents'];
+  const getRecurringPriceCents = jest.fn<
+    ReturnType<GetRecurringPriceCents>,
+    Parameters<GetRecurringPriceCents>
+  >();
+  const applyPendingSubscriptionModules = jest.fn<
+    ReturnType<PlanRepository['applyPendingSubscriptionModules']>,
+    Parameters<PlanRepository['applyPendingSubscriptionModules']>
+  >();
+  const planRepository = {
+    getRecurringPriceCents,
+    applyPendingSubscriptionModules,
+  } as unknown as PlanRepository;
   const requireTenant = jest.fn().mockReturnValue('tenant-a');
   const tenantContext = { requireTenant } as unknown as TenantContextService;
   const publish = jest.fn();
   const outbox = { publish } as unknown as OutboxPublisher;
   const charge = jest.fn();
-  const xenditGateway = { charge } as unknown as XenditPaymentGateway;
+  const refund = jest.fn();
+  const xenditGateway = { charge, refund } as unknown as XenditPaymentGateway;
   let service: BillingService;
 
   beforeEach(() => {
@@ -95,6 +117,12 @@ describe('BillingService', () => {
     claimXenditPaymentRequest.mockResolvedValue({ claimed: true });
     completeXenditPaymentRequest.mockResolvedValue(undefined);
     recordXenditPaymentRequestOutcome.mockResolvedValue({ count: 1 });
+    recordInvoiceRefundOutcome.mockResolvedValue({ count: 1 });
+    getRecurringPriceCents.mockImplementation(
+      (_subscriptionId, _tenantId, _planId, planPriceCents) =>
+        Promise.resolve(planPriceCents),
+    );
+    applyPendingSubscriptionModules.mockResolvedValue({ added: 0, removed: 0 });
     cancelPendingInvoice.mockResolvedValue({ id: 'invoice-a' });
     createInvoiceForBillingPeriod.mockImplementation(
       async (data, publishEvents) => {
@@ -104,6 +132,7 @@ describe('BillingService', () => {
           subscriptionId: data.subscriptionId,
           invoiceNumber: 'INV-A',
           amountCents: data.amountCents,
+          refundedAmountCents: 0,
           currency: data.currency,
           status: data.status,
           providerReferenceId: null,
@@ -172,6 +201,99 @@ describe('BillingService', () => {
     expect(cancelPendingInvoice).not.toHaveBeenCalled();
   });
 
+  it('creates a refund only after reserving the amount and persists provider correlation', async () => {
+    findInvoiceById.mockResolvedValue({
+      id: 'invoice-a',
+      status: 'PAID',
+      amountCents: 1000,
+      currency: 'IDR',
+      providerPaymentRequestId: 'pr-a',
+      providerPaymentId: 'py-a',
+    });
+    claimInvoiceRefund.mockResolvedValue({
+      id: 'refund-a',
+      referenceId: 'rf-a',
+      amountCents: 400,
+      currency: 'IDR',
+      reason: 'REQUESTED_BY_CUSTOMER',
+    });
+    refund.mockResolvedValue({
+      providerRefundId: 'provider-refund-a',
+      status: 'PENDING',
+    });
+    findInvoiceRefundById.mockResolvedValue({
+      id: 'refund-a',
+      status: 'PENDING',
+      providerStatus: 'PENDING',
+    });
+
+    await expect(
+      service.refundInvoice('invoice-a', 400, 'REQUESTED_BY_CUSTOMER', {
+        type: 'TENANT_USER',
+        id: 'user-a',
+      }),
+    ).resolves.toMatchObject({ id: 'refund-a', status: 'PENDING' });
+
+    expect(claimInvoiceRefund).toHaveBeenCalledWith(
+      expect.objectContaining({
+        invoiceId: 'invoice-a',
+        tenantId: 'tenant-a',
+        amountCents: 400,
+        actorType: 'TENANT_USER',
+      }),
+    );
+    expect(refund).toHaveBeenCalledWith({
+      referenceId: 'rf-a',
+      paymentRequestId: 'pr-a',
+      amountCents: 400,
+      currency: 'IDR',
+      reason: 'REQUESTED_BY_CUSTOMER',
+    });
+    expect(recordInvoiceRefundOutcome).toHaveBeenCalledWith(
+      'refund-a',
+      'tenant-a',
+      'PENDING',
+      'provider-refund-a',
+      'PENDING',
+    );
+  });
+
+  it('marks an ambiguous provider refund outcome and does not retry automatically', async () => {
+    findInvoiceById.mockResolvedValue({
+      id: 'invoice-a',
+      status: 'PAID',
+      amountCents: 1000,
+      currency: 'IDR',
+      providerPaymentRequestId: 'pr-a',
+      providerPaymentId: 'py-a',
+    });
+    claimInvoiceRefund.mockResolvedValue({
+      id: 'refund-a',
+      referenceId: 'rf-a',
+      amountCents: 400,
+      currency: 'IDR',
+      reason: 'REQUESTED_BY_CUSTOMER',
+    });
+    refund.mockRejectedValue(
+      new XenditRefundError('Provider timeout', 'UNKNOWN'),
+    );
+
+    await expect(
+      service.refundInvoice('invoice-a', 400, 'REQUESTED_BY_CUSTOMER', {
+        type: 'TENANT_USER',
+        id: 'user-a',
+      }),
+    ).rejects.toBeInstanceOf(BadGatewayException);
+
+    expect(refund).toHaveBeenCalledTimes(1);
+    expect(recordInvoiceRefundOutcome).toHaveBeenCalledWith(
+      'refund-a',
+      'tenant-a',
+      'UNKNOWN',
+      undefined,
+    );
+  });
+
   it('creates an idempotent invoice and publishes its events in the same transaction', async () => {
     const subscription = activeSubscription();
     findById.mockResolvedValue(subscription);
@@ -189,12 +311,34 @@ describe('BillingService', () => {
       }),
       expect.any(Function),
     );
+    expect(getRecurringPriceCents).toHaveBeenCalledWith(
+      'subscription-a',
+      'tenant-a',
+      'plan-a',
+      49900,
+    );
     const billingInput = createInvoiceForBillingPeriod.mock.calls[0]?.[0];
     if (!billingInput) throw new Error('Expected billing invoice input');
     expect(billingInput.billingPeriodKey).toMatch(
       /^subscription-a:\d{4}-\d{2}$/,
     );
     expect(publish).toHaveBeenCalledTimes(2);
+  });
+
+  it('applies scheduled modules before calculating the renewal invoice', async () => {
+    findById.mockResolvedValue(activeSubscription());
+    getRecurringPriceCents.mockResolvedValue(64900);
+
+    await service.renewSubscription('subscription-a');
+
+    expect(applyPendingSubscriptionModules).toHaveBeenCalledWith(
+      'subscription-a',
+      'tenant-a',
+    );
+    expect(createInvoiceForBillingPeriod).toHaveBeenCalledWith(
+      expect.objectContaining({ amountCents: 64900 }),
+      expect.any(Function),
+    );
   });
 
   it('rejects missing or inactive subscriptions without invoice side effects', async () => {

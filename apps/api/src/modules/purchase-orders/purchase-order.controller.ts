@@ -15,6 +15,7 @@ import { PurchaseOrderService } from './purchase-order.service';
 import {
   CreatePurchaseOrderDto,
   ReceivePurchaseOrderDto,
+  ReturnPurchaseOrderDto,
   UpdatePurchaseOrderDto,
   ListPriceVariancesQueryDto,
 } from './dto';
@@ -26,9 +27,12 @@ import { Permissions } from '../../common/decorator/permissions.decorator';
 import { CurrentUser } from '../../common/decorator/current-user.decorator';
 import { PERMISSIONS } from '../rbac/permissions';
 import { ListPurchaseOrdersQueryDto } from './dto/list-purchase-orders-query.dto';
+import { FeatureModuleGuard } from '../feature-flags/feature-module.guard';
+import { RequireFeatureModule } from '../subscription/plans/feature-module.decorator';
 
 @Controller('purchase-orders')
-@UseGuards(JwtAuthGuard, PermissionGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard, FeatureModuleGuard)
+@RequireFeatureModule('PROCUREMENT')
 export class PurchaseOrderController {
   constructor(private readonly purchaseOrderService: PurchaseOrderService) {}
 
@@ -61,6 +65,58 @@ export class PurchaseOrderController {
     @Query() query: ListPriceVariancesQueryDto,
   ) {
     return this.purchaseOrderService.findPriceVariances(user.tenantId, query);
+  }
+
+  @Get(':id/returns')
+  @Permissions(PERMISSIONS.PURCHASE_ORDER_READ)
+  findReturns(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Query('skip') skip?: string,
+    @Query('take') take?: string,
+  ) {
+    return this.purchaseOrderService.findReturns(
+      user.tenantId,
+      id,
+      skip ? parseInt(skip, 10) : 0,
+      take ? parseInt(take, 10) : 10,
+    );
+  }
+
+  @Get(':id/returnable-receipt-items')
+  @Permissions(PERMISSIONS.PURCHASE_ORDER_READ)
+  findReturnableReceiptItems(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Query('skip') skip?: string,
+    @Query('take') take?: string,
+  ) {
+    return this.purchaseOrderService.findReturnableReceiptItems(
+      user.tenantId,
+      id,
+      skip ? parseInt(skip, 10) : 0,
+      take ? parseInt(take, 10) : 10,
+    );
+  }
+
+  @Post(':id/returns')
+  @Permissions(PERMISSIONS.PURCHASE_ORDER_RECEIVE)
+  returnItems(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Body() dto: ReturnPurchaseOrderDto,
+  ) {
+    if (!idempotencyKey) {
+      throw new BadRequestException('Idempotency-Key header is required');
+    }
+    return this.purchaseOrderService.returnPurchaseOrder(
+      user.tenantId,
+      id,
+      user.userId,
+      idempotencyKey,
+      dto,
+    );
   }
 
   @Get(':id')
@@ -134,6 +190,12 @@ export class PurchaseOrderController {
       throw new BadRequestException('Status is required');
     }
     return this.purchaseOrderService.updateStatus(user.tenantId, id, status);
+  }
+
+  @Post(':id/cancel')
+  @Permissions(PERMISSIONS.PURCHASE_ORDER_UPDATE)
+  cancel(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.purchaseOrderService.cancel(user.tenantId, id);
   }
 
   @Delete(':id')

@@ -7,7 +7,20 @@ import {
 export type KitchenTicketItem = {
   productId: string;
   productName: string;
+  category: string | null;
   quantity: number;
+  stationId: string | null;
+  stationName: string | null;
+  prepTimeMinutes: number | null;
+  startedAt: Date | null;
+  completedAt: Date | null;
+  recipeSnapshotAvailable: boolean;
+  ingredients: {
+    inventoryItemId: string;
+    name: string;
+    unit: string;
+    quantity: number;
+  }[];
 };
 
 export type KitchenTicketProps = {
@@ -16,6 +29,10 @@ export type KitchenTicketProps = {
   salesOrderId: string;
   tenantId: string;
   outletId: string | null;
+  assignedUser: { id: string; email: string } | null;
+  releasedAt: Date | null;
+  startedAt: Date | null;
+  readyAt: Date | null;
   items: KitchenTicketItem[];
   status: KitchenStatus;
   priority: number;

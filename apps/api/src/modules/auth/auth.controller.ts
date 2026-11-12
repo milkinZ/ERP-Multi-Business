@@ -1,7 +1,6 @@
 import {
   Body,
   Controller,
-  GoneException,
   Get,
   Post,
   Req,
@@ -25,19 +24,25 @@ import { REFRESH_COOKIE_NAME } from '../../infrastructure/security/security.cons
 import { UsersInvitationsService } from '../users/users-invitations.service';
 import { AcceptUserInvitationDto } from '../users/dto/accept-user-invitation.dto';
 import { SwitchOutletDto } from './dto/switch-outlet.dto';
+import { RegisterTenantDto } from './dto/register-tenant.dto';
+import { TenantRegistrationService } from './tenant-registration.service';
 
 @Controller('auth')
 export class AuthController {
   constructor(
     private authService: AuthService,
     private readonly userInvitations: UsersInvitationsService,
+    private readonly tenantRegistration: TenantRegistrationService,
   ) {}
 
+  @Get('tenant-registration/plans')
+  listTenantRegistrationPlans() {
+    return this.tenantRegistration.listPlans();
+  }
+
   @Post('register')
-  register() {
-    throw new GoneException(
-      'Public registration is disabled; use a tenant invitation link',
-    );
+  registerTenant(@Body() body: RegisterTenantDto) {
+    return this.tenantRegistration.register(body);
   }
 
   @Post('invitations/accept')

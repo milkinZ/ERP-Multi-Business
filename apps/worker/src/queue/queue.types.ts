@@ -17,9 +17,12 @@ export type AnalyticsAggregationJobPayload = {
 
 export type NotificationDispatchJobPayload = {
   tenantId: string;
-  recipientId?: string;
+  recipientId: string;
+  outletId?: string;
   notification: {
     type: string;
+    category: string;
+    sourceEventId: string;
     title?: string;
     message?: string;
     channels: string[];

@@ -18,9 +18,13 @@ import {
 import { ApiError } from "@/lib/api/client";
 import { orderKeys } from "@/features/erp/orders/api/queries";
 import {
+  assignKitchenTicket,
   cancelKitchenTicket,
+  getKitchenOperators,
+  getKitchenOutlets,
   getKitchenSettings,
   getKitchenQueueWithFilters,
+  getKitchenStations,
   KITCHEN_QUEUE_PAGE_SIZE,
   kitchenKeys,
   markKitchenReady,
@@ -30,8 +34,13 @@ import {
   startKitchenTicket,
   updateKitchenWaitThreshold,
   type KitchenStatus,
+  type KitchenOperator,
   type KitchenTicket,
 } from "@/features/erp/kitchen/api/queries";
+import { KitchenAnalyticsPanel } from "@/features/erp/kitchen/components/kitchen-analytics-panel";
+import { KitchenItemTimer } from "@/features/erp/kitchen/components/kitchen-item-timer";
+import { KitchenStationManager } from "@/features/erp/kitchen/components/kitchen-station-manager";
+import { useKitchenRealtime } from "@/features/erp/kitchen/hooks/use-kitchen-realtime";
 import { hasPermission } from "@/lib/permissions";
 import { useAuthStore } from "@/stores/auth.store";
 
@@ -85,6 +94,8 @@ function TicketCard({
   onAction,
   pendingOrderId,
   onPrioritySave,
+  operators,
+  onAssign,
 }: {
   ticket: KitchenTicket;
   canUpdate: boolean;
@@ -94,6 +105,8 @@ function TicketCard({
   ) => void;
   pendingOrderId: string | null;
   onPrioritySave: (ticket: KitchenTicket, priority: number) => void;
+  operators: KitchenOperator[];
+  onAssign: (ticket: KitchenTicket, userId: string | null) => void;
 }) {
   const [priorityDraft, setPriorityDraft] = useState(String(ticket.priority));
   useEffect(() => setPriorityDraft(String(ticket.priority)), [ticket.priority]);
@@ -124,7 +137,19 @@ function TicketCard({
             key={item.productId}
             className="flex justify-between gap-3 border-b border-border/60 pb-2 last:border-0"
           >
-            <dt className="text-muted-foreground">{item.productName}</dt>
+            <dt className="text-muted-foreground">
+              <span>{item.productName}</span>
+              <span className="mt-1 block text-xs">
+                {item.stationName ?? "Not routed"}
+              </span>
+              <span className="mt-1 block text-xs">
+                <KitchenItemTimer
+                  prepTimeMinutes={item.prepTimeMinutes}
+                  startedAt={item.startedAt}
+                  completedAt={item.completedAt}
+                />
+              </span>
+            </dt>
             <dd className="font-medium text-foreground">× {item.quantity}</dd>
           </div>
         ))}
@@ -143,6 +168,28 @@ function TicketCard({
       >
         View ticket details
       </Link>
+      {canUpdate ? (
+        <label className="mt-4 block border-t border-border pt-3 text-xs font-medium text-muted-foreground">
+          Primary operator
+          <select
+            value={ticket.assignedUser?.id ?? ""}
+            disabled={pendingOrderId === ticket.salesOrderId}
+            onChange={(event) => onAssign(ticket, event.target.value || null)}
+            className="mt-1 block w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground disabled:opacity-50"
+          >
+            <option value="">Unassigned</option>
+            {operators.map((operator) => (
+              <option key={operator.id} value={operator.id}>
+                {operator.email}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <p className="mt-3 text-xs text-muted-foreground">
+          Operator: {ticket.assignedUser?.email ?? "Unassigned"}
+        </p>
+      )}
       {canUpdate && ticketActions.length ? (
         <div className="mt-4 flex flex-wrap gap-2">
           {ticketActions.map((action) => (
@@ -216,13 +263,15 @@ export function KitchenWorkspace() {
   const [statusFilter, setStatusFilter] = useState<
     "ALL" | "QUEUED" | "COOKING" | "READY"
   >("ALL");
+  const [stationFilter, setStationFilter] = useState("");
   const deferredSearch = useDeferredValue(search);
   const queueFilters = useMemo(
     () => ({
       ...(statusFilter === "ALL" ? {} : { status: statusFilter }),
       ...(deferredSearch.trim() ? { search: deferredSearch.trim() } : {}),
+      ...(stationFilter ? { stationId: stationFilter } : {}),
     }),
-    [deferredSearch, statusFilter],
+    [deferredSearch, stationFilter, statusFilter],
   );
 
   const settingsQuery = useQuery({
@@ -247,6 +296,28 @@ export function KitchenWorkspace() {
     staleTime: 10_000,
     refetchInterval: 30_000,
   });
+  const outletsQuery = useQuery({
+    queryKey: tenantId
+      ? ["kitchen-outlets", tenantId]
+      : ["kitchen-outlets", "unauthenticated"],
+    queryFn: () => getKitchenOutlets(token as string),
+    enabled: Boolean(token && tenantId && canRead),
+  });
+  const stationsQuery = useQuery({
+    queryKey: tenantId
+      ? kitchenKeys.stations(tenantId)
+      : ["kitchen-stations", "unauthenticated"],
+    queryFn: () => getKitchenStations(token as string),
+    enabled: Boolean(token && tenantId && canRead),
+  });
+  const operatorsQuery = useQuery({
+    queryKey: tenantId
+      ? kitchenKeys.operators(tenantId)
+      : ["kitchen-operators", "unauthenticated"],
+    queryFn: () => getKitchenOperators(token as string),
+    enabled: Boolean(token && tenantId && canRead),
+  });
+  useKitchenRealtime(token, tenantId);
   useEffect(() => {
     if (settingsQuery.data) {
       setWaitThresholdDraft(String(settingsQuery.data.waitThresholdMinutes));
@@ -347,6 +418,50 @@ export function KitchenWorkspace() {
     },
   });
 
+  const assignmentMutation = useMutation({
+    mutationFn: ({
+      ticket,
+      userId,
+    }: {
+      ticket: KitchenTicket;
+      userId: string | null;
+    }) => {
+      if (!token) throw new Error("Authentication required");
+      setPendingOrderId(ticket.salesOrderId);
+      return assignKitchenTicket(token, ticket.salesOrderId, userId);
+    },
+    retry: 0,
+    onSuccess: async (_ticket, variables) => {
+      if (tenantId) {
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: kitchenKeys.queue(tenantId),
+          }),
+          queryClient.invalidateQueries({
+            queryKey: kitchenKeys.detail(
+              tenantId,
+              variables.ticket.salesOrderId,
+            ),
+          }),
+        ]);
+      }
+      setPendingOrderId(null);
+      setMutationError(null);
+      setUnknownResult(false);
+    },
+    onError: (cause) => {
+      setPendingOrderId(null);
+      setUnknownResult(!(cause instanceof ApiError));
+      setMutationError(
+        cause instanceof ApiError
+          ? cause.status === 403
+            ? "You do not have permission to assign Kitchen tickets."
+            : cause.message
+          : "Assignment result could not be confirmed. Refresh the Kitchen queue before retrying.",
+      );
+    },
+  });
+
   const settingsMutation = useMutation({
     mutationFn: (waitThresholdMinutes: number) => {
       if (!token) throw new Error("Authentication required");
@@ -417,6 +532,10 @@ export function KitchenWorkspace() {
   const onPrioritySave = (ticket: KitchenTicket, priority: number) => {
     setMutationError(null);
     priorityMutation.mutate({ ticket, priority });
+  };
+  const onAssign = (ticket: KitchenTicket, userId: string | null) => {
+    setMutationError(null);
+    assignmentMutation.mutate({ ticket, userId });
   };
   const onWaitThresholdSave = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -523,7 +642,48 @@ export function KitchenWorkspace() {
             <option value="READY">Ready</option>
           </select>
         </label>
+        <label className="text-xs font-medium text-muted-foreground">
+          Queue station
+          <select
+            value={stationFilter}
+            onChange={(event) => setStationFilter(event.target.value)}
+            className="mt-1 block min-w-44 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+          >
+            <option value="">All stations</option>
+            {(stationsQuery.data ?? [])
+              .filter((station) => station.isActive)
+              .map((station) => (
+                <option key={station.id} value={station.id}>
+                  {station.name}
+                </option>
+              ))}
+          </select>
+        </label>
       </section>
+      {stationsQuery.isError || outletsQuery.isError ? (
+        <p role="alert" className="text-sm text-destructive">
+          Station configuration could not be loaded. Kitchen routing and
+          management are unavailable.
+        </p>
+      ) : null}
+      {canUpdate && stationsQuery.data && outletsQuery.data ? (
+        <KitchenStationManager
+          tenantId={tenantId as string}
+          accessToken={token as string}
+          outlets={outletsQuery.data}
+          stations={stationsQuery.data}
+          canUpdate={canUpdate}
+        />
+      ) : null}
+      {tenantId && token && stationsQuery.data && outletsQuery.data ? (
+        <KitchenAnalyticsPanel
+          tenantId={tenantId}
+          accessToken={token}
+          outlets={outletsQuery.data}
+          stations={stationsQuery.data}
+          outletId={session?.outletId ?? null}
+        />
+      ) : null}
       {mutationError ? (
         <p
           role="alert"
@@ -569,6 +729,8 @@ export function KitchenWorkspace() {
                       onAction={onAction}
                       pendingOrderId={pendingOrderId}
                       onPrioritySave={onPrioritySave}
+                      operators={operatorsQuery.data ?? []}
+                      onAssign={onAssign}
                     />
                   ))}
                   {!grouped[status].length ? (
@@ -600,6 +762,8 @@ export function KitchenWorkspace() {
                   onAction={onAction}
                   pendingOrderId={pendingOrderId}
                   onPrioritySave={onPrioritySave}
+                  operators={operatorsQuery.data ?? []}
+                  onAssign={onAssign}
                 />
               ))}
           </div>

@@ -8,24 +8,13 @@ replacement `20261012000000_initial_baseline` is retained under
 `prisma/retired-experimental-migrations/20261012/` because applying that
 fresh-schema baseline to a database with the original history would be unsafe.
 
-The repository contains 62 active migrations, with
-`20261025000000_kitchen_priority_and_wait_policy` as the latest migration. The
-dedicated test database (`cafe_os_order_lifecycle_test`) has all 62 migrations;
-Prisma migration status and database-to-datamodel drift checks passed after
-applying the Kitchen migration. A full backup of that test database was
-restored to an isolated PostgreSQL 18 rehearsal database; the restored
-database also passed migration-status and schema-drift checks. The production
-database target is `cafe_os`, but its current migration and schema status are
-unknown. No connection to or change of that production database was made.
-Historical records that showed `cafe_os` up to date covered only the
-then-current 60-migration history. Migration status verifies history, not a
-schema-diff comparison.
-CI applies the complete active history and checks for drift. A prior backup
-and restore rehearsal applied the then-pending six migrations to an isolated
-PostgreSQL 18 clone and reported no schema diff; that historical rehearsal
-covered the then-current 50-migration history. The later test-database
-backup/restore rehearsal covered the current 62-migration schema; neither
-rehearsal verifies production `cafe_os` or constitutes rollout approval.
+The repository currently contains 80 active migrations. On 2026-11-04, the
+local `cafe_os` database at `127.0.0.1:5432` was explicitly reset and all 71
+migrations present at that time were applied. That historical local result
+does not establish the current database migration status, production
+deployment, or schema drift. Earlier rehearsal notes in this document refer
+to older migration counts and are historical. Migration status verifies
+migration history, not a schema-diff comparison.
 
 Do not infer production rollout approval or post-deployment health from a
 local migration-status result. Before a production deployment, review every
@@ -33,12 +22,70 @@ pending SQL migration, require an approved backup and restore procedure, run
 `prisma migrate deploy` only through the approved release job, and verify
 application health and schema state afterward.
 
+## Local demo tenant seed
+
+The local demo seed refuses to run outside a non-production `cafe_os` database
+on loopback. From `apps/api`, run
+`npx ts-node --project tsconfig.json prisma/seed.ts`. It creates or updates the
+demo tenant, a tenant administrator with all tenant permissions, and sample
+outlet, warehouse, inventory items, products, supplier offers, recipe, kitchen
+station, tax rules, and accounting setup. A randomly generated tenant password
+is printed only when the administrator is first created. It does not create
+opening inventory movements or platform identities; platform administrators
+must be provisioned through the local OIDC/WebAuthn setup or the deployment's
+approved identity-provider workflow.
+
 ## Local tenant invitations
 
 Invitation setup links use `WEB_BASE_URL`. When the local web app runs on port
 `3001`, set `WEB_BASE_URL=http://localhost:3001` in `apps/api/.env`; otherwise
 the default points to port `3000`. For local invitation testing, route SMTP to
 Mailpit at `127.0.0.1:1025` and use a reserved `.test` recipient address.
+
+## Self-service tenant registration
+
+The public registration page lists non-deleted plans from
+`GET /auth/tenant-registration/plans` and submits the business name, Owner
+email, plan, business type, and currency to `POST /auth/register`. The API
+creates a suspended tenant and inactive subscription, then sends a single-use
+verification invitation explicitly marked as self-registration. The Owner sets a
+password through that link; only after the
+invitation is accepted does the API activate the tenant and subscription and
+create the initial invoice. Duplicate addresses receive the same generic
+response as a new registration.
+
+For local testing, keep `WEB_BASE_URL` pointed at the web app (for example
+`http://localhost:3001`) and run SMTP locally through Mailpit. The registration
+email can then be opened from the Mailpit inbox; no public HTTPS tunnel is
+needed for the verification link.
+
+## Plan modules and usage limits
+
+The platform-managed module catalog contains `INVENTORY`, `PROCUREMENT`,
+`FINANCE`, and `ANALYTICS`. The default plan matrix is:
+
+| Plan       | Included modules                           |
+| ---------- | ------------------------------------------ |
+| FREE       | None                                       |
+| STARTER    | INVENTORY                                  |
+| BUSINESS   | INVENTORY, PROCUREMENT, ANALYTICS          |
+| ENTERPRISE | INVENTORY, PROCUREMENT, FINANCE, ANALYTICS |
+
+Migrations assign this matrix to existing plans. New plans receive the same
+defaults when module IDs are omitted; platform operators can customize
+assignments from the Plans page. Unassigned or inactive modules are denied.
+Tenant-level feature flags can disable an entitled module but cannot grant
+access to a module that the plan does not include. Inventory, ingredients,
+recipes, and warehouses use `INVENTORY`; suppliers and purchase orders use
+`PROCUREMENT`; accounting and supplier accounts payable use `FINANCE`;
+analytics endpoints use `ANALYTICS`. Core orders, products, payments, outlets,
+and Owner access are not gated by these module assignments.
+
+Monthly order limits are hard caps on creating new orders. The usage counter is
+updated in the order transaction, so a rejected order does not persist or count
+as usage, including when concurrent requests race for the final slot. Reading
+or completing existing orders remains available. A `null` monthly order limit
+means unlimited.
 
 ## Platform identity sign-in
 
@@ -136,6 +183,37 @@ committed when cafe preparation starts, and committed at retail fulfillment.
 Costing is applied on commit, not when a reservation is first created.
 
 Integration and E2E suites require an explicitly configured PostgreSQL database whose name ends in `_test` and a Redis URL using a non-zero database. Copy `.env.test.example` into CI configuration; never use these settings in `.env`.
+
+The platform tenant provisioning integration suite verifies the atomic tenant,
+Owner-role invitation, paid subscription, and audit-log transaction, plus
+initial invoice generation and concurrent owner-email protection. Invitation
+delivery is mocked; no Xendit payment request is sent.
+
+Autopay token encryption requires `XENDIT_TOKEN_ENCRYPTION_KEYS` and
+`XENDIT_TOKEN_ENCRYPTION_ACTIVE_KEY_VERSION` in the API deployment's secret
+manager. The key-ring variable is a JSON object mapping version names to
+base64-encoded 32-byte AES keys; keep prior versions available while stored
+tokens still reference them. Generate keys with a cryptographically secure
+random generator, use separate keys per environment, and never commit or log
+key values. When Autopay is enabled but encryption is missing or invalid, the
+API reports the integration as unavailable and rejects enrollment before
+creating an enrollment or contacting Xendit.
+
+Autopay enrollment uses Xendit's hosted Payment Session (`POST /sessions`) with
+a forced save choice and the `CARDS` channel; card details are entered only on
+Xendit's hosted checkout. Xendit requires HTTPS return URLs, so set
+`XENDIT_RETURN_BASE_URL` to the public HTTPS origin where the browser should
+return after checkout. If omitted, the API falls back to `WEB_BASE_URL` and
+rejects enrollment when that URL is HTTP; local Xendit testing therefore needs
+an HTTPS tunnel configured as `XENDIT_RETURN_BASE_URL`, while local invitation
+links can continue using `WEB_BASE_URL=http://localhost:3001`. Configure the
+Xendit webhook to deliver
+`payment_session.completed` and `payment_session.expired` to
+`/webhooks/payments`, alongside `payment.capture` and `payment.failure`.
+`payment_token.activation` may also be enabled as a redundant token event.
+See Xendit's [Payment Sessions API](https://docs.xendit.co/apidocs/create-session),
+[Pay and Save guide](https://docs.xendit.co/docs/pay-and-save), and
+[Payments API webhook reference](https://docs.xendit.co/docs/payments-api-webhooks).
 
 Test bootstrap refuses non-test environments, non-`*_test` databases, and Redis database `0`. Apply migrations before integration or E2E tests:
 

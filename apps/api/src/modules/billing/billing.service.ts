@@ -25,6 +25,7 @@ import type { InvoiceExportFilters } from './dto/invoice-export-query.dto';
 import {
   XenditPaymentGateway,
   XenditPaymentRequestError,
+  XenditRefundError,
 } from './gateway/xendit-payment.gateway';
 
 @Injectable()
@@ -54,6 +55,16 @@ export class BillingService {
     }
 
     return invoice;
+  }
+
+  async getInvoiceRefunds(invoiceId: string) {
+    const tenantId = this.tenantContext.requireTenant();
+    const invoice = await this.billingRepository.findInvoiceById(
+      invoiceId,
+      tenantId,
+    );
+    if (!invoice) throw new NotFoundException('Invoice not found');
+    return this.billingRepository.findInvoiceRefunds(invoiceId, tenantId);
   }
 
   async cancelPendingInvoice(id: string) {
@@ -247,6 +258,86 @@ export class BillingService {
     };
   }
 
+  async refundInvoice(
+    invoiceId: string,
+    amountCents: number,
+    reason: string,
+    actor: { type: 'TENANT_USER' | 'PLATFORM_IDENTITY'; id: string },
+  ) {
+    const tenantId = this.tenantContext.requireTenant();
+    const invoice = await this.billingRepository.findInvoiceById(
+      invoiceId,
+      tenantId,
+    );
+    if (!invoice) throw new NotFoundException('Invoice not found');
+    if (!invoice.providerPaymentRequestId || !invoice.providerPaymentId) {
+      throw new ConflictException(
+        'Invoice is missing verified provider payment correlation',
+      );
+    }
+    if (!this.xenditGateway) {
+      throw new InternalServerErrorException(
+        'Xendit payment gateway is not available',
+      );
+    }
+
+    const refund = await this.billingRepository.claimInvoiceRefund({
+      invoiceId,
+      tenantId,
+      amountCents,
+      reason,
+      actorType: actor.type,
+      actorId: actor.id,
+      referenceId: `rf-${crypto.randomUUID()}`,
+    });
+
+    let providerRefundId: string | undefined;
+    try {
+      const result = await this.xenditGateway.refund({
+        referenceId: refund.referenceId,
+        paymentRequestId: invoice.providerPaymentRequestId,
+        amountCents: refund.amountCents,
+        currency: refund.currency.trim(),
+        reason: refund.reason,
+      });
+      providerRefundId = result.providerRefundId;
+      await this.billingRepository.recordInvoiceRefundOutcome(
+        refund.id,
+        tenantId,
+        'PENDING',
+        result.providerRefundId,
+        result.status,
+      );
+    } catch (error) {
+      const outcome =
+        error instanceof XenditRefundError && error.outcome === 'REJECTED'
+          ? 'FAILED'
+          : 'UNKNOWN';
+      await this.billingRepository.recordInvoiceRefundOutcome(
+        refund.id,
+        tenantId,
+        outcome,
+        providerRefundId,
+      );
+      throw new BadGatewayException(
+        outcome === 'UNKNOWN'
+          ? 'Xendit refund outcome is unknown; no automatic retry was made'
+          : 'Xendit rejected the refund request',
+      );
+    }
+
+    const updated = await this.billingRepository.findInvoiceRefundById(
+      refund.id,
+      tenantId,
+    );
+    if (!updated) {
+      throw new InternalServerErrorException(
+        'Refund request was persisted but could not be reloaded',
+      );
+    }
+    return updated;
+  }
+
   private async recoverXenditPaymentRequest(
     invoiceId: string,
     tenantId: string,
@@ -333,7 +424,12 @@ export class BillingService {
     tenantId: string,
     period: { start: Date; end: Date },
   ): Promise<void> {
-    const amountCents = subscription.planPriceCents;
+    const amountCents = await this.planRepository.getRecurringPriceCents(
+      subscription.id,
+      tenantId,
+      subscription.planId,
+      subscription.planPriceCents,
+    );
     if (amountCents <= 0) {
       this.logger.log(
         `Free plan — no billing needed for subscription ${subscription.id}`,
@@ -509,6 +605,34 @@ export class BillingService {
     );
   }
 
+  async handleXenditRefundWebhookEvent(input: {
+    eventType: string;
+    refundId: string;
+    referenceId: string;
+    amount: number;
+    currency: string;
+    status: string;
+  }): Promise<'PROCESSED' | 'DUPLICATE' | 'IGNORED'> {
+    const idempotencyKey = createHash('sha256')
+      .update(
+        [
+          'xendit-refunds-v3',
+          input.refundId,
+          input.eventType,
+          input.status,
+          input.amount,
+          input.currency,
+        ].join('\0'),
+      )
+      .digest('hex');
+    return requestContext.run({ systemOperation: 'xendit-webhook' }, () =>
+      this.billingRepository.processXenditRefundWebhookEvent({
+        ...input,
+        idempotencyKey,
+      }),
+    );
+  }
+
   async renewSubscription(subscriptionId: string): Promise<void> {
     const tenantId = this.tenantContext.requireTenant();
     const subscription = await this.subscriptionRepository.findById(
@@ -524,6 +648,10 @@ export class BillingService {
 
     subscription.renew(period.start, period.end);
     await this.subscriptionRepository.save(subscription);
+    await this.planRepository.applyPendingSubscriptionModules(
+      subscriptionId,
+      tenantId,
+    );
 
     await this.createInvoiceForPeriod(subscription, tenantId, period);
   }

@@ -156,7 +156,10 @@ export function setUserRoles(
 }
 
 export function getUserOutlets(accessToken: string, userId: string) {
-  return apiRequest<{ outletIds: string[] }>(
+  return apiRequest<{
+    outletIds: string[]
+    tenantWideNotificationAccess: boolean
+  }>(
     `/users/${encodeURIComponent(userId)}/outlets`,
     { headers: authHeaders(accessToken) },
   );
@@ -166,13 +169,17 @@ export function setUserOutlets(
   accessToken: string,
   userId: string,
   outletIds: string[],
+  tenantWideNotificationAccess: boolean,
 ) {
-  return apiRequest<{ outletIds: string[] }>(
+  return apiRequest<{
+    outletIds: string[]
+    tenantWideNotificationAccess: boolean
+  }>(
     `/users/${encodeURIComponent(userId)}/outlets`,
     {
       method: "PUT",
       headers: authHeaders(accessToken),
-      body: JSON.stringify({ outletIds }),
+      body: JSON.stringify({ outletIds, tenantWideNotificationAccess }),
     },
   );
 }

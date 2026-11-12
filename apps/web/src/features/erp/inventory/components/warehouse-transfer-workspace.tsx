@@ -584,10 +584,16 @@ export function WarehouseTransferWorkspace() {
     if (!tenantId || !createStorageKey || storageError) return;
     const requestedItems = lines
       .filter((line) => line.inventoryItemId && line.quantity.trim())
-      .map((line) => ({
-        inventoryItemId: line.inventoryItemId,
-        quantity: Number(line.quantity),
-      }));
+      .map((line) => {
+        const unit = inventoryItems.find(
+          (item) => item.id === line.inventoryItemId,
+        )?.unit;
+        return {
+          inventoryItemId: line.inventoryItemId,
+          quantity: Number(line.quantity),
+          ...(unit ? { unit } : {}),
+        };
+      });
     if (
       !sourceWarehouseId ||
       !destinationWarehouseId ||
@@ -816,7 +822,7 @@ export function WarehouseTransferWorkspace() {
                                 entry.inventoryItemId === item.id,
                             )}
                           >
-                            {item.name} ({item.code})
+                            {item.name} ({item.code}, {item.unit ?? "unit not set"})
                           </option>
                         ))}
                       </select>

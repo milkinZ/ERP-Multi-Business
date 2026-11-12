@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   EmptyState,
@@ -17,9 +17,11 @@ import {
 import { getProducts, productKeys } from "@/features/erp/products/api/queries";
 import { RecipeForm } from "@/features/erp/recipes/components/recipe-form";
 import {
+  archiveRecipe,
   getRecipes,
   getRecipeByProduct,
   recipeKeys,
+  restoreRecipe,
 } from "@/features/erp/recipes/api/queries";
 import { hasPermission } from "@/lib/permissions";
 import { useAuthStore } from "@/stores/auth.store";
@@ -30,13 +32,18 @@ export function RecipeWorkspace() {
   const tenantId = session?.tenantId;
   const canRead = hasPermission(session, "recipe.read");
   const canCreate = hasPermission(session, "recipe.create");
+  const canUpdate = hasPermission(session, "recipe.update");
   const canReadProducts = hasPermission(session, "product.read");
   const canReadIngredients = hasPermission(session, "ingredient.read");
   const [selectedProductId, setSelectedProductId] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const [recipePage, setRecipePage] = useState(1);
   const [recipeSearchDraft, setRecipeSearchDraft] = useState("");
   const [recipeSearch, setRecipeSearch] = useState("");
+  const [includeArchived, setIncludeArchived] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const productsQuery = useQuery({
     queryKey: tenantId
@@ -69,6 +76,7 @@ export function RecipeWorkspace() {
           page: recipePage,
           limit: 20,
           ...(recipeSearch ? { search: recipeSearch } : {}),
+          ...(includeArchived ? { includeArchived: true } : {}),
         })
       : ["recipes", "unauthenticated", "list"],
     queryFn: () =>
@@ -76,9 +84,41 @@ export function RecipeWorkspace() {
         page: recipePage,
         limit: 20,
         ...(recipeSearch ? { search: recipeSearch } : {}),
+        ...(includeArchived ? { includeArchived: true } : {}),
       }),
     enabled: Boolean(token && tenantId && canRead),
     staleTime: 30_000,
+  });
+  const statusMutation = useMutation({
+    mutationFn: ({
+      action,
+      productId,
+    }: {
+      action: "archive" | "restore";
+      productId: string;
+    }) => {
+      if (!token) throw new Error("Authentication required");
+      return action === "archive"
+        ? archiveRecipe(token, productId)
+        : restoreRecipe(token, productId);
+    },
+    retry: 0,
+    onSuccess: async (updated) => {
+      setActionError(null);
+      setIsEditOpen(false);
+      if (!tenantId) return;
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["recipes", tenantId] }),
+        queryClient.invalidateQueries({
+          queryKey: recipeKeys.byProduct(tenantId, updated.productId),
+        }),
+      ]);
+    },
+    onError: (cause) => {
+      setActionError(
+        cause instanceof Error ? cause.message : "Unable to update recipe state",
+      );
+    },
   });
 
   if (!canRead)
@@ -136,6 +176,7 @@ export function RecipeWorkspace() {
               onChange={(event) => {
                 setSelectedProductId(event.target.value);
                 setIsCreateOpen(false);
+                setIsEditOpen(false);
               }}
               className="mt-2 h-11 w-full rounded-xl border border-border bg-card px-3 outline-none focus:border-primary focus:ring-2 focus:ring-ring"
               aria-label="Select product to inspect its recipe"
@@ -166,6 +207,18 @@ export function RecipeWorkspace() {
           Browse and search the tenant recipe catalog, then load a selected
           recipe composition by product.
         </p>
+        <label className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={includeArchived}
+            onChange={(event) => {
+              setIncludeArchived(event.target.checked);
+              setRecipePage(1);
+            }}
+            className="accent-primary"
+          />
+          Include archived recipes
+        </label>
       </section>
 
       <section className="rounded-3xl border border-border bg-card p-5">
@@ -225,7 +278,7 @@ export function RecipeWorkspace() {
               <table className="min-w-full text-left text-sm">
                 <thead className="bg-muted text-muted-foreground">
                   <tr>
-                    {["Product", "SKU", "Ingredients", "Created", "Action"].map(
+                    {["Product", "SKU", "Ingredients", "Status", "Created", "Action"].map(
                       (heading) => (
                         <th
                           key={heading}
@@ -247,6 +300,11 @@ export function RecipeWorkspace() {
                         {entry.Product.sku ?? "-"}
                       </td>
                       <td className="px-4 py-3">{entry._count.RecipeItem}</td>
+                      <td className="px-4 py-3">
+                        <StatusBadge tone={entry.isActive ? "success" : "neutral"}>
+                          {entry.isActive ? "Active" : "Archived"}
+                        </StatusBadge>
+                      </td>
                       <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
                         {new Date(entry.createdAt).toLocaleDateString()}
                       </td>
@@ -256,6 +314,7 @@ export function RecipeWorkspace() {
                           onClick={() => {
                             setSelectedProductId(entry.productId);
                             setIsCreateOpen(false);
+                            setIsEditOpen(false);
                           }}
                           className="font-semibold text-primary hover:underline"
                         >
@@ -359,10 +418,59 @@ export function RecipeWorkspace() {
               </h2>
               <p className="mt-1 text-xs text-muted-foreground">
                 Recipe {recipe.id} · Created{" "}
-                {new Date(recipe.createdAt).toLocaleDateString()}
+                {new Date(recipe.createdAt).toLocaleDateString()} · Revision{" "}
+                {recipe.revision}
               </p>
             </div>
-            <StatusBadge tone="success">Backend record</StatusBadge>
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge tone={recipe.isActive ? "success" : "neutral"}>
+                {recipe.isActive ? "Active" : "Archived"}
+              </StatusBadge>
+              {canUpdate && recipe.isActive ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditOpen((open) => !open)}
+                    className="rounded-xl border border-border px-3 py-2 text-sm font-semibold"
+                  >
+                    {isEditOpen ? "Close editor" : "Edit recipe"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={statusMutation.isPending}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          "Archive this recipe? Existing order snapshots and inventory history will remain unchanged.",
+                        )
+                      ) {
+                        statusMutation.mutate({
+                          action: "archive",
+                          productId: recipe.productId,
+                        });
+                      }
+                    }}
+                    className="rounded-xl border border-destructive/30 px-3 py-2 text-sm font-semibold text-destructive disabled:opacity-50"
+                  >
+                    Archive
+                  </button>
+                </>
+              ) : canUpdate ? (
+                <button
+                  type="button"
+                  disabled={statusMutation.isPending}
+                  onClick={() =>
+                    statusMutation.mutate({
+                      action: "restore",
+                      productId: recipe.productId,
+                    })
+                  }
+                  className="rounded-xl border border-border px-3 py-2 text-sm font-semibold disabled:opacity-50"
+                >
+                  Restore recipe
+                </button>
+              ) : null}
+            </div>
           </div>
           <div className="mt-5 overflow-hidden rounded-2xl border border-border">
             <div className="overflow-x-auto">
@@ -386,7 +494,7 @@ export function RecipeWorkspace() {
                         {item.InventoryItem.name}
                       </td>
                       <td className="px-4 py-4 text-muted-foreground">
-                        {item.InventoryItem.unit ?? "—"}
+                        {item.unit ?? item.InventoryItem.unit ?? "—"}
                       </td>
                       <td className="px-4 py-4 font-medium text-foreground">
                         {item.quantity}
@@ -397,12 +505,26 @@ export function RecipeWorkspace() {
               </table>
             </div>
           </div>
-          <p className="mt-4 text-sm text-muted-foreground">
-            Recipe changes, inventory consumption, and fulfillment remain
-            backend-owned. Update and delete controls are unavailable because
-            those endpoints do not exist.
-          </p>
+          {isEditOpen && canUpdate && recipe.isActive ? (
+            <div className="mt-5 border-t border-border pt-5">
+              <SectionHeader eyebrow="Composition action" title="Update recipe" />
+              <RecipeForm
+                products={products}
+                ingredients={ingredients}
+                recipe={recipe}
+                onCreated={(productId) => {
+                  setSelectedProductId(productId);
+                  setIsEditOpen(false);
+                }}
+              />
+            </div>
+          ) : null}
         </section>
+      ) : null}
+      {actionError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {actionError}
+        </p>
       ) : null}
       {selectedProduct ? (
         <p className="text-xs text-muted-foreground">

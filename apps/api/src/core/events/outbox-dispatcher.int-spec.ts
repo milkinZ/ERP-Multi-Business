@@ -53,13 +53,16 @@ describe('OutboxDispatcherService integration', () => {
 
     await dispatcher.dispatchBatch();
 
-    expect(publish).toHaveBeenCalledWith(event);
+    expect(publish).toHaveBeenCalledWith({
+      ...event,
+      eventId: row.id,
+    });
     await expect(
       prisma.outboxEvent.findUnique({ where: { id: row.id } }),
     ).resolves.toEqual(expect.objectContaining({ status: 'PROCESSED' }));
   });
 
-  it('marks invalid payloads failed in the real database', async () => {
+  it('schedules invalid payloads for bounded retry in the real database', async () => {
     const row = await prisma.outboxEvent.create({
       data: {
         type: 'invalid.integration.event',
@@ -71,17 +74,20 @@ describe('OutboxDispatcherService integration', () => {
     await dispatcher.dispatchBatch();
 
     expect(publish).not.toHaveBeenCalled();
-    await expect(
-      prisma.outboxEvent.findUnique({ where: { id: row.id } }),
-    ).resolves.toEqual(
+    const updated = await prisma.outboxEvent.findUnique({
+      where: { id: row.id },
+    });
+    expect(updated).toEqual(
       expect.objectContaining({
-        status: 'FAILED',
+        status: 'PENDING',
+        attemptCount: 1,
         error: 'Invalid domain event payload in outbox',
       }),
     );
+    expect(updated?.nextAttemptAt).toBeInstanceOf(Date);
   });
 
-  it('marks broker failures failed and leaves a recoverable database record', async () => {
+  it('schedules broker failures for retry and leaves a recoverable database record', async () => {
     publish.mockRejectedValue(new Error('broker unavailable'));
     const row = await prisma.outboxEvent.create({
       data: {
@@ -96,13 +102,16 @@ describe('OutboxDispatcherService integration', () => {
 
     await dispatcher.dispatchBatch();
 
-    await expect(
-      prisma.outboxEvent.findUnique({ where: { id: row.id } }),
-    ).resolves.toEqual(
+    const updated = await prisma.outboxEvent.findUnique({
+      where: { id: row.id },
+    });
+    expect(updated).toEqual(
       expect.objectContaining({
-        status: 'FAILED',
+        status: 'PENDING',
+        attemptCount: 1,
         error: 'broker unavailable',
       }),
     );
+    expect(updated?.nextAttemptAt).toBeInstanceOf(Date);
   });
 });

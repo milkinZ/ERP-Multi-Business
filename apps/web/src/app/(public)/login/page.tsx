@@ -141,6 +141,15 @@ export default function LoginPage() {
               </Button>
             </form>
             <p className="mt-6 text-center text-sm text-muted-foreground">
+              New business?{" "}
+              <Link
+                href="/register"
+                className="font-semibold text-primary hover:underline"
+              >
+                Create a workspace
+              </Link>
+            </p>
+            <p className="mt-3 text-center text-sm text-muted-foreground">
               Platform operator?{" "}
               <Link
                 href="/platform/login"

@@ -15,4 +15,5 @@ export const inventoryMutationSchema = z.object({
   }
 })
 
-export type InventoryMutationValues = z.infer<typeof inventoryMutationSchema>
+export type InventoryMutationInput = z.input<typeof inventoryMutationSchema>
+export type InventoryMutationValues = z.output<typeof inventoryMutationSchema>

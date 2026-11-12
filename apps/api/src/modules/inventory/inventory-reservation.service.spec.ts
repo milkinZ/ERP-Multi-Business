@@ -121,13 +121,23 @@ describe('InventoryReservationService', () => {
     const order = {
       id: 'order-a',
       outletId: null,
-      Tenant: { businessType: BusinessType.RETAIL },
+      Tenant: { id: 'tenant-a', businessType: BusinessType.RETAIL },
       SalesOrderItem: [
         {
           quantity: 2,
           Product: {
+            id: 'product-a',
+            tenantId: 'tenant-a',
+            name: 'Product A',
+            isActive: true,
+            stockMode: 'INVENTORY_ITEM',
             inventoryItemId: 'inventory-a',
-            InventoryItem: { id: 'inventory-a' },
+            InventoryItem: {
+              id: 'inventory-a',
+              tenantId: 'tenant-a',
+              type: 'PRODUCT',
+              isActive: true,
+            },
             Recipe: null,
           },
         },
@@ -135,6 +145,13 @@ describe('InventoryReservationService', () => {
     };
     const orderFindFirst = jest.fn().mockResolvedValue(order);
     const stockFindMany = jest.fn().mockResolvedValue([]);
+    rowLock.mockImplementation(() =>
+      Promise.resolve(
+        rowLock.mock.calls.length > 4
+          ? [{ id: 'inventory-a', name: 'Product A', unit: 'PCS' }]
+          : [{ id: 'order-a' }],
+      ),
+    );
     transaction.mockImplementationOnce((callback: (tx: unknown) => unknown) =>
       Promise.resolve(
         callback({
@@ -142,13 +159,234 @@ describe('InventoryReservationService', () => {
           inventoryMovement: { findFirst },
           salesOrder: { findFirst: orderFindFirst },
           inventoryStock: { findMany: stockFindMany },
+          tenantUnitConversion: {
+            findMany: jest.fn().mockResolvedValue([]),
+          },
+          inventoryUnitConversion: {
+            findMany: jest.fn().mockResolvedValue([]),
+          },
         }),
       ),
     );
 
     await expect(service.reserveStock('order-a', 'tenant-a')).rejects.toThrow(
-      'Insufficient stock for order reservation',
+      'Insufficient stock for Product A: required 2 PCS, available 0 PCS',
     );
     expect(stockFindMany).toHaveBeenCalled();
+  });
+
+  it('rejects cafe recipe-mode products without an active recipe', async () => {
+    const order = {
+      id: 'order-a',
+      outletId: null,
+      Tenant: { id: 'tenant-a', businessType: BusinessType.CAFE },
+      SalesOrderItem: [
+        {
+          id: 'order-item-a',
+          quantity: 1,
+          Product: {
+            id: 'product-a',
+            tenantId: 'tenant-a',
+            name: 'Menu A',
+            isActive: true,
+            stockMode: 'RECIPE',
+            inventoryItemId: null,
+            InventoryItem: null,
+            Recipe: null,
+          },
+        },
+      ],
+    };
+    const orderFindFirst = jest.fn().mockResolvedValue(order);
+    const findFirst = jest.fn().mockResolvedValue(null);
+    rowLock.mockResolvedValue([{ id: 'order-a' }]);
+    transaction.mockImplementationOnce((callback: (tx: unknown) => unknown) =>
+      Promise.resolve(
+        callback({
+          $queryRaw: rowLock,
+          inventoryMovement: { findFirst },
+          salesOrder: { findFirst: orderFindFirst },
+          salesOrderRecipeSnapshot: {
+            findUnique: jest.fn().mockResolvedValue(null),
+          },
+        }),
+      ),
+    );
+
+    await expect(service.reserveStock('order-a', 'tenant-a')).rejects.toThrow(
+      'Product Menu A requires an active recipe before it can be confirmed',
+    );
+  });
+
+  it('does not create inventory requirements for explicitly untracked products', async () => {
+    const inventoryMovementCreate = jest.fn();
+    const order = {
+      id: 'order-a',
+      outletId: null,
+      Tenant: { id: 'tenant-a', businessType: BusinessType.RETAIL },
+      SalesOrderItem: [
+        {
+          id: 'order-item-a',
+          quantity: 1,
+          Product: {
+            id: 'product-a',
+            tenantId: 'tenant-a',
+            name: 'Service fee',
+            isActive: true,
+            stockMode: 'UNTRACKED',
+            inventoryItemId: null,
+            InventoryItem: null,
+            Recipe: null,
+          },
+        },
+      ],
+    };
+    const orderFindFirst = jest.fn().mockResolvedValue(order);
+    const findFirst = jest.fn().mockResolvedValue(null);
+    transaction.mockImplementationOnce((callback: (tx: unknown) => unknown) =>
+      Promise.resolve(
+        callback({
+          $queryRaw: rowLock,
+          inventoryMovement: {
+            findFirst,
+            create: inventoryMovementCreate,
+          },
+          salesOrder: { findFirst: orderFindFirst },
+          tenantUnitConversion: {
+            findMany: jest.fn().mockResolvedValue([]),
+          },
+          inventoryUnitConversion: {
+            findMany: jest.fn().mockResolvedValue([]),
+          },
+        }),
+      ),
+    );
+
+    await expect(service.reserveStock('order-a', 'tenant-a')).resolves.toEqual({
+      orderId: 'order-a',
+      reserved: true,
+    });
+    expect(inventoryMovementCreate).not.toHaveBeenCalled();
+  });
+
+  it('reserves the confirmed recipe snapshot using its captured units and quantities', async () => {
+    const inventoryMovementCreate = jest.fn().mockResolvedValue({});
+    const stockUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
+    const stockFindMany = jest.fn().mockResolvedValue([
+      {
+        id: 'stock-a',
+        warehouseId: 'warehouse-a',
+        quantity: 1000,
+        createdAt: new Date(),
+      },
+    ]);
+    const order = {
+      id: 'order-a',
+      outletId: null,
+      Tenant: { id: 'tenant-a', businessType: BusinessType.CAFE },
+      SalesOrderItem: [
+        {
+          id: 'order-item-a',
+          quantity: 2,
+          Product: {
+            id: 'product-a',
+            tenantId: 'tenant-a',
+            name: 'Cafe menu',
+            isActive: true,
+            stockMode: 'RECIPE',
+            inventoryItemId: null,
+            InventoryItem: null,
+            Recipe: {
+              id: 'recipe-a',
+              tenantId: 'tenant-a',
+              revision: 3,
+              isActive: true,
+              RecipeItem: [
+                {
+                  quantity: 99,
+                  unit: 'g',
+                  InventoryItem: {
+                    id: 'ingredient-a',
+                    name: 'Flour',
+                    unit: 'g',
+                    tenantId: 'tenant-a',
+                    type: 'INGREDIENT',
+                    isActive: true,
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    };
+    const orderFindFirst = jest.fn().mockResolvedValue(order);
+    const findFirst = jest.fn().mockResolvedValue(null);
+    rowLock.mockImplementation(() =>
+      Promise.resolve(
+        rowLock.mock.calls.length > 4
+          ? [{ id: 'ingredient-a', name: 'Flour', unit: 'g' }]
+          : [{ id: 'order-a' }],
+      ),
+    );
+    transaction.mockImplementationOnce((callback: (tx: unknown) => unknown) =>
+      Promise.resolve(
+        callback({
+          $queryRaw: rowLock,
+          inventoryMovement: {
+            findFirst,
+            create: inventoryMovementCreate,
+          },
+          salesOrder: { findFirst: orderFindFirst },
+          salesOrderRecipeSnapshot: {
+            findUnique: jest.fn().mockResolvedValue({
+              tenantId: 'tenant-a',
+              recipeId: 'recipe-a',
+              Items: [
+                {
+                  inventoryItemId: 'ingredient-a',
+                  quantity: 0.25,
+                  unit: 'kg',
+                  inventoryUnit: 'g',
+                },
+              ],
+            }),
+          },
+          tenantUnitConversion: {
+            findMany: jest.fn().mockResolvedValue([]),
+          },
+          inventoryUnitConversion: {
+            findMany: jest.fn().mockResolvedValue([]),
+          },
+          inventoryStock: {
+            findMany: stockFindMany,
+            updateMany: stockUpdateMany,
+          },
+        }),
+      ),
+    );
+
+    await expect(service.reserveStock('order-a', 'tenant-a')).resolves.toEqual({
+      orderId: 'order-a',
+      reserved: true,
+    });
+    expect(stockUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { quantity: { decrement: 500 } } }),
+    );
+    expect(inventoryMovementCreate).toHaveBeenCalledWith({
+      data: {
+        tenantId: 'tenant-a',
+        warehouseId: 'warehouse-a',
+        inventoryItemId: 'ingredient-a',
+        type: 'STOCK_OUT',
+        referenceType: 'ORDER_RESERVATION',
+        referenceId: 'order-a',
+        quantity: 500,
+        unit: 'g',
+        beforeQuantity: 1000,
+        afterQuantity: 500,
+        note: 'Reserved stock for order',
+      },
+    });
   });
 });

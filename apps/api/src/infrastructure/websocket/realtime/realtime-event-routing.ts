@@ -48,9 +48,20 @@ export const toRealtimeRoomRouting = (
  * IMPORTANT: never broadcasts globally. Events are only delivered to
  * scoped tenant/outlet/user rooms.
  */
-export const getRealtimeEventRooms = (routing: RealtimeEventRoomRouting) => {
+export const getRealtimeEventRooms = (
+  routing: RealtimeEventRoomRouting,
+  eventType?: string,
+) => {
   const rooms: string[] = [];
   if (!routing.tenantId) return rooms;
+
+  if (eventType?.startsWith('kitchen.')) {
+    if (routing.outletId) {
+      rooms.push(`kitchen:outlet:${routing.tenantId}:${routing.outletId}`);
+    }
+    rooms.push(`kitchen:tenant:${routing.tenantId}`);
+    return rooms;
+  }
 
   rooms.push(`tenant:${routing.tenantId}`);
 

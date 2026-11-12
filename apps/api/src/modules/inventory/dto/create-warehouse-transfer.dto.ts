@@ -16,6 +16,11 @@ export class CreateWarehouseTransferItemDto {
   @MaxLength(128)
   inventoryItemId!: string;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  unit?: string;
+
   @Type(() => Number)
   @IsNumber()
   @Min(0.1)

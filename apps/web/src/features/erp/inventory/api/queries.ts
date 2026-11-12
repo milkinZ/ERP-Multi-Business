@@ -297,7 +297,7 @@ export type WarehouseTransferPage = {
 export type CreateWarehouseTransferInput = {
   sourceWarehouseId: string;
   destinationWarehouseId: string;
-  items: Array<{ inventoryItemId: string; quantity: number }>;
+  items: Array<{ inventoryItemId: string; quantity: number; unit?: string }>;
   note?: string;
 };
 

@@ -69,6 +69,12 @@ export class SuperAdminRepository extends BaseRepository {
   async findAllPlans() {
     return this.prisma.plan.findMany({
       where: { deletedAt: null },
+      include: {
+        modules: {
+          include: { featureModule: true },
+          orderBy: { featureModule: { name: 'asc' } },
+        },
+      },
       orderBy: { priceCents: 'asc' },
     });
   }
@@ -76,6 +82,12 @@ export class SuperAdminRepository extends BaseRepository {
   async findPlanById(id: string) {
     return this.prisma.plan.findFirst({
       where: { id, deletedAt: null },
+      include: {
+        modules: {
+          include: { featureModule: true },
+          orderBy: { featureModule: { name: 'asc' } },
+        },
+      },
     });
   }
 
@@ -86,26 +98,100 @@ export class SuperAdminRepository extends BaseRepository {
     });
   }
 
-  async createPlan(data: { type: string; name: string; priceCents: number }) {
-    return this.prisma.plan.create({
+  async createPlan(
+    data: {
+      type: string;
+      name: string;
+      priceCents: number;
+      maxOutlets?: number | null;
+      maxUsers?: number | null;
+      maxMonthlyOrders?: number | null;
+      moduleIds?: string[];
+    },
+    client: Prisma.TransactionClient | PrismaService = this.prisma,
+  ) {
+    return client.plan.create({
       data: {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         type: data.type as any,
         name: data.name,
         priceCents: data.priceCents,
+        maxOutlets: data.maxOutlets,
+        maxUsers: data.maxUsers,
+        maxMonthlyOrders: data.maxMonthlyOrders,
+        modules: {
+          create: (data.moduleIds ?? []).map((moduleId) => ({
+            featureModule: { connect: { id: moduleId } },
+          })),
+        },
+      },
+      include: {
+        modules: { include: { featureModule: true } },
       },
     });
   }
 
-  async updatePlan(id: string, data: { name?: string; priceCents?: number }) {
-    return this.prisma.plan.update({
-      where: { id },
-      data,
+  async updatePlan(
+    id: string,
+    data: {
+      name?: string;
+      priceCents?: number;
+      maxOutlets?: number | null;
+      maxUsers?: number | null;
+      maxMonthlyOrders?: number | null;
+      moduleIds?: string[];
+    },
+    client: Prisma.TransactionClient | PrismaService = this.prisma,
+  ) {
+    const update = async (tx: Prisma.TransactionClient | PrismaService) => {
+      const { moduleIds, ...planData } = data;
+      if (moduleIds !== undefined) {
+        await tx.planFeatureModule.deleteMany({ where: { planId: id } });
+        if (moduleIds.length) {
+          await tx.planFeatureModule.createMany({
+            data: moduleIds.map((moduleId) => ({ planId: id, moduleId })),
+          });
+        }
+      }
+      return tx.plan.update({
+        where: { id },
+        data: planData,
+        include: {
+          modules: { include: { featureModule: true } },
+        },
+      });
+    };
+    return client === this.prisma
+      ? this.prisma.$transaction((tx) => update(tx))
+      : update(client);
+  }
+
+  async findAllFeatureModules(includeInactive = true) {
+    return this.prisma.featureModule.findMany({
+      where: includeInactive ? undefined : { isActive: true },
+      orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
     });
   }
 
-  async softDeletePlan(id: string) {
-    return this.prisma.plan.update({
+  async findFeatureModulesByIds(ids: string[]) {
+    if (!ids.length) return [];
+    return this.prisma.featureModule.findMany({
+      where: { id: { in: ids }, isActive: true },
+    });
+  }
+
+  async findFeatureModulesByKeys(keys: string[]) {
+    if (!keys.length) return [];
+    return this.prisma.featureModule.findMany({
+      where: { key: { in: keys }, isActive: true },
+    });
+  }
+
+  async softDeletePlan(
+    id: string,
+    client: Prisma.TransactionClient | PrismaService = this.prisma,
+  ) {
+    return client.plan.update({
       where: { id },
       data: { deletedAt: new Date() },
     });
@@ -134,12 +220,33 @@ export class SuperAdminRepository extends BaseRepository {
     });
   }
 
-  async findAllInvoices() {
-    return this.prisma.invoice.findMany({
-      where: { deletedAt: null },
-      include: { tenant: true },
-      orderBy: { createdAt: 'desc' },
-    });
+  async findAllInvoices(
+    where: Prisma.InvoiceWhereInput,
+    page: number,
+    limit: number,
+  ) {
+    const filter: Prisma.InvoiceWhereInput = {
+      AND: [{ deletedAt: null }, where],
+    };
+    const [data, total] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where: filter,
+        include: { tenant: { select: { id: true, name: true } } },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.invoice.count({ where: filter }),
+    ]);
+    return {
+      data,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async findInvoiceExportPage(

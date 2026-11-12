@@ -26,25 +26,30 @@ import {
 } from "@/features/erp/warehouses/api/queries";
 import { PurchaseOrderForm } from "@/features/erp/purchase-orders/components/purchase-order-form";
 import {
+  cancelPurchaseOrder,
   deletePurchaseOrder,
   getPurchaseOrder,
   getPurchaseOrderReceipts,
+  getPurchaseOrderReturnableReceiptItems,
+  getPurchaseOrderReturns,
   purchaseOrderKeys,
   receivePurchaseOrder,
+  returnPurchaseOrder,
   updatePurchaseOrderStatus,
   type PurchaseOrderStatus,
   type ReceivePurchaseOrderInput,
+  type ReturnPurchaseOrderInput,
 } from "@/features/erp/purchase-orders/api/queries";
 import { hasPermission } from "@/lib/permissions";
 import { useAuthStore } from "@/stores/auth.store";
 
 const nextStatuses: Record<PurchaseOrderStatus, PurchaseOrderStatus[]> = {
-  DRAFT: ["PENDING", "CANCELLED"],
-  PENDING: ["APPROVED", "REJECTED", "CANCELLED"],
-  APPROVED: ["CANCELLED"],
-  PARTIALLY_RECEIVED: ["CANCELLED"],
+  DRAFT: ["PENDING"],
+  PENDING: ["APPROVED", "REJECTED"],
+  APPROVED: [],
+  PARTIALLY_RECEIVED: [],
   RECEIVED: ["COMPLETED"],
-  REJECTED: ["CANCELLED"],
+  REJECTED: [],
   CANCELLED: [],
   COMPLETED: [],
 };
@@ -110,6 +115,57 @@ function isPendingReceiptSubmission(
   );
 }
 
+type PendingReturnSubmission = {
+  key: string;
+  payload: string;
+  input: ReturnPurchaseOrderInput;
+};
+
+function returnRequestPayload(input: ReturnPurchaseOrderInput) {
+  const items = [...input.items].sort((left, right) =>
+    left.purchaseOrderReceiptItemId.localeCompare(
+      right.purchaseOrderReceiptItemId,
+    ),
+  );
+  return JSON.stringify({ items, note: input.note?.trim() || null });
+}
+
+function isReturnPurchaseOrderInput(
+  value: unknown,
+): value is ReturnPurchaseOrderInput {
+  if (typeof value !== "object" || value === null) return false;
+  const input = value as Record<string, unknown>;
+  return (
+    Array.isArray(input.items) &&
+    input.items.length > 0 &&
+    input.items.every((item) => {
+      if (typeof item !== "object" || item === null) return false;
+      const returnItem = item as Record<string, unknown>;
+      return (
+        typeof returnItem.purchaseOrderReceiptItemId === "string" &&
+        typeof returnItem.quantity === "number" &&
+        Number.isFinite(returnItem.quantity) &&
+        returnItem.quantity > 0
+      );
+    }) &&
+    (input.note === undefined ||
+      (typeof input.note === "string" && input.note.length <= 1000))
+  );
+}
+
+function isPendingReturnSubmission(
+  value: unknown,
+): value is PendingReturnSubmission {
+  if (typeof value !== "object" || value === null) return false;
+  const pending = value as Record<string, unknown>;
+  return (
+    typeof pending.key === "string" &&
+    typeof pending.payload === "string" &&
+    isReturnPurchaseOrderInput(pending.input) &&
+    pending.payload === returnRequestPayload(pending.input)
+  );
+}
+
 export default function PurchaseOrderDetailPage() {
   const { purchaseOrderId } = useParams<{ purchaseOrderId: string }>();
   const router = useRouter();
@@ -134,12 +190,26 @@ export default function PurchaseOrderDetailPage() {
   const receiptPageSize = 10;
   useEffect(() => {
     setReceiptPage(1);
+    setReturnPage(1);
+    setReturnableItemsPage(1);
   }, [purchaseOrderId]);
   const [receiptNote, setReceiptNote] = useState("");
   const [receiptStorageError, setReceiptStorageError] = useState<string | null>(
     null,
   );
   const pendingReceiptKey = useRef<PendingReceiptSubmission | null>(null);
+  const [returnQuantities, setReturnQuantities] = useState<
+    Record<string, string>
+  >({});
+  const [returnNote, setReturnNote] = useState("");
+  const [returnPage, setReturnPage] = useState(1);
+  const returnPageSize = 10;
+  const [returnableItemsPage, setReturnableItemsPage] = useState(1);
+  const returnableItemsPageSize = 100;
+  const [returnStorageError, setReturnStorageError] = useState<string | null>(
+    null,
+  );
+  const pendingReturnKey = useRef<PendingReturnSubmission | null>(null);
 
   const query = useQuery({
     queryKey: tenantId
@@ -164,6 +234,49 @@ export default function PurchaseOrderDetailPage() {
         purchaseOrderId,
         (receiptPage - 1) * receiptPageSize,
         receiptPageSize,
+      ),
+    enabled: Boolean(token && tenantId && canRead && purchaseOrderId),
+    staleTime: 30_000,
+  });
+  const returnsQuery = useQuery({
+    queryKey: tenantId
+      ? purchaseOrderKeys.returns(
+          tenantId,
+          purchaseOrderId,
+          (returnPage - 1) * returnPageSize,
+          returnPageSize,
+        )
+      : ["purchase-orders", "unauthenticated", purchaseOrderId, "returns"],
+    queryFn: () =>
+      getPurchaseOrderReturns(
+        token as string,
+        purchaseOrderId,
+        (returnPage - 1) * returnPageSize,
+        returnPageSize,
+      ),
+    enabled: Boolean(token && tenantId && canRead && purchaseOrderId),
+    staleTime: 30_000,
+  });
+  const returnableReceiptItemsQuery = useQuery({
+    queryKey: tenantId
+      ? purchaseOrderKeys.returnableReceiptItems(
+          tenantId,
+          purchaseOrderId,
+          (returnableItemsPage - 1) * returnableItemsPageSize,
+          returnableItemsPageSize,
+        )
+      : [
+          "purchase-orders",
+          "unauthenticated",
+          purchaseOrderId,
+          "returnable-receipt-items",
+        ],
+    queryFn: () =>
+      getPurchaseOrderReturnableReceiptItems(
+        token as string,
+        purchaseOrderId,
+        (returnableItemsPage - 1) * returnableItemsPageSize,
+        returnableItemsPageSize,
       ),
     enabled: Boolean(token && tenantId && canRead && purchaseOrderId),
     staleTime: 30_000,
@@ -194,6 +307,9 @@ export default function PurchaseOrderDetailPage() {
   });
   const pendingReceiptStorageKey = tenantId
     ? `purchase-order:${tenantId}:${purchaseOrderId}:pending-receipt`
+    : null;
+  const pendingReturnStorageKey = tenantId
+    ? `purchase-order:${tenantId}:${purchaseOrderId}:pending-return`
     : null;
 
   useEffect(() => {
@@ -240,6 +356,51 @@ export default function PurchaseOrderDetailPage() {
     );
     setUnknownResult(true);
   }, [pendingReceiptStorageKey, query.data]);
+
+  useEffect(() => {
+    if (!pendingReturnStorageKey || !query.data) return;
+    let saved: string | null;
+    try {
+      saved = window.sessionStorage.getItem(pendingReturnStorageKey);
+    } catch {
+      setReturnStorageError(
+        "Browser storage is unavailable. Verify return history before submitting a return.",
+      );
+      return;
+    }
+    if (!saved) return;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(saved);
+    } catch {
+      setReturnStorageError(
+        "Saved return retry data is invalid. Verify return history before submitting another return.",
+      );
+      return;
+    }
+    if (!isPendingReturnSubmission(parsed)) {
+      setReturnStorageError(
+        "Saved return retry data is invalid. Verify return history before submitting another return.",
+      );
+      return;
+    }
+
+    pendingReturnKey.current = parsed;
+    setReturnQuantities(
+      Object.fromEntries(
+        parsed.input.items.map((item) => [
+          item.purchaseOrderReceiptItemId,
+          String(item.quantity),
+        ]),
+      ),
+    );
+    setReturnNote(parsed.input.note ?? "");
+    setMutationError(
+      "A previous supplier return may still be pending. Retry without changing the quantities to reuse its idempotency key, or verify return history first.",
+    );
+    setUnknownResult(true);
+  }, [pendingReturnStorageKey, query.data]);
 
   const invalidate = async (inventoryChanged = false) => {
     if (!tenantId) return;
@@ -293,6 +454,26 @@ export default function PurchaseOrderDetailPage() {
       setUnknownResult(false);
     },
   });
+  const cancelMutation = useMutation({
+    mutationFn: () => {
+      if (!token) throw new Error("Authentication required");
+      return cancelPurchaseOrder(token, purchaseOrderId);
+    },
+    retry: 0,
+    onSuccess: async () => {
+      await invalidate();
+      setMutationError(null);
+      setUnknownResult(false);
+    },
+    onError: (cause) => {
+      setMutationError(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to cancel Purchase Order",
+      );
+      setUnknownResult(!(cause instanceof ApiError));
+    },
+  });
   const receiptMutation = useMutation({
     mutationFn: ({
       key,
@@ -337,6 +518,62 @@ export default function PurchaseOrderDetailPage() {
       setMutationError(
         cause.status === 403
           ? "You do not have permission to receive this Purchase Order."
+          : cause.message,
+      );
+      setUnknownResult(false);
+    },
+  });
+  const returnMutation = useMutation({
+    mutationFn: ({
+      key,
+      input,
+    }: {
+      key: string;
+      input: ReturnPurchaseOrderInput;
+    }) => {
+      if (!token) throw new Error("Authentication required");
+      return returnPurchaseOrder(token, purchaseOrderId, key, input);
+    },
+    retry: 0,
+    onSuccess: async () => {
+      if (pendingReturnStorageKey) {
+        try {
+          window.sessionStorage.removeItem(pendingReturnStorageKey);
+        } catch {
+          setReturnStorageError(
+            "Return was recorded, but retry data could not be cleared. Verify return history before recording another return.",
+          );
+        }
+      }
+      pendingReturnKey.current = null;
+      setReturnQuantities({});
+      setReturnNote("");
+      await invalidate(true);
+      if (tenantId)
+        await queryClient.invalidateQueries({
+          queryKey: purchaseOrderKeys.returns(tenantId, purchaseOrderId),
+        });
+      if (tenantId)
+        await queryClient.invalidateQueries({
+          queryKey: purchaseOrderKeys.returnableReceiptItems(
+            tenantId,
+            purchaseOrderId,
+          ),
+        });
+      setMutationError(null);
+      setUnknownResult(false);
+    },
+    onError: (cause) => {
+      if (!(cause instanceof ApiError)) {
+        setUnknownResult(true);
+        setMutationError(
+          "The supplier return may have been processed. Retry without changing the quantities to reuse the same idempotency key, or refresh return history.",
+        );
+        return;
+      }
+      setMutationError(
+        cause.status === 403
+          ? "You do not have permission to return this Purchase Order."
           : cause.message,
       );
       setUnknownResult(false);
@@ -397,6 +634,18 @@ export default function PurchaseOrderDetailPage() {
   const canReceiveNow =
     canReceive &&
     (order.status === "APPROVED" || order.status === "PARTIALLY_RECEIVED");
+  const canCancel =
+    canUpdate &&
+    ["DRAFT", "PENDING", "APPROVED", "PARTIALLY_RECEIVED", "REJECTED"].includes(
+      order.status,
+    );
+  const canReturnNow =
+    canReceive &&
+    Boolean(order.warehouseId) &&
+    (returnableReceiptItemsQuery.data?.data.some(
+      (item) => item.returnableQuantity > 1e-9,
+    ) ??
+      false);
 
   const submitReceipt = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -456,6 +705,82 @@ export default function PurchaseOrderDetailPage() {
     receiptMutation.mutate({ key, input });
   };
 
+  const submitReturn = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (returnStorageError) return;
+    if (
+      returnableReceiptItemsQuery.isPending ||
+      returnableReceiptItemsQuery.isError
+    ) {
+      setMutationError(
+        "Returnable receipt quantities could not be verified. Refresh the receipt list before submitting.",
+      );
+      setUnknownResult(false);
+      return;
+    }
+    const requestedItems = returnableReceiptItemsQuery.data.data
+      .filter((item) => returnQuantities[item.id]?.trim())
+      .map((item) => ({
+        purchaseOrderReceiptItemId: item.id,
+        quantity: Number(returnQuantities[item.id]),
+        remaining: item.returnableQuantity,
+      }));
+    if (
+      !requestedItems.length ||
+      requestedItems.some(
+        (item) =>
+          !Number.isFinite(item.quantity) ||
+          item.quantity < 0.000001 ||
+          item.quantity - item.remaining > 1e-9,
+      )
+    ) {
+      setUnknownResult(false);
+      setMutationError(
+        "Enter valid return quantities that do not exceed the received and not-yet-returned quantity.",
+      );
+      return;
+    }
+    const input: ReturnPurchaseOrderInput = {
+      items: requestedItems.map(({ purchaseOrderReceiptItemId, quantity }) => ({
+        purchaseOrderReceiptItemId,
+        quantity,
+      })),
+      ...(returnNote.trim() ? { note: returnNote.trim() } : {}),
+    };
+    const payload = returnRequestPayload(input);
+    const pending = pendingReturnKey.current;
+    if (pending && pending.payload !== payload) {
+      setMutationError(
+        "Retry or resolve the pending return before changing its quantities.",
+      );
+      setUnknownResult(true);
+      return;
+    }
+    const key = pending?.key ?? crypto.randomUUID();
+    const pendingSubmission = { payload, key, input };
+    if (!pendingReturnStorageKey) {
+      setReturnStorageError(
+        "The Purchase Order tenant context is unavailable. The return request was not sent.",
+      );
+      return;
+    }
+    try {
+      window.sessionStorage.setItem(
+        pendingReturnStorageKey,
+        JSON.stringify(pendingSubmission),
+      );
+    } catch {
+      setReturnStorageError(
+        "Unable to save return retry data in this browser. The return request was not sent.",
+      );
+      return;
+    }
+    pendingReturnKey.current = pendingSubmission;
+    setMutationError(null);
+    setUnknownResult(false);
+    returnMutation.mutate({ key, input });
+  };
+
   return (
     <>
       <PageHeader
@@ -482,6 +807,14 @@ export default function PurchaseOrderDetailPage() {
           className="mb-6 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning"
         >
           {receiptStorageError}
+        </p>
+      ) : null}
+      {returnStorageError ? (
+        <p
+          role="alert"
+          className="mb-6 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning"
+        >
+          {returnStorageError}
         </p>
       ) : null}
       {isEditing && canEdit ? (
@@ -540,6 +873,232 @@ export default function PurchaseOrderDetailPage() {
                 {new Date(order.createdAt).toLocaleDateString()}
               </p>
             </div>
+          </section>
+          {canReturnNow ? (
+            <section className="mt-6 rounded-3xl border border-border bg-card p-5">
+              <SectionHeader
+                eyebrow="Supplier return"
+                title="Return received stock"
+              />
+              <p className="mb-4 text-sm text-muted-foreground">
+                Returns are limited to received quantities and stock currently
+                available in the receiving warehouse. Reserved stock cannot be
+                returned; inventory valuation determines the outgoing cost.
+              </p>
+              <form onSubmit={submitReturn} className="space-y-4">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="bg-muted text-muted-foreground">
+                      <tr>
+                        {[
+                          "Inventory item",
+                          "Received",
+                          "Previously returned",
+                          "Return now",
+                        ].map((heading) => (
+                          <th
+                            key={heading}
+                            className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em]"
+                          >
+                            {heading}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {returnableReceiptItemsQuery.data?.data.map((item) => {
+                        return (
+                          <tr key={item.id} className="border-t border-border">
+                            <td className="px-4 py-3">
+                              {item.InventoryItem.name}
+                              <p className="text-xs text-muted-foreground">
+                                GR {item.Receipt.id}
+                              </p>
+                            </td>
+                            <td className="px-4 py-3">
+                              {item.receivedQuantity}
+                            </td>
+                            <td className="px-4 py-3">
+                              {item.returnedQuantity}
+                            </td>
+                            <td className="px-4 py-3">
+                              <input
+                                type="number"
+                                min="0.000001"
+                                max={item.returnableQuantity}
+                                step="any"
+                                value={returnQuantities[item.id] ?? ""}
+                                disabled={
+                                  item.returnableQuantity <= 0 ||
+                                  returnMutation.isPending ||
+                                  Boolean(returnStorageError) ||
+                                  returnableReceiptItemsQuery.isPending ||
+                                  returnableReceiptItemsQuery.isError
+                                }
+                                onChange={(change) =>
+                                  setReturnQuantities((current) => ({
+                                    ...current,
+                                    [item.id]: change.target.value,
+                                  }))
+                                }
+                                className="h-10 w-36 rounded-lg border border-border bg-background px-3"
+                                aria-label={`Quantity returned for ${item.InventoryItem.name}, receipt ${item.Receipt.id}`}
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {returnableReceiptItemsQuery.data &&
+                returnableReceiptItemsQuery.data.pagination.pages > 1 ? (
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="text-muted-foreground">
+                      Receipt items · Page {returnableItemsPage} of{" "}
+                      {returnableReceiptItemsQuery.data.pagination.pages}
+                    </span>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={
+                          returnableItemsPage <= 1 ||
+                          returnableReceiptItemsQuery.isFetching
+                        }
+                        onClick={() =>
+                          setReturnableItemsPage((value) => value - 1)
+                        }
+                        className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-40"
+                      >
+                        Previous
+                      </button>
+                      <button
+                        type="button"
+                        disabled={
+                          returnableItemsPage >=
+                            returnableReceiptItemsQuery.data.pagination.pages ||
+                          returnableReceiptItemsQuery.isFetching
+                        }
+                        onClick={() =>
+                          setReturnableItemsPage((value) => value + 1)
+                        }
+                        className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-40"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                <label className="block text-sm font-medium">
+                  Return note (optional)
+                  <input
+                    value={returnNote}
+                    maxLength={1000}
+                    disabled={Boolean(returnStorageError)}
+                    onChange={(change) => setReturnNote(change.target.value)}
+                    className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={
+                    returnMutation.isPending ||
+                    Boolean(returnStorageError) ||
+                    returnableReceiptItemsQuery.isPending ||
+                    returnableReceiptItemsQuery.isError
+                  }
+                  className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {returnMutation.isPending
+                    ? "Recording return..."
+                    : "Record supplier return"}
+                </button>
+              </form>
+            </section>
+          ) : null}
+          <section className="mt-6 rounded-3xl border border-border bg-card p-5">
+            <SectionHeader
+              eyebrow="Return audit trail"
+              title="Supplier return history"
+            />
+            {returnsQuery.isPending ? (
+              <p className="text-sm text-muted-foreground">
+                Loading return history...
+              </p>
+            ) : returnsQuery.isError ? (
+              <p role="alert" className="text-sm text-destructive">
+                Unable to load the return history.
+              </p>
+            ) : !returnsQuery.data?.data.length ? (
+              <p className="text-sm text-muted-foreground">
+                No supplier returns have been recorded.
+              </p>
+            ) : (
+              <div className="space-y-4">
+                {returnsQuery.data.data.map((record) => (
+                  <article
+                    key={record.id}
+                    className="rounded-xl border border-border p-4"
+                  >
+                    <div className="flex flex-wrap justify-between gap-2 text-sm">
+                      <span className="font-semibold">
+                        Supplier credit (pre-tax): {record.creditAmount}{" "}
+                        {record.currencyCode ?? ""}
+                      </span>
+                      <time
+                        dateTime={record.createdAt}
+                        className="text-muted-foreground"
+                      >
+                        {new Date(record.createdAt).toLocaleString()}
+                      </time>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Recorded by{" "}
+                      {record.User?.email ?? record.createdById ?? "unknown"}
+                      {record.note ? ` · ${record.note}` : ""}
+                    </p>
+                    <ul className="mt-3 space-y-1 text-sm">
+                      {record.Items.map((item) => (
+                        <li key={item.id}>
+                          {item.InventoryItem?.name ?? item.inventoryItemId}: -
+                          {item.quantity} {item.unit ?? ""} · GR{" "}
+                          {item.ReceiptItem?.receiptId ?? "unknown"}
+                        </li>
+                      ))}
+                    </ul>
+                  </article>
+                ))}
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-muted-foreground">
+                    {returnsQuery.data.pagination.total} return
+                    {returnsQuery.data.pagination.total === 1 ? "" : "s"} · Page{" "}
+                    {returnPage} of{" "}
+                    {Math.max(returnsQuery.data.pagination.pages, 1)}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={returnPage <= 1 || returnsQuery.isFetching}
+                      onClick={() => setReturnPage((value) => value - 1)}
+                      className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-40"
+                    >
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      disabled={
+                        returnPage >= returnsQuery.data.pagination.pages ||
+                        returnsQuery.isFetching
+                      }
+                      onClick={() => setReturnPage((value) => value + 1)}
+                      className="rounded-lg border border-border px-3 py-1.5 disabled:opacity-40"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </section>
           <section className="mt-6 rounded-3xl border border-border bg-card p-5">
             <SectionHeader eyebrow="Ordered items" title="Line items" />
@@ -793,9 +1352,35 @@ export default function PurchaseOrderDetailPage() {
                 set.
               </p>
             )}
+            {canCancel ? (
+              <button
+                type="button"
+                disabled={cancelMutation.isPending}
+                onClick={() => {
+                  const partial = order.PurchaseOrderItem.some(
+                    (item) => item.receivedQuantity > 0,
+                  );
+                  const action = partial
+                    ? "Cancel the remaining unreceived quantities"
+                    : "Cancel this Purchase Order";
+                  if (window.confirm(`${action} for ${order.poNumber}?`)) {
+                    setMutationError(null);
+                    setUnknownResult(false);
+                    cancelMutation.mutate();
+                  }
+                }}
+                className="mt-3 rounded-xl border border-destructive/30 px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-50"
+              >
+                {cancelMutation.isPending
+                  ? "Cancelling..."
+                  : order.status === "PARTIALLY_RECEIVED"
+                    ? "Cancel unreceived remainder"
+                    : "Cancel Purchase Order"}
+              </button>
+            ) : null}
             <p className="mt-4 text-sm text-muted-foreground">
-              Inventory stock changes are made only by the backend receipt
-              transaction.
+              Inventory stock changes are made only by backend receipt and
+              supplier-return transactions.
             </p>
           </section>
           <div className="mt-6 flex flex-wrap gap-3">

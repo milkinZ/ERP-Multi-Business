@@ -2,6 +2,8 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "./dist",
+    "rootDir": "./src",
+    "tsBuildInfoFile": "./dist/tsconfig.build.tsbuildinfo",
     "noEmit": false,
     "baseUrl": "./",
     "paths": {
@@ -13,5 +15,6 @@
     "test",
     "dist",
     "**/*.spec.ts"
-  ]
+  ],
+  "include": ["src/**/*.ts"]
 }

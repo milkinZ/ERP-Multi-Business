@@ -11,7 +11,16 @@ export type PaymentGatewayChargeInput = {
   description: string;
   tenantId: string;
   channelCode: string;
+  paymentTokenId?: string;
+  savePaymentMethod?: boolean;
+  customerId?: string;
   metadata?: Record<string, unknown>;
+};
+
+export type PaymentGatewayAction = {
+  type: string;
+  descriptor?: string;
+  value: string;
 };
 
 export type PaymentGatewayChargeResult = {
@@ -20,12 +29,29 @@ export type PaymentGatewayChargeResult = {
   gatewayReference: string;
   paymentRequestId?: string;
   status: 'PAID' | 'FAILED' | 'PENDING';
+  actions?: PaymentGatewayAction[];
   errorMessage?: string;
+};
+
+export type PaymentGatewayRefundInput = {
+  referenceId: string;
+  paymentRequestId: string;
+  amountCents: number;
+  currency: string;
+  reason: string;
+};
+
+export type PaymentGatewayRefundResult = {
+  providerRefundId?: string;
+  status?: string;
 };
 
 export abstract class PaymentGateway {
   abstract charge(
     input: PaymentGatewayChargeInput,
   ): Promise<PaymentGatewayChargeResult>;
+  abstract refund(
+    input: PaymentGatewayRefundInput,
+  ): Promise<PaymentGatewayRefundResult>;
   abstract verifyWebhookSignature(payload: unknown, signature: string): boolean;
 }

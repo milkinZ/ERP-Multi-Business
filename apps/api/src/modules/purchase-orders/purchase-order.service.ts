@@ -5,7 +5,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { InventoryMovementType, PurchaseOrderStatus } from '@prisma/client';
+import {
+  AccountingAccountRole,
+  InventoryMovementType,
+  PurchaseOrderStatus,
+} from '@prisma/client';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../core/database/prisma.service';
@@ -15,6 +19,7 @@ import {
   ListPurchaseOrdersQueryDto,
   ListPriceVariancesQueryDto,
   ReceivePurchaseOrderDto,
+  ReturnPurchaseOrderDto,
   UpdatePurchaseOrderDto,
 } from './dto';
 import { PurchaseOrderItemProps } from './domain/purchase-order.aggregate';
@@ -22,6 +27,10 @@ import { DomainEventBus } from '../../core/events/domain-event-bus.service';
 import { DOMAIN_EVENTS } from '../../core/events/domain-events';
 import { PurchaseOrderRepository } from './purchase-order.repository';
 import { InventoryCostingService } from '../inventory/inventory-costing.service';
+import {
+  AccountingService,
+  JournalLineInput,
+} from '../finance/accounting.service';
 
 @Injectable()
 export class PurchaseOrderService extends BaseService {
@@ -32,6 +41,7 @@ export class PurchaseOrderService extends BaseService {
     private readonly eventBus: DomainEventBus,
     private readonly purchaseOrderRepository: PurchaseOrderRepository,
     private readonly costing: InventoryCostingService,
+    private readonly accounting: AccountingService,
   ) {
     super(prisma);
   }
@@ -77,15 +87,29 @@ export class PurchaseOrderService extends BaseService {
     if (inventoryItems.length !== items.length) {
       throw new BadRequestException('Some inventory items not found');
     }
+    for (const item of items) {
+      const currentItem = inventoryItems.find(
+        (inventoryItem) => inventoryItem.id === item.inventoryItemId,
+      );
+      if (item.unit !== undefined && item.unit !== currentItem?.unit) {
+        throw new ConflictException(
+          'Inventory item unit changed; reload the Purchase Order form',
+        );
+      }
+    }
 
     const poNumber = await this.generatePoNumber(tenantId);
 
     // Normalize items and expected delivery date to explicit types
     const normalizedItems: PurchaseOrderItemProps[] = items.map((item) => ({
       inventoryItemId: item.inventoryItemId,
+      unit:
+        inventoryItems.find(
+          (inventoryItem) => inventoryItem.id === item.inventoryItemId,
+        )?.unit ?? null,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
-      subtotal: item.quantity * item.unitPrice,
+      subtotal: Math.round(item.quantity * item.unitPrice),
       receivedQuantity: 0,
     }));
 
@@ -103,6 +127,7 @@ export class PurchaseOrderService extends BaseService {
         notes: notes ?? null,
         items: normalizedItems.map((it) => ({
           inventoryItemId: it.inventoryItemId,
+          unit: it.unit,
           quantity: it.quantity,
           unitPrice: it.unitPrice,
         })),
@@ -231,6 +256,26 @@ export class PurchaseOrderService extends BaseService {
 
     if (items && items.length > 0) {
       parsedItems = [];
+      const inventoryItems = await this.prisma.inventoryItem.findMany({
+        where: {
+          id: { in: items.map((item) => item.inventoryItemId ?? '') },
+          tenantId,
+        },
+        select: { id: true, unit: true },
+      });
+      if (inventoryItems.length !== items.length) {
+        throw new NotFoundException('Some inventory items not found');
+      }
+      for (const item of items) {
+        const currentItem = inventoryItems.find(
+          (inventoryItem) => inventoryItem.id === (item.inventoryItemId ?? ''),
+        );
+        if (item.unit !== undefined && item.unit !== currentItem?.unit) {
+          throw new ConflictException(
+            'Inventory item unit changed; reload the Purchase Order form',
+          );
+        }
+      }
 
       for (const item of items) {
         const inventoryItemId = item.inventoryItemId ?? '';
@@ -243,9 +288,13 @@ export class PurchaseOrderService extends BaseService {
 
         parsedItems.push({
           inventoryItemId,
+          unit:
+            inventoryItems.find(
+              (inventoryItem) => inventoryItem.id === inventoryItemId,
+            )?.unit ?? null,
           quantity,
           unitPrice,
-          subtotal: quantity * unitPrice,
+          subtotal: Math.round(quantity * unitPrice),
           receivedQuantity: 0,
         });
       }
@@ -373,7 +422,15 @@ export class PurchaseOrderService extends BaseService {
               idempotencyKey,
             },
           },
-          include: { Items: true },
+          include: {
+            Items: {
+              include: {
+                InventoryItem: {
+                  select: { id: true, code: true, name: true, unit: true },
+                },
+              },
+            },
+          },
         });
 
         if (existingReceipt) {
@@ -452,12 +509,14 @@ export class PurchaseOrderService extends BaseService {
                 purchaseOrderItemId: orderItem.id,
                 inventoryItemId: orderItem.inventoryItemId,
                 receivedQuantity: delta,
+                unit: orderItem.unit,
               })),
             },
           },
           include: { Items: true },
         });
 
+        const receiptJournalLines: JournalLineInput[] = [];
         for (const { orderItem, delta, nextReceived } of plannedItems) {
           const inventoryItem = await this.costing.lockItem(
             tx,
@@ -509,7 +568,19 @@ export class PurchaseOrderService extends BaseService {
               referenceId: receipt.id,
             },
           });
-          await this.costing.receive(tx, {
+          const receiptItem = receipt.Items.find(
+            (item) => item.purchaseOrderItemId === orderItem.id,
+          );
+          if (!receiptItem) {
+            throw new BadRequestException(
+              'Purchase order receipt item was not persisted',
+            );
+          }
+          await tx.purchaseOrderReceiptItem.update({
+            where: { id: receiptItem.id },
+            data: { movementId: movement.id },
+          });
+          const receiptCost = await this.costing.receive(tx, {
             tenantId,
             inventoryItemId: orderItem.inventoryItemId,
             warehouseId: po.warehouseId,
@@ -519,18 +590,39 @@ export class PurchaseOrderService extends BaseService {
             sourceReferenceId: receipt.id,
             movementId: movement.id,
           });
+          const purchaseValue = new Prisma.Decimal(orderItem.unitPrice).mul(
+            delta,
+          );
+          receiptJournalLines.push({
+            role: AccountingAccountRole.INVENTORY,
+            debit: receiptCost.totalCost,
+            description: `Inventory received for PO ${po.poNumber}`,
+          });
+          receiptJournalLines.push({
+            role: AccountingAccountRole.GOODS_RECEIVED_NOT_INVOICED,
+            credit: purchaseValue,
+            description: `Goods received not invoiced for PO ${po.poNumber}`,
+          });
+          const receiptVariance = purchaseValue.sub(receiptCost.totalCost);
+          if (!receiptVariance.isZero()) {
+            receiptJournalLines.push(
+              receiptVariance.isPositive()
+                ? {
+                    role: AccountingAccountRole.PURCHASE_PRICE_VARIANCE,
+                    debit: receiptVariance,
+                    description: `Standard-cost variance for PO ${po.poNumber}`,
+                  }
+                : {
+                    role: AccountingAccountRole.PURCHASE_PRICE_VARIANCE,
+                    credit: receiptVariance.abs(),
+                    description: `Standard-cost variance for PO ${po.poNumber}`,
+                  },
+            );
+          }
           if (
             inventoryItem.valuationMethod === 'STANDARD_COST' &&
             inventoryItem.standardCost !== null
           ) {
-            const receiptItem = receipt.Items.find(
-              (item) => item.purchaseOrderItemId === orderItem.id,
-            );
-            if (!receiptItem) {
-              throw new BadRequestException(
-                'Purchase order receipt item was not persisted',
-              );
-            }
             const actualUnitCost = new Prisma.Decimal(orderItem.unitPrice);
             const standardUnitCost = inventoryItem.standardCost;
             const varianceAmount = actualUnitCost
@@ -546,6 +638,7 @@ export class PurchaseOrderService extends BaseService {
                 inventoryItemId: orderItem.inventoryItemId,
                 warehouseId: po.warehouseId,
                 quantity: new Prisma.Decimal(delta),
+                unit: inventoryItem.unit,
                 standardUnitCost,
                 actualUnitCost,
                 varianceAmount,
@@ -553,6 +646,31 @@ export class PurchaseOrderService extends BaseService {
               },
             });
           }
+        }
+
+        if (
+          receiptJournalLines.some(
+            (line) =>
+              !new Prisma.Decimal(line.debit ?? 0).isZero() ||
+              !new Prisma.Decimal(line.credit ?? 0).isZero(),
+          )
+        ) {
+          const currencyCode = po.currencyCode ?? po.Tenant.currencyCode;
+          if (!currencyCode) {
+            throw new ConflictException(
+              'Purchase Order currency is required for accounting',
+            );
+          }
+          await this.accounting.postJournal(tx, {
+            tenantId,
+            entryDate: receipt.createdAt,
+            currencyCode,
+            sourceType: 'PURCHASE_ORDER_RECEIPT',
+            sourceId: receipt.id,
+            memo: `Goods receipt for PO ${po.poNumber}`,
+            createdById: userId,
+            lines: receiptJournalLines,
+          });
         }
 
         const statusUpdate = await tx.purchaseOrder.updateMany({
@@ -600,6 +718,532 @@ export class PurchaseOrderService extends BaseService {
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
     );
+  }
+
+  async returnPurchaseOrder(
+    tenantId: string,
+    id: string,
+    userId: string,
+    idempotencyKey: string,
+    dto: ReturnPurchaseOrderDto,
+  ) {
+    if (
+      !idempotencyKey ||
+      idempotencyKey.length > 128 ||
+      !/^[\x21-\x7e]+$/.test(idempotencyKey)
+    ) {
+      throw new BadRequestException(
+        'A valid Idempotency-Key header of 1 to 128 visible ASCII characters is required',
+      );
+    }
+    if (!Array.isArray(dto.items) || dto.items.length === 0) {
+      throw new BadRequestException('At least one return item is required');
+    }
+
+    const normalizedItems = dto.items.map((item) => ({
+      purchaseOrderReceiptItemId: item.purchaseOrderReceiptItemId.trim(),
+      quantity: item.quantity,
+    }));
+    const itemIds = new Set<string>();
+    for (const item of normalizedItems) {
+      if (!item.purchaseOrderReceiptItemId) {
+        throw new BadRequestException(
+          'Purchase order receipt item id is required',
+        );
+      }
+      if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
+        throw new BadRequestException(
+          'Return quantity must be a finite positive number',
+        );
+      }
+      if (itemIds.has(item.purchaseOrderReceiptItemId)) {
+        throw new BadRequestException(
+          'A purchase order receipt item may only appear once per return',
+        );
+      }
+      itemIds.add(item.purchaseOrderReceiptItemId);
+    }
+    normalizedItems.sort((a, b) =>
+      a.purchaseOrderReceiptItemId.localeCompare(b.purchaseOrderReceiptItemId),
+    );
+    const note = dto.note?.trim() || null;
+    const requestHash = createHash('sha256')
+      .update(JSON.stringify({ items: normalizedItems, note }))
+      .digest('hex');
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        const lockedPo = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT "id"
+          FROM "PurchaseOrder"
+          WHERE "id" = ${id} AND "tenantId" = ${tenantId}
+          FOR UPDATE
+        `;
+        if (lockedPo.length !== 1) {
+          throw new NotFoundException('Purchase Order not found');
+        }
+
+        const po = await tx.purchaseOrder.findFirst({
+          where: { id, tenantId },
+          include: {
+            PurchaseOrderItem: true,
+            Tenant: { select: { currencyCode: true } },
+          },
+        });
+        if (!po) throw new NotFoundException('Purchase Order not found');
+
+        const existingReturn = await tx.purchaseOrderReturn.findUnique({
+          where: {
+            purchaseOrderId_idempotencyKey: {
+              purchaseOrderId: id,
+              idempotencyKey,
+            },
+          },
+          include: {
+            Items: {
+              include: {
+                InventoryItem: {
+                  select: { id: true, code: true, name: true, unit: true },
+                },
+                ReceiptItem: {
+                  select: { id: true, receiptId: true },
+                },
+              },
+            },
+          },
+        });
+        if (existingReturn) {
+          if (existingReturn.requestHash !== requestHash) {
+            throw new ConflictException(
+              'Idempotency-Key was already used with a different return request',
+            );
+          }
+          return existingReturn;
+        }
+
+        if (!po.warehouseId) {
+          throw new BadRequestException(
+            'A receiving warehouse is required to return purchase order stock',
+          );
+        }
+        const receiptItems = await tx.purchaseOrderReceiptItem.findMany({
+          where: {
+            tenantId,
+            id: {
+              in: normalizedItems.map(
+                (item) => item.purchaseOrderReceiptItemId,
+              ),
+            },
+            Receipt: { purchaseOrderId: id },
+          },
+        });
+        if (receiptItems.length !== normalizedItems.length) {
+          throw new BadRequestException(
+            'Return receipt items must belong to this purchase order and tenant',
+          );
+        }
+        const receiptItemsById = new Map(
+          receiptItems.map((item) => [item.id, item]),
+        );
+        const previouslyReturned = await tx.purchaseOrderReturnItem.groupBy({
+          by: ['receiptItemId'],
+          where: {
+            tenantId,
+            receiptItemId: {
+              in: normalizedItems.map(
+                (item) => item.purchaseOrderReceiptItemId,
+              ),
+            },
+          },
+          _sum: { quantity: true },
+        });
+        const returnedByItem = new Map(
+          previouslyReturned.map((item) => [
+            item.receiptItemId,
+            item._sum.quantity ?? 0,
+          ]),
+        );
+        const plannedItems = normalizedItems.map((requestItem) => {
+          const receiptItem = receiptItemsById.get(
+            requestItem.purchaseOrderReceiptItemId,
+          );
+          if (!receiptItem) {
+            throw new BadRequestException(
+              'Return receipt item does not belong to this purchase order',
+            );
+          }
+          const orderItem = po.PurchaseOrderItem.find(
+            (item) => item.id === receiptItem.purchaseOrderItemId,
+          );
+          if (!orderItem) {
+            throw new BadRequestException(
+              'Purchase order receipt item has no valid order line',
+            );
+          }
+          const remainingReceived =
+            receiptItem.receivedQuantity -
+            (returnedByItem.get(receiptItem.id) ?? 0);
+          if (requestItem.quantity - remainingReceived > 1e-9) {
+            throw new BadRequestException(
+              'Cannot return more than this receipt quantity not previously returned',
+            );
+          }
+          const unitPrice = new Prisma.Decimal(orderItem.unitPrice);
+          return {
+            receiptItem,
+            orderItem,
+            quantity: requestItem.quantity,
+            unitPrice,
+            creditAmount: unitPrice.mul(requestItem.quantity),
+          };
+        });
+        const creditAmount = plannedItems.reduce(
+          (total, item) => total.add(item.creditAmount),
+          new Prisma.Decimal(0),
+        );
+        const returnRecord = await tx.purchaseOrderReturn.create({
+          data: {
+            tenantId,
+            purchaseOrderId: id,
+            createdById: userId,
+            idempotencyKey,
+            requestHash,
+            note,
+            creditAmount,
+            currencyCode: po.currencyCode,
+          },
+        });
+
+        const returnJournalLines: JournalLineInput[] = [];
+        for (const planned of plannedItems) {
+          const inventoryItem = await this.costing.lockItem(
+            tx,
+            tenantId,
+            planned.orderItem.inventoryItemId,
+          );
+          const stockRows = await tx.$queryRaw<
+            Array<{ id: string; quantity: number }>
+          >`
+            SELECT "id", "quantity"
+            FROM "InventoryStock"
+            WHERE "inventoryItemId" = ${planned.orderItem.inventoryItemId}
+              AND "warehouseId" = ${po.warehouseId}
+            FOR UPDATE
+          `;
+          const stock = stockRows[0];
+          if (!stock || stock.quantity + 1e-9 < planned.quantity) {
+            throw new ConflictException(
+              `Insufficient unreserved stock to return ${planned.orderItem.inventoryItemId}`,
+            );
+          }
+          const updated = await tx.inventoryStock.updateMany({
+            where: { id: stock.id, quantity: { gte: planned.quantity } },
+            data: {
+              quantity: { decrement: planned.quantity },
+              updatedAt: new Date(),
+            },
+          });
+          if (updated.count !== 1) {
+            throw new ConflictException(
+              'Inventory changed while the return was being processed',
+            );
+          }
+
+          const movement = await tx.inventoryMovement.create({
+            data: {
+              tenantId,
+              warehouseId: po.warehouseId,
+              inventoryItemId: planned.orderItem.inventoryItemId,
+              type: InventoryMovementType.STOCK_OUT,
+              quantity: planned.quantity,
+              unit: inventoryItem.unit,
+              beforeQuantity: stock.quantity,
+              afterQuantity: stock.quantity - planned.quantity,
+              note: note ?? `Supplier return for PO ${po.poNumber}`,
+              createdById: userId,
+              referenceType: 'PURCHASE_ORDER_RETURN',
+              referenceId: returnRecord.id,
+            },
+          });
+          const inventoryCost = await this.costing.issue(tx, {
+            tenantId,
+            inventoryItemId: planned.orderItem.inventoryItemId,
+            warehouseId: po.warehouseId,
+            quantity: planned.quantity,
+            movementId: movement.id,
+          });
+          const postedInvoices = await tx.supplierInvoiceLine.aggregate({
+            where: {
+              tenantId,
+              receiptItemId: planned.receiptItem.id,
+              Invoice: {
+                status: {
+                  in: ['POSTED', 'PARTIALLY_PAID', 'PAID'],
+                },
+              },
+            },
+            _sum: { quantity: true },
+          });
+          const invoicedQuantity = new Prisma.Decimal(
+            postedInvoices._sum.quantity ?? 0,
+          );
+          const priorInvoicedReturns =
+            await tx.purchaseOrderReturnItem.aggregate({
+              where: {
+                tenantId,
+                receiptItemId: planned.receiptItem.id,
+              },
+              _sum: { invoicedQuantity: true },
+            });
+          const priorInvoicedReturnQuantity = new Prisma.Decimal(
+            priorInvoicedReturns._sum.invoicedQuantity ?? 0,
+          );
+          const invoicedReturnQuantity = Prisma.Decimal.min(
+            new Prisma.Decimal(planned.quantity),
+            Prisma.Decimal.max(
+              invoicedQuantity.sub(priorInvoicedReturnQuantity),
+              new Prisma.Decimal(0),
+            ),
+          );
+          const clearingValue = planned.unitPrice.mul(invoicedReturnQuantity);
+          const grniValue = planned.creditAmount.sub(clearingValue);
+          if (grniValue.gt(0)) {
+            returnJournalLines.push({
+              role: AccountingAccountRole.GOODS_RECEIVED_NOT_INVOICED,
+              debit: grniValue,
+              description: `Uninvoiced supplier return for PO ${po.poNumber}`,
+            });
+          }
+          if (clearingValue.gt(0)) {
+            returnJournalLines.push({
+              role: AccountingAccountRole.SUPPLIER_RETURN_CLEARING,
+              debit: clearingValue,
+              description: `Invoiced supplier return for PO ${po.poNumber}`,
+            });
+          }
+          if (inventoryCost.totalCost.gt(0)) {
+            returnJournalLines.push({
+              role: AccountingAccountRole.INVENTORY,
+              credit: inventoryCost.totalCost,
+              description: `Inventory returned for PO ${po.poNumber}`,
+            });
+          }
+          const returnVariance = planned.creditAmount.sub(
+            inventoryCost.totalCost,
+          );
+          if (!returnVariance.isZero()) {
+            returnJournalLines.push(
+              returnVariance.isPositive()
+                ? {
+                    role: AccountingAccountRole.PURCHASE_PRICE_VARIANCE,
+                    credit: returnVariance,
+                    description: `Return valuation variance for PO ${po.poNumber}`,
+                  }
+                : {
+                    role: AccountingAccountRole.PURCHASE_PRICE_VARIANCE,
+                    debit: returnVariance.abs(),
+                    description: `Return valuation variance for PO ${po.poNumber}`,
+                  },
+            );
+          }
+          await tx.purchaseOrderReturnItem.create({
+            data: {
+              tenantId,
+              returnId: returnRecord.id,
+              purchaseOrderItemId: planned.orderItem.id,
+              receiptItemId: planned.receiptItem.id,
+              inventoryItemId: planned.orderItem.inventoryItemId,
+              quantity: planned.quantity,
+              unit: inventoryItem.unit,
+              unitPrice: planned.unitPrice,
+              creditAmount: planned.creditAmount,
+              inventoryCost: inventoryCost.totalCost,
+              invoicedQuantity: invoicedReturnQuantity,
+              invoicedCreditAmount: clearingValue,
+            },
+          });
+        }
+
+        if (
+          returnJournalLines.some(
+            (line) =>
+              !new Prisma.Decimal(line.debit ?? 0).isZero() ||
+              !new Prisma.Decimal(line.credit ?? 0).isZero(),
+          )
+        ) {
+          const currencyCode = po.currencyCode ?? po.Tenant.currencyCode;
+          if (!currencyCode) {
+            throw new ConflictException(
+              'Purchase Order currency is required for accounting',
+            );
+          }
+          await this.accounting.postJournal(tx, {
+            tenantId,
+            entryDate: returnRecord.createdAt,
+            currencyCode,
+            sourceType: 'PURCHASE_ORDER_RETURN',
+            sourceId: returnRecord.id,
+            memo: `Supplier return for PO ${po.poNumber}`,
+            createdById: userId,
+            lines: returnJournalLines,
+          });
+        }
+
+        const event = {
+          type: DOMAIN_EVENTS.PURCHASE_ORDER_RETURNED,
+          payload: { purchaseOrderId: id, returnId: returnRecord.id, tenantId },
+          occurredAt: new Date(),
+        };
+        await tx.outboxEvent.create({
+          data: {
+            tenantId,
+            type: DOMAIN_EVENTS.PURCHASE_ORDER_RETURNED,
+            payload: JSON.stringify(event),
+            status: 'PENDING',
+          },
+        });
+
+        return tx.purchaseOrderReturn.findUnique({
+          where: { id: returnRecord.id },
+          include: {
+            Items: {
+              include: {
+                InventoryItem: {
+                  select: { id: true, code: true, name: true, unit: true },
+                },
+                ReceiptItem: {
+                  select: { id: true, receiptId: true },
+                },
+              },
+            },
+          },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
+    );
+  }
+
+  async findReturnableReceiptItems(
+    tenantId: string,
+    id: string,
+    skip?: number,
+    take?: number,
+  ) {
+    await this.findOne(tenantId, id);
+    const pagination = this.getPaginationParams(skip, take);
+    const where = { tenantId, Receipt: { purchaseOrderId: id } };
+    const [receiptItems, total] = await Promise.all([
+      this.prisma.purchaseOrderReceiptItem.findMany({
+        where,
+        include: {
+          Receipt: { select: { id: true, createdAt: true, note: true } },
+          PurchaseOrderItem: {
+            select: { id: true, unitPrice: true },
+          },
+          InventoryItem: {
+            select: { id: true, code: true, name: true, unit: true },
+          },
+        },
+        orderBy: [{ Receipt: { createdAt: 'asc' } }, { id: 'asc' }],
+        skip: pagination.skip,
+        take: pagination.take,
+      }),
+      this.prisma.purchaseOrderReceiptItem.count({ where }),
+    ]);
+    const returnedQuantities =
+      receiptItems.length > 0
+        ? await this.prisma.purchaseOrderReturnItem.groupBy({
+            by: ['receiptItemId'],
+            where: {
+              tenantId,
+              receiptItemId: { in: receiptItems.map((item) => item.id) },
+            },
+            _sum: { quantity: true },
+          })
+        : [];
+    const returnedByReceiptItem = new Map(
+      returnedQuantities.map((item) => [
+        item.receiptItemId,
+        item._sum.quantity ?? 0,
+      ]),
+    );
+    return {
+      ...this.formatPaginatedResponse(
+        receiptItems.map((item) => ({
+          ...item,
+          returnedQuantity: returnedByReceiptItem.get(item.id) ?? 0,
+          returnableQuantity: Math.max(
+            item.receivedQuantity - (returnedByReceiptItem.get(item.id) ?? 0),
+            0,
+          ),
+        })),
+        total,
+        pagination.skip,
+        pagination.take,
+      ),
+    };
+  }
+
+  async findReturns(
+    tenantId: string,
+    id: string,
+    skip?: number,
+    take?: number,
+  ) {
+    await this.findOne(tenantId, id);
+    const pagination = this.getPaginationParams(skip, take);
+    const where = { tenantId, purchaseOrderId: id };
+    const [data, total, returnTotals] = await Promise.all([
+      this.prisma.purchaseOrderReturn.findMany({
+        where,
+        include: {
+          User: { select: { id: true, email: true } },
+          Items: {
+            include: {
+              InventoryItem: {
+                select: { id: true, code: true, name: true, unit: true },
+              },
+              ReceiptItem: {
+                select: { id: true, receiptId: true },
+              },
+            },
+          },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: pagination.skip,
+        take: pagination.take,
+      }),
+      this.prisma.purchaseOrderReturn.count({ where }),
+      this.prisma.purchaseOrderReturnItem.groupBy({
+        by: ['receiptItemId'],
+        where: {
+          tenantId,
+          Return: { purchaseOrderId: id },
+        },
+        _sum: { quantity: true },
+      }),
+    ]);
+    const returnedQuantityByReceiptItem = returnTotals.reduce<
+      Record<string, number>
+    >((totals, item) => {
+      if (item.receiptItemId) {
+        totals[item.receiptItemId] = item._sum.quantity ?? 0;
+      }
+      return totals;
+    }, {});
+    return {
+      ...this.formatPaginatedResponse(
+        data,
+        total,
+        pagination.skip,
+        pagination.take,
+      ),
+      returnedQuantityByReceiptItem,
+    };
+  }
+
+  cancel(tenantId: string, id: string) {
+    return this.updateStatus(tenantId, id, PurchaseOrderStatus.CANCELLED);
   }
 
   async findReceipts(

@@ -10,9 +10,15 @@ describe('RecipesRepository.findAll', () => {
   const productFindFirst = jest.fn();
   const inventoryItemFindFirst = jest.fn();
   const inventoryItemFindMany = jest.fn();
+  const tenantUnitConversionFindMany = jest.fn();
+  const inventoryUnitConversionFindMany = jest.fn();
   const recipeCreate = jest.fn();
+  const productUpdate = jest.fn();
   const recipeItemFindMany = jest.fn();
   const recipeItemCount = jest.fn();
+  const tenantFindUnique = jest.fn();
+  const auditLogCreate = jest.fn();
+  const rawQuery = jest.fn();
   let repository: RecipesRepository;
 
   beforeEach(() => {
@@ -21,16 +27,28 @@ describe('RecipesRepository.findAll', () => {
     count.mockResolvedValue(11);
     productFindFirst.mockResolvedValue({ id: 'product-a' });
     inventoryItemFindFirst.mockResolvedValue({ id: 'inventory-a' });
-    inventoryItemFindMany.mockResolvedValue([{ id: 'inventory-a' }]);
+    inventoryItemFindMany.mockResolvedValue([{ id: 'inventory-a', unit: 'g' }]);
+    tenantUnitConversionFindMany.mockResolvedValue([]);
+    inventoryUnitConversionFindMany.mockResolvedValue([]);
     recipeCreate.mockResolvedValue({ id: 'recipe-created' });
     recipeItemFindMany.mockResolvedValue(usage);
     recipeItemCount.mockResolvedValue(1);
+    tenantFindUnique.mockResolvedValue({ businessType: 'CAFE' });
+    auditLogCreate.mockResolvedValue({});
+    rawQuery.mockResolvedValue([{ id: 'product-a' }]);
     transaction.mockImplementation((callback: (tx: unknown) => unknown) =>
       Promise.resolve(
         callback({
-          product: { findFirst: productFindFirst },
+          $queryRaw: rawQuery,
+          product: { findFirst: productFindFirst, update: productUpdate },
           inventoryItem: { findMany: inventoryItemFindMany },
+          tenantUnitConversion: { findMany: tenantUnitConversionFindMany },
+          inventoryUnitConversion: {
+            findMany: inventoryUnitConversionFindMany,
+          },
           recipe: { create: recipeCreate },
+          tenant: { findUnique: tenantFindUnique },
+          auditLog: { create: auditLogCreate },
         }),
       ),
     );
@@ -43,6 +61,7 @@ describe('RecipesRepository.findAll', () => {
         findMany: inventoryItemFindMany,
       },
       recipeItem: { findMany: recipeItemFindMany, count: recipeItemCount },
+      tenant: { findUnique: tenantFindUnique },
     } as never);
   });
 
@@ -79,6 +98,7 @@ describe('RecipesRepository.findAll', () => {
     await expect(
       repository.createRecipe({
         tenantId: 'tenant-a',
+        userId: 'user-a',
         productId: 'product-a',
         items: [{ inventoryItemId: 'inventory-a', quantity: 2 }],
       }),
@@ -91,6 +111,7 @@ describe('RecipesRepository.findAll', () => {
         type: InventoryItemType.INGREDIENT,
         isActive: true,
       },
+      select: { id: true, unit: true },
     });
     expect(recipeCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -98,11 +119,17 @@ describe('RecipesRepository.findAll', () => {
           tenantId: 'tenant-a',
           productId: 'product-a',
           RecipeItem: {
-            create: [{ inventoryItemId: 'inventory-a', quantity: 2 }],
+            create: [
+              { inventoryItemId: 'inventory-a', quantity: 2, unit: 'g' },
+            ],
           },
         },
       }),
     );
+    expect(productUpdate).toHaveBeenCalledWith({
+      where: { id: 'product-a' },
+      data: { stockMode: 'RECIPE' },
+    });
   });
 
   it('rejects inventory items that are missing, inactive, or not ingredients', async () => {
@@ -111,13 +138,28 @@ describe('RecipesRepository.findAll', () => {
     await expect(
       repository.createRecipe({
         tenantId: 'tenant-a',
+        userId: 'user-a',
         productId: 'product-a',
         items: [{ inventoryItemId: 'inventory-a', quantity: 2 }],
       }),
     ).rejects.toThrow(
       new BadRequestException(
-        'Inventory item not found, inactive, or not an ingredient',
+        'Recipe ingredients must be active ingredients owned by this tenant',
       ),
+    );
+    expect(recipeCreate).not.toHaveBeenCalled();
+  });
+
+  it('rejects recipe units without a valid conversion to the ingredient stock unit', async () => {
+    await expect(
+      repository.createRecipe({
+        tenantId: 'tenant-a',
+        userId: 'user-a',
+        productId: 'product-a',
+        items: [{ inventoryItemId: 'inventory-a', quantity: 1, unit: 'scoop' }],
+      }),
+    ).rejects.toThrow(
+      'No valid unit conversion from scoop to g for ingredient inventory-a',
     );
     expect(recipeCreate).not.toHaveBeenCalled();
   });
@@ -130,6 +172,7 @@ describe('RecipesRepository.findAll', () => {
     });
     const where = {
       tenantId: 'tenant-a',
+      isActive: true,
       Product: {
         is: {
           tenantId: 'tenant-a',
@@ -147,7 +190,11 @@ describe('RecipesRepository.findAll', () => {
         id: true,
         tenantId: true,
         productId: true,
+        revision: true,
+        isActive: true,
+        archivedAt: true,
         createdAt: true,
+        updatedAt: true,
         Product: {
           select: { id: true, name: true, sku: true, isActive: true },
         },
@@ -171,6 +218,7 @@ describe('RecipesRepository.findAll', () => {
       expect.objectContaining({
         where: {
           tenantId: 'tenant-a',
+          isActive: true,
           Product: { is: { tenantId: 'tenant-a' } },
         },
         skip: 0,
@@ -191,6 +239,7 @@ describe('RecipesRepository.findAll', () => {
       Recipe: {
         is: {
           tenantId: 'tenant-a',
+          isActive: true,
           Product: { is: { tenantId: 'tenant-a' } },
         },
       },
@@ -231,6 +280,7 @@ describe('RecipesRepository.findAll', () => {
           Recipe: {
             is: {
               tenantId: 'tenant-a',
+              isActive: true,
               Product: {
                 is: {
                   tenantId: 'tenant-a',

@@ -19,6 +19,7 @@ import type {
   FeatureFlagRestoredEvent,
 } from '../../core/events/domain-events';
 import { RedisService } from '../../infrastructure/redis/redis.service';
+import { PlanEntitlementsService } from '../subscription/plans/plan-entitlements.service';
 
 @Injectable()
 export class FeatureFlagService {
@@ -28,6 +29,7 @@ export class FeatureFlagService {
     private readonly repository: FeatureFlagRepository,
     private readonly domainEventBus: DomainEventBus,
     private readonly redisService: RedisService,
+    private readonly planEntitlements: PlanEntitlementsService,
   ) {}
 
   private cacheKey(tenantId: string, key: string): string {
@@ -246,6 +248,30 @@ export class FeatureFlagService {
     payload?: Record<string, unknown>,
   ): Promise<boolean> {
     const cacheKey = this.cacheKey(tenantId, key);
+
+    try {
+      const entitlement =
+        await this.planEntitlements.getFeatureModuleEntitlement(tenantId, key);
+      if (entitlement === false) return false;
+      if (entitlement === true) {
+        const moduleFlag = await this.repository.findByKey(key, tenantId);
+        if (!moduleFlag) return true;
+        return moduleFlag.evaluate(
+          {
+            tenantId,
+            outletId: context?.outletId,
+            userId: context?.userId,
+          },
+          payload,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to resolve module entitlement for "${key}" and tenant "${tenantId}"`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      return false;
+    }
 
     // 1. Try Redis cache
     try {

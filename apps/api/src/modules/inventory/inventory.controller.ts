@@ -27,6 +27,8 @@ import { ReceiveWarehouseTransferDto } from './dto/receive-warehouse-transfer.dt
 import { InventoryHistoryListQueryDto } from './dto/inventory-history-list.dto';
 import { ConfigureInventoryValuationDto } from './dto/configure-inventory-valuation.dto';
 import { InventoryReorderRulesDto } from './dto/inventory-reorder-rules.dto';
+import { FeatureModuleGuard } from '../feature-flags/feature-module.guard';
+import { RequireFeatureModule } from '../subscription/plans/feature-module.decorator';
 
 const parsePaginationParameter = (
   name: string,
@@ -58,7 +60,8 @@ const parsePaginationParameter = (
 };
 
 @Controller('inventory')
-@UseGuards(JwtAuthGuard, PermissionGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard, FeatureModuleGuard)
+@RequireFeatureModule('INVENTORY')
 export class InventoryController {
   constructor(
     private inventoryService: InventoryService,

@@ -8,14 +8,20 @@ import { NotificationDispatchProcessor } from "./queues/notification-dispatch.pr
 import { ExpireReservationsProcessor } from "./queues/expire-reservations.processor";
 import { RedisModule } from "./shared/redis.module";
 import { SharedModule } from "./shared/shared.module";
+import { NotificationEmailSender } from "./notifications/notification-email.sender";
+import { NotificationDeliveryService } from "./notifications/notification-delivery.service";
+import { PlatformOperationsSignalPublisher } from "./operational/platform-operations-signal.publisher";
 
 @Module({
   imports: [PrismaModule, QueueModule, RedisModule, SharedModule],
   providers: [
     NotificationDispatchProcessor,
+    NotificationEmailSender,
+    NotificationDeliveryService,
     ExpireReservationsProcessor,
     WorkerRegistryService,
     JobExecutionHistoryService,
+    PlatformOperationsSignalPublisher,
   ],
 })
 export class AppModule {}

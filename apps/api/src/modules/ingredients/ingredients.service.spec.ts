@@ -134,7 +134,7 @@ describe('IngredientsService', () => {
     );
   });
 
-  it('blocks unit changes when stock or movement history exists', async () => {
+  it('requires the audited conversion operation for unit changes', async () => {
     const item = {
       id: 'inventory-a',
       tenantId: 'tenant-a',
@@ -163,7 +163,7 @@ describe('IngredientsService', () => {
       service.update('inventory-a', 'tenant-a', { unit: 'g' }),
     ).rejects.toThrow(
       new BadRequestException(
-        'Ingredient unit cannot change after stock, movement, or recipe usage exists',
+        'Use the audited unit conversion operation to change an ingredient unit',
       ),
     );
     expect(inventoryItemUpdate).not.toHaveBeenCalled();

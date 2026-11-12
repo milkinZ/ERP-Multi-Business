@@ -1,4 +1,5 @@
 import { InventoryCostingService } from '../inventory/inventory-costing.service';
+import { KitchenTicketAggregate } from './domain/kitchen-ticket.aggregate';
 import { KitchenStatus } from './domain/kitchen-status.enum';
 import { KitchenRepository } from './kitchen.repository';
 
@@ -6,10 +7,29 @@ describe('KitchenRepository', () => {
   const findMany = jest.fn<Promise<unknown[]>, [Record<string, unknown>]>();
   const findFirst = jest.fn<Promise<unknown>, [Record<string, unknown>]>();
   const updateOrder = jest.fn();
-  const updatePriority = jest.fn();
+  const findOrderItems = jest.fn();
+  const updateSalesOrderItem = jest.fn();
+  const findStationRoutes = jest.fn();
+  const updatePriority = jest.fn<
+    Promise<unknown>,
+    [{ where: Record<string, unknown>; data: Record<string, unknown> }]
+  >();
+  const updateOrderItems = jest.fn<
+    Promise<{ count: number }>,
+    [
+      {
+        where: Record<string, unknown>;
+        data: {
+          kitchenStartedAt?: Date;
+          kitchenCompletedAt?: Date;
+        };
+      },
+    ]
+  >();
   const rawQuery = jest.fn();
   const updateTenant = jest.fn();
   const createAuditLog = jest.fn();
+  const tenantFindUnique = jest.fn();
   const findReservations = jest.fn();
   const updateReservations = jest.fn();
   const countAllocations = jest.fn();
@@ -18,7 +38,13 @@ describe('KitchenRepository', () => {
   const tx = {
     $queryRaw: rawQuery,
     salesOrder: { update: updatePriority, updateMany: updateOrder },
-    tenant: { update: updateTenant },
+    salesOrderItem: {
+      findMany: findOrderItems,
+      update: updateSalesOrderItem,
+      updateMany: updateOrderItems,
+    },
+    kitchenStationCategory: { findMany: findStationRoutes },
+    tenant: { findUnique: tenantFindUnique, update: updateTenant },
     auditLog: { create: createAuditLog },
     inventoryMovement: {
       findMany: findReservations,
@@ -29,7 +55,7 @@ describe('KitchenRepository', () => {
   };
   const prisma = {
     salesOrder: { findMany, findFirst },
-    tenant: { findUnique: jest.fn() },
+    tenant: { findUnique: tenantFindUnique },
     $transaction: transaction,
   };
   const issue = jest.fn();
@@ -38,6 +64,8 @@ describe('KitchenRepository', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    tenantFindUnique.mockResolvedValue({ businessType: 'CAFE' });
+    createAuditLog.mockResolvedValue({});
     transaction.mockImplementation(
       (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
     );
@@ -151,6 +179,92 @@ describe('KitchenRepository', () => {
     );
   });
 
+  it('enqueues a paid pending order, snapshots its route, and audits atomically', async () => {
+    rawQuery.mockResolvedValue([
+      {
+        id: 'order-a',
+        orderNumber: 'ORD-1',
+        outletId: 'outlet-a',
+        kitchenReleasedAt: null,
+        status: 'PENDING',
+        orderMode: 'REGULAR',
+        paymentStatus: 'PAID',
+      },
+    ]);
+    findOrderItems.mockResolvedValue([
+      {
+        id: 'order-item-a',
+        Product: {
+          kitchenCategory: ' Coffee ',
+          kitchenPrepTimeMinutes: 5,
+        },
+      },
+    ]);
+    findStationRoutes.mockResolvedValue([
+      { category: 'coffee', stationId: 'station-a' },
+    ]);
+    updateSalesOrderItem.mockResolvedValue({});
+    updatePriority.mockResolvedValue({});
+    const queuedTicket = KitchenTicketAggregate.fromPersistence({
+      id: 'order-a',
+      ticketNumber: 'ORD-1',
+      salesOrderId: 'order-a',
+      tenantId: 'tenant-a',
+      outletId: 'outlet-a',
+      assignedUser: null,
+      releasedAt: new Date('2026-10-31T10:00:00.000Z'),
+      startedAt: null,
+      readyAt: null,
+      items: [],
+      status: KitchenStatus.QUEUED,
+      priority: 0,
+      createdById: null,
+      createdAt: new Date('2026-10-31T10:00:00.000Z'),
+      updatedAt: new Date('2026-10-31T10:00:00.000Z'),
+    });
+    const findBySalesOrderId = jest
+      .spyOn(repository, 'findBySalesOrderId')
+      .mockResolvedValue(queuedTicket);
+
+    await expect(
+      repository.enqueueTicket({
+        id: 'order-a',
+        tenantId: 'tenant-a',
+        outletId: 'outlet-a',
+        userId: 'user-a',
+      }),
+    ).resolves.toBe(queuedTicket);
+
+    expect(updateSalesOrderItem).toHaveBeenCalledWith({
+      where: { id: 'order-item-a' },
+      data: {
+        kitchenCategorySnapshot: 'coffee',
+        kitchenPrepTimeMinutes: 5,
+        kitchenStationId: 'station-a',
+      },
+    });
+    const releaseUpdate = updatePriority.mock.calls[0]?.[0];
+    expect(releaseUpdate?.where).toEqual({ id: 'order-a' });
+    expect(releaseUpdate?.data.kitchenReleasedAt).toBeInstanceOf(Date);
+    expect(createAuditLog).toHaveBeenCalledWith({
+      data: {
+        tenantId: 'tenant-a',
+        userId: 'user-a',
+        outletId: 'outlet-a',
+        entity: 'SalesOrder',
+        entityId: 'order-a',
+        action: 'KITCHEN_TICKET_ENQUEUED',
+        metadata: { orderNumber: 'ORD-1', itemCount: 1 },
+      },
+    });
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(findBySalesOrderId).toHaveBeenCalledWith(
+      'order-a',
+      'tenant-a',
+      'outlet-a',
+    );
+  });
+
   it('flags queued tickets after the tenant threshold without changing priority', async () => {
     findMany.mockResolvedValue([
       {
@@ -249,6 +363,7 @@ describe('KitchenRepository', () => {
   });
 
   it('commits and costs a reservation atomically when kitchen work starts', async () => {
+    rawQuery.mockResolvedValue([{ status: 'PENDING', outletId: 'outlet-a' }]);
     updateOrder.mockResolvedValue({ count: 1 });
     findReservations.mockResolvedValue([{ id: 'reservation-a' }]);
     updateReservations.mockResolvedValue({ count: 1 });
@@ -266,6 +381,9 @@ describe('KitchenRepository', () => {
       'tenant-a',
       KitchenStatus.COOKING,
       KitchenStatus.QUEUED,
+      undefined,
+      null,
+      { userId: 'user-a' },
     );
 
     expect(updateReservations).toHaveBeenCalledWith({
@@ -280,6 +398,12 @@ describe('KitchenRepository', () => {
         note: 'Committed cafe stock reservation when kitchen preparation started',
       },
     });
+    const itemStartUpdate = updateOrderItems.mock.calls[0]?.[0];
+    expect(itemStartUpdate?.where).toEqual({
+      orderId: 'order-a',
+      kitchenStartedAt: null,
+    });
+    expect(itemStartUpdate?.data.kitchenStartedAt).toBeInstanceOf(Date);
     expect(issue).toHaveBeenCalledWith(tx, {
       tenantId: 'tenant-a',
       inventoryItemId: 'item-a',
@@ -289,7 +413,39 @@ describe('KitchenRepository', () => {
     });
   });
 
+  it('records item completion times when a kitchen order becomes ready', async () => {
+    rawQuery.mockResolvedValue([
+      {
+        status: 'IN_PROGRESS',
+        outletId: 'outlet-a',
+        kitchenStartedAt: new Date('2026-10-31T10:00:00.000Z'),
+        kitchenReadyAt: null,
+      },
+    ]);
+    updateOrder.mockResolvedValue({ count: 1 });
+    updateOrderItems.mockResolvedValue({ count: 1 });
+
+    await repository.updateStatus(
+      'order-a',
+      'tenant-a',
+      KitchenStatus.READY,
+      KitchenStatus.COOKING,
+      undefined,
+      null,
+      { userId: 'user-a' },
+    );
+
+    const itemCompletionUpdate = updateOrderItems.mock.calls[0]?.[0];
+    expect(itemCompletionUpdate?.where).toEqual({
+      orderId: 'order-a',
+      kitchenStartedAt: { not: null },
+      kitchenCompletedAt: null,
+    });
+    expect(itemCompletionUpdate?.data.kitchenCompletedAt).toBeInstanceOf(Date);
+  });
+
   it('releases active reservations inside the kitchen cancellation transaction', async () => {
+    rawQuery.mockResolvedValue([{ status: 'PENDING', outletId: 'outlet-a' }]);
     updateOrder.mockResolvedValue({ count: 1 });
     findFirst.mockResolvedValue(null);
     const releaseReservation = jest.fn();
@@ -300,6 +456,8 @@ describe('KitchenRepository', () => {
       KitchenStatus.CANCELLED,
       KitchenStatus.QUEUED,
       releaseReservation,
+      null,
+      { userId: 'user-a', reason: 'cancelled by request' },
     );
 
     expect(releaseReservation).toHaveBeenCalledWith(tx);

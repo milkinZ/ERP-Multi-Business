@@ -3,9 +3,11 @@ import {
   Logger,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
 } from "@nestjs/common";
 
 import { PrismaService } from "../shared/prisma.service";
+import { PlatformOperationsSignalPublisher } from "./platform-operations-signal.publisher";
 
 export type WorkerStatus =
   | "STARTING"
@@ -47,6 +49,8 @@ export class WorkerRegistryService implements OnModuleInit, OnModuleDestroy {
       heartbeatMs?: number;
       staleThresholdMs?: number;
     },
+    @Optional()
+    private readonly realtimeSignal?: PlatformOperationsSignalPublisher,
   ) {
     this.workerName =
       options?.workerName ?? process.env.WORKER_NAME ?? "bullmq-worker";
@@ -105,6 +109,7 @@ export class WorkerRegistryService implements OnModuleInit, OnModuleDestroy {
 
     this.registrationId = record.id;
     await this.markStaleWorkers();
+    await this.realtimeSignal?.publishRefresh();
     return record;
   }
 
@@ -124,6 +129,7 @@ export class WorkerRegistryService implements OnModuleInit, OnModuleDestroy {
     });
 
     await this.markStaleWorkers();
+    await this.realtimeSignal?.publishRefresh();
     return record;
   }
 
@@ -166,6 +172,7 @@ export class WorkerRegistryService implements OnModuleInit, OnModuleDestroy {
         lastHeartbeatAt: new Date(),
       },
     });
+    await this.realtimeSignal?.publishRefresh();
   }
 
   async listWorkers(): Promise<WorkerInstanceRecord[]> {

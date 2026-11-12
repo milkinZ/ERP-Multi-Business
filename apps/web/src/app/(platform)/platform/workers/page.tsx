@@ -13,6 +13,7 @@ import {
   getPlatformJobExecutions,
   getPlatformWorkers,
 } from "@/features/platform/api/queries";
+import { usePlatformRealtime } from "@/features/platform/hooks/use-platform-realtime";
 import { hasPermission } from "@/lib/permissions";
 import { useAuthStore } from "@/stores/auth.store";
 
@@ -39,6 +40,8 @@ export default function PlatformWorkersPage() {
   const token = useAuthStore((state) => state.accessToken);
   const session = useAuthStore((state) => state.session);
   const canRead = hasPermission(session, "super-admin.read");
+  const isRealtimeConnected = usePlatformRealtime(canRead);
+  const refetchInterval = isRealtimeConnected ? 60_000 : 15_000;
   const workersQuery = useQuery({
     queryKey: ["platform-workers"],
     queryFn: () => {
@@ -46,7 +49,7 @@ export default function PlatformWorkersPage() {
       return getPlatformWorkers(token);
     },
     enabled: Boolean(token && canRead),
-    refetchInterval: 30_000,
+    refetchInterval,
   });
   const jobExecutionsQuery = useQuery({
     queryKey: ["platform-job-executions", { page: 1, limit: 25 }],
@@ -55,7 +58,7 @@ export default function PlatformWorkersPage() {
       return getPlatformJobExecutions(token, { page: 1, limit: 25 });
     },
     enabled: Boolean(token && canRead),
-    refetchInterval: 30_000,
+    refetchInterval,
   });
 
   if (!canRead)
@@ -80,9 +83,14 @@ export default function PlatformWorkersPage() {
         title="Workers and job history"
         description="Persisted worker identity, heartbeat, and bounded job execution metadata. Payloads and raw error messages are never exposed."
         actions={
-          <StatusBadge tone={workersQuery.isError ? "danger" : "info"}>
-            {workersQuery.isError ? "Registry unavailable" : "Live registry"}
-          </StatusBadge>
+          <div className="flex items-center gap-2">
+            <StatusBadge tone={isRealtimeConnected ? "success" : "warning"}>
+              {isRealtimeConnected ? "Realtime connected" : "Polling fallback"}
+            </StatusBadge>
+            <StatusBadge tone={workersQuery.isError ? "danger" : "info"}>
+              {workersQuery.isError ? "Registry unavailable" : "Live registry"}
+            </StatusBadge>
+          </div>
         }
       />
 

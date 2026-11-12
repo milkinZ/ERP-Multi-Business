@@ -4,6 +4,7 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { TenantContextService } from '../tenants/tenant-context.service';
 import { OutletsRepository } from './outlets.repository';
 import { OutletsService } from './outlets.service';
+import { PlanEntitlementsService } from '../subscription/plans/plan-entitlements.service';
 
 describe('OutletsService', () => {
   const findAll = jest.fn();
@@ -18,12 +19,24 @@ describe('OutletsService', () => {
     update,
     softDelete,
   } as unknown as OutletsRepository;
+  const transactionClient = { $queryRaw: jest.fn() };
+  const prisma = {
+    $transaction: jest.fn(
+      (callback: (client: typeof transactionClient) => Promise<unknown>) =>
+        callback(transactionClient),
+    ),
+  } as unknown as PrismaService;
+  const assertCanCreateOutlet = jest.fn().mockResolvedValue(undefined);
+  const planEntitlements = {
+    assertCanCreateOutlet,
+  } as unknown as PlanEntitlementsService;
   const requireTenant = jest.fn();
   const tenantContext = { requireTenant } as unknown as TenantContextService;
   const service = new OutletsService(
-    {} as PrismaService,
+    prisma,
     tenantContext,
     repository,
+    planEntitlements,
   );
 
   beforeEach(() => {
@@ -54,10 +67,17 @@ describe('OutletsService', () => {
 
     await service.create({ name: 'Main outlet' });
 
-    expect(create).toHaveBeenCalledWith({
-      tenantId: 'tenant-a',
-      name: 'Main outlet',
-    });
+    expect(create).toHaveBeenCalledWith(
+      {
+        tenantId: 'tenant-a',
+        name: 'Main outlet',
+      },
+      transactionClient,
+    );
+    expect(assertCanCreateOutlet).toHaveBeenCalledWith(
+      'tenant-a',
+      transactionClient,
+    );
   });
 
   it('returns not found when an update does not affect an active tenant outlet', async () => {

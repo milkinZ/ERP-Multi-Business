@@ -38,6 +38,7 @@ import { RBACModule } from './modules/rbac/rbac.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { SchedulerModule } from './infrastructure/scheduler/scheduler.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
+import { FinanceModule } from './modules/finance/finance.module';
 
 @Module({
   imports: [
@@ -77,6 +78,7 @@ import { TenantsModule } from './modules/tenants/tenants.module';
     ScheduleModule.forRoot(),
     SchedulerModule,
     TenantsModule,
+    FinanceModule,
   ],
   providers: [
     {

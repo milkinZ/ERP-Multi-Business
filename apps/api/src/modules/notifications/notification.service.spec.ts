@@ -1,16 +1,21 @@
-import { NotificationChannel, NotificationType } from './notification.types';
+import {
+  NotificationCategory,
+  NotificationChannel,
+  NotificationType,
+} from './notification.types';
 import { NotificationService } from './notification.service';
 import { NotificationTemplateService } from './notification.template.service';
 import { NotificationPreferenceService } from './notification.preference.service';
-import { QueueService } from '../../infrastructure/queue/queue.service';
 import { PrismaService } from '../../core/database/prisma.service';
+import { NotificationRecipientService } from './notification-recipient.service';
 
 describe('NotificationService', () => {
   const buildNotification = jest.fn();
   const getEffectiveChannels = jest.fn();
   const send = jest.fn();
-  const getQueue = jest.fn();
   const notificationUpdateMany = jest.fn();
+  const findForOutlet = jest.fn();
+  const findForTenant = jest.fn();
   const prisma = {
     notification: { updateMany: notificationUpdateMany },
   } as unknown as PrismaService;
@@ -21,7 +26,10 @@ describe('NotificationService', () => {
     getEffectiveChannels,
   } as unknown as NotificationPreferenceService;
   const handlers = [{ channel: NotificationChannel.EMAIL, send }] as never;
-  const queue = { getQueue } as unknown as QueueService;
+  const recipients = {
+    findForOutlet,
+    findForTenant,
+  } as unknown as NotificationRecipientService;
   let service: NotificationService;
 
   beforeEach(() => {
@@ -34,18 +42,22 @@ describe('NotificationService', () => {
     });
     getEffectiveChannels.mockReturnValue([NotificationChannel.EMAIL]);
     send.mockResolvedValue(undefined);
+    findForOutlet.mockResolvedValue([]);
+    findForTenant.mockResolvedValue([]);
     service = new NotificationService(
       prisma,
       templates,
       preferences,
+      recipients,
       handlers,
-      queue,
     );
   });
 
   it('builds a tenant-scoped dispatch payload and delivers through matching handlers', async () => {
     await service.sendNotification({
       type: NotificationType.ORDER_CREATED,
+      category: NotificationCategory.ORDERS,
+      sourceEventId: 'event-a',
       tenantId: 'tenant-a',
       userId: 'user-a',
       data: {},
@@ -56,6 +68,8 @@ describe('NotificationService', () => {
       tenantId: 'tenant-a',
       notification: {
         type: NotificationType.ORDER_CREATED,
+        category: NotificationCategory.ORDERS,
+        sourceEventId: 'event-a',
         title: 'Order created',
         message: 'Your order was created',
         channels: [NotificationChannel.EMAIL],
@@ -70,7 +84,10 @@ describe('NotificationService', () => {
     await expect(
       service.sendNotification({
         type: NotificationType.ORDER_CREATED,
+        category: NotificationCategory.ORDERS,
+        sourceEventId: 'event-a',
         tenantId: 'tenant-a',
+        userId: 'user-a',
       }),
     ).resolves.toBeUndefined();
     expect(send).not.toHaveBeenCalled();
@@ -82,7 +99,10 @@ describe('NotificationService', () => {
     await expect(
       service.sendNotification({
         type: NotificationType.ORDER_CREATED,
+        category: NotificationCategory.ORDERS,
+        sourceEventId: 'event-a',
         tenantId: 'tenant-a',
+        userId: 'user-a',
       }),
     ).rejects.toThrow('email provider unavailable');
   });

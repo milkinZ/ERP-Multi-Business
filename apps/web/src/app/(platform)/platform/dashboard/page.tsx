@@ -20,6 +20,7 @@ import {
   platformObservabilityKeys,
   type PlatformTenant,
 } from "@/features/platform/api/queries";
+import { usePlatformRealtime } from "@/features/platform/hooks/use-platform-realtime";
 import { useAuthStore } from "@/stores/auth.store";
 
 function lifecycleLabel(tenant: PlatformTenant) {
@@ -30,11 +31,14 @@ export default function PlatformDashboardPage() {
   const token = useAuthStore((state) => state.accessToken);
   const session = useAuthStore((state) => state.session);
   const canRead = hasPermission(session, "super-admin.read");
+  const isRealtimeConnected = usePlatformRealtime(canRead);
+  const refetchInterval = isRealtimeConnected ? 60_000 : 15_000;
 
   const healthQuery = useQuery({
     queryKey: platformObservabilityKeys.readiness(),
     queryFn: getHealth,
     enabled: canRead,
+    refetchInterval,
   });
   const tenantsQuery = useQuery({
     queryKey: ["platform-tenants-dashboard"],
@@ -86,11 +90,18 @@ export default function PlatformDashboardPage() {
         title="Control room"
         description="Backend-authoritative tenant, user, outlet, subscription, invoice, audit, payment-request, and service-readiness summaries."
         actions={
-          <StatusBadge
-            tone={healthQuery.isError ? "danger" : isReady ? "success" : "info"}
-          >
-            {readinessLabel}
-          </StatusBadge>
+          <div className="flex items-center gap-2">
+            <StatusBadge tone={isRealtimeConnected ? "success" : "warning"}>
+              {isRealtimeConnected ? "Realtime connected" : "Polling fallback"}
+            </StatusBadge>
+            <StatusBadge
+              tone={
+                healthQuery.isError ? "danger" : isReady ? "success" : "info"
+              }
+            >
+              {readinessLabel}
+            </StatusBadge>
+          </div>
         }
       />
 
@@ -162,20 +173,42 @@ export default function PlatformDashboardPage() {
       <section className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <MetricCard
           title="Users"
-          value={aggregateQuery.isPending ? "Loading" : aggregate ? String(aggregate.users.total) : "Unavailable"}
+          value={
+            aggregateQuery.isPending
+              ? "Loading"
+              : aggregate
+                ? String(aggregate.users.total)
+                : "Unavailable"
+          }
           detail="Active platform-wide user records"
           tone={aggregateQuery.isError ? "danger" : "info"}
         />
         <MetricCard
           title="Outlets"
-          value={aggregateQuery.isPending ? "Loading" : aggregate ? String(aggregate.outlets.total) : "Unavailable"}
+          value={
+            aggregateQuery.isPending
+              ? "Loading"
+              : aggregate
+                ? String(aggregate.outlets.total)
+                : "Unavailable"
+          }
           detail="Active platform-wide outlets"
           tone={aggregateQuery.isError ? "danger" : "info"}
         />
         <MetricCard
           title="Platform audit events"
-          value={aggregateQuery.isPending ? "Loading" : aggregate ? String(aggregate.platformAudit.last24Hours) : "Unavailable"}
-          detail={aggregate ? `${aggregate.platformAudit.total.toLocaleString()} total recorded` : "Last 24 hours"}
+          value={
+            aggregateQuery.isPending
+              ? "Loading"
+              : aggregate
+                ? String(aggregate.platformAudit.last24Hours)
+                : "Unavailable"
+          }
+          detail={
+            aggregate
+              ? `${aggregate.platformAudit.total.toLocaleString()} total recorded`
+              : "Last 24 hours"
+          }
           tone={aggregateQuery.isError ? "danger" : "info"}
         />
       </section>

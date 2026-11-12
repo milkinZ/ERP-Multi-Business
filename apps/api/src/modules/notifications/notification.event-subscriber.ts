@@ -1,20 +1,20 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 
-import {
-  DOMAIN_EVENTS,
-  OrderCreatedEvent,
-  OrderPaymentSuccessEvent,
-  PurchaseOrderCreatedEvent,
-  PurchaseOrderReceivedEvent,
-  SalesOrderCompletedEvent,
-} from '../../core/events/domain-events';
+import type { DomainEvent } from '../../core/events/domain-events';
 import { DomainEventBus } from '../../core/events/domain-event-bus.service';
+import { requestContext } from '../../core/request-context/request-context';
 import { NotificationService } from './notification.service';
-import { NotificationType } from './notification.types';
+import {
+  resolveNotificationRoute,
+  toDomainEventNotification,
+} from './notification-routing';
 
 @Injectable()
-export class NotificationEventSubscriber implements OnModuleInit {
-  private readonly logger = new Logger(NotificationEventSubscriber.name);
+export class NotificationEventSubscriber
+  implements OnModuleInit, OnModuleDestroy
+{
+  private unsubscribe?: () => boolean;
 
   constructor(
     private readonly eventBus: DomainEventBus,
@@ -22,121 +22,50 @@ export class NotificationEventSubscriber implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    this.eventBus.subscribe<OrderCreatedEvent>(
-      DOMAIN_EVENTS.ORDER_CREATED,
-      (event) => this.handleOrderCreated(event),
-    );
-
-    this.eventBus.subscribe<OrderPaymentSuccessEvent>(
-      DOMAIN_EVENTS.ORDER_PAYMENT_SUCCESS,
-      (event) => this.handlePaymentSuccess(event),
-    );
-
-    this.eventBus.subscribe<SalesOrderCompletedEvent>(
-      DOMAIN_EVENTS.SALES_ORDER_COMPLETED,
-      (event) => this.handleOrderCompleted(event),
-    );
-
-    this.eventBus.subscribe<PurchaseOrderCreatedEvent>(
-      DOMAIN_EVENTS.PURCHASE_ORDER_CREATED,
-      (event) => this.handlePurchaseOrderCreated(event),
-    );
-
-    this.eventBus.subscribe<PurchaseOrderReceivedEvent>(
-      DOMAIN_EVENTS.PURCHASE_ORDER_RECEIVED,
-      (event) => this.handlePurchaseOrderReceived(event),
+    this.unsubscribe = this.eventBus.subscribeAll((event) =>
+      this.handleEvent(event),
     );
   }
 
-  private async handleOrderCreated(event: OrderCreatedEvent) {
-    try {
-      await this.notificationService.sendNotification({
-        tenantId: event.payload.tenantId,
-        userId: undefined,
-        outletId: event.payload.outletId ?? undefined,
-        type: NotificationType.ORDER_CREATED,
-        data: {
-          orderId: event.payload.orderId,
-        },
-      });
-    } catch (error) {
-      this.logger.warn(
-        'Failed to enqueue order created notification',
-        String(error),
-      );
-    }
+  onModuleDestroy() {
+    this.unsubscribe?.();
   }
 
-  private async handlePaymentSuccess(event: OrderPaymentSuccessEvent) {
-    try {
-      await this.notificationService.sendNotification({
-        tenantId: event.payload.tenantId,
-        userId: undefined,
-        type: NotificationType.PAYMENT_PAID,
-        data: {
-          orderId: event.payload.orderId,
-          paymentId: event.payload.paymentId,
-        },
-      });
-    } catch (error) {
-      this.logger.warn(
-        'Failed to enqueue payment success notification',
-        String(error),
-      );
-    }
-  }
+  private async handleEvent(event: DomainEvent) {
+    const route = resolveNotificationRoute(event);
+    if (!route) return;
 
-  private async handleOrderCompleted(event: SalesOrderCompletedEvent) {
-    try {
-      await this.notificationService.sendNotification({
-        tenantId: event.payload.tenantId,
-        userId: undefined,
-        type: NotificationType.ORDER_COMPLETED,
-        data: {
-          orderId: event.payload.orderId,
-        },
-      });
-    } catch (error) {
-      this.logger.warn(
-        'Failed to enqueue order complete notification',
-        String(error),
+    const payload = event.payload as Record<string, unknown>;
+    const tenantId =
+      typeof payload.tenantId === 'string'
+        ? payload.tenantId
+        : requestContext.get().tenantId;
+    if (!tenantId) {
+      throw new Error(
+        `Tenant context is required to notify for domain event ${event.type}`,
       );
     }
-  }
 
-  private async handlePurchaseOrderCreated(event: PurchaseOrderCreatedEvent) {
-    try {
-      await this.notificationService.sendNotification({
-        tenantId: event.payload.tenantId,
-        userId: undefined,
-        type: NotificationType.PO_CREATED,
-        data: {
-          purchaseOrderId: event.payload.purchaseOrderId,
-        },
-      });
-    } catch (error) {
-      this.logger.warn(
-        'Failed to enqueue purchase order created notification',
-        String(error),
-      );
-    }
-  }
+    const outletId = Object.hasOwn(payload, 'outletId')
+      ? typeof payload.outletId === 'string'
+        ? payload.outletId
+        : undefined
+      : (requestContext.get().outletId ?? undefined);
+    const sourceEventId =
+      event.eventId ??
+      createHash('sha256')
+        .update(
+          `${event.type}:${event.occurredAt?.toISOString() ?? ''}:${JSON.stringify(payload)}`,
+        )
+        .digest('hex');
+    const notification = toDomainEventNotification(event, route.category);
 
-  private async handlePurchaseOrderReceived(event: PurchaseOrderReceivedEvent) {
-    try {
-      await this.notificationService.sendNotification({
-        tenantId: event.payload.tenantId,
-        userId: undefined,
-        type: NotificationType.PO_RECEIVED,
-        data: {
-          purchaseOrderId: event.payload.purchaseOrderId,
-        },
-      });
-    } catch (error) {
-      this.logger.warn(
-        'Failed to enqueue purchase order received notification',
-        String(error),
-      );
-    }
+    await this.notificationService.dispatchToAuthorizedRecipients({
+      tenantId,
+      outletId,
+      sourceEventId,
+      requiredPermission: route.requiredPermission,
+      ...notification,
+    });
   }
 }

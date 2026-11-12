@@ -7,6 +7,8 @@ export type SupplierProps = {
   phone?: string | null;
   email?: string | null;
   address?: string | null;
+  contactPerson?: string | null;
+  taxNumber?: string | null;
   isActive?: boolean;
   createdAt: Date;
 };
@@ -48,6 +50,14 @@ export class SupplierAggregate extends AggregateRoot {
     return this.props.address;
   }
 
+  get contactPerson(): string | null | undefined {
+    return this.props.contactPerson;
+  }
+
+  get taxNumber(): string | null | undefined {
+    return this.props.taxNumber;
+  }
+
   get createdAt(): Date {
     return this.props.createdAt;
   }
@@ -61,6 +71,8 @@ export class SupplierAggregate extends AggregateRoot {
     phone?: string | null;
     email?: string | null;
     address?: string | null;
+    contactPerson?: string | null;
+    taxNumber?: string | null;
     isActive?: boolean;
   }) {
     if (data.name !== undefined && !data.name.trim()) {
@@ -74,6 +86,14 @@ export class SupplierAggregate extends AggregateRoot {
       email: data.email === null ? null : (data.email ?? this.props.email),
       address:
         data.address === null ? null : (data.address ?? this.props.address),
+      contactPerson:
+        data.contactPerson === null
+          ? null
+          : (data.contactPerson ?? this.props.contactPerson),
+      taxNumber:
+        data.taxNumber === null
+          ? null
+          : (data.taxNumber ?? this.props.taxNumber),
       isActive: data.isActive ?? this.props.isActive,
     };
   }
@@ -86,6 +106,8 @@ export class SupplierAggregate extends AggregateRoot {
       phone: this.phone,
       email: this.email,
       address: this.address,
+      contactPerson: this.contactPerson,
+      taxNumber: this.taxNumber,
       isActive: this.isActive,
       createdAt: this.createdAt,
     };

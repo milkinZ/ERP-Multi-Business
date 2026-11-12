@@ -8,9 +8,10 @@ import { TenantContextService } from '../tenants/tenant-context.service';
 import { OutletsController } from './outlets.controller';
 import { OutletsService } from './outlets.service';
 import { OutletsRepository } from './outlets.repository';
+import { SubscriptionModule } from '../subscription/subscription.module';
 
 @Module({
-  imports: [TenantContextModule],
+  imports: [TenantContextModule, SubscriptionModule],
   controllers: [OutletsController],
   providers: [
     OutletsService,

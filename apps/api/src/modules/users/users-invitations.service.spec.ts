@@ -8,6 +8,7 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { requestContext } from '../../core/request-context/request-context';
 import { EmailService } from '../../infrastructure/email/email.service';
 import { UsersInvitationsService } from './users-invitations.service';
+import { PlanEntitlementsService } from '../subscription/plans/plan-entitlements.service';
 
 type InvitationCreateInput = {
   data: {
@@ -38,6 +39,19 @@ describe('UsersInvitationsService', () => {
   const invitationFindUnique = jest.fn();
   const userRoleCreateMany = jest.fn();
   const userOutletCreateMany = jest.fn();
+  const subscriptionHistoryFindFirst = jest.fn();
+  type UpdateManyInput = {
+    where: Record<string, string | null>;
+    data: Record<string, string | Date>;
+  };
+  const tenantUpdateMany = jest.fn((input: UpdateManyInput) => {
+    void input;
+    return Promise.resolve({ count: 1 });
+  });
+  const subscriptionUpdateMany = jest.fn((input: UpdateManyInput) => {
+    void input;
+    return Promise.resolve({ count: 1 });
+  });
   const invitationCreate = jest.fn((input: InvitationCreateInput) => ({
     id: 'invitation-a',
     email: input.data.email,
@@ -47,6 +61,7 @@ describe('UsersInvitationsService', () => {
     Outlets: [{ Outlet: { id: 'outlet-main', name: 'Main outlet' } }],
   }));
   const transactionClient = {
+    $queryRaw: jest.fn(),
     user: { findFirst: userFindFirst, create: userCreate },
     role: { findMany: roleFindMany },
     outlet: { findMany: outletFindMany },
@@ -55,6 +70,9 @@ describe('UsersInvitationsService', () => {
       updateMany: invitationUpdateMany,
       create: invitationCreate,
     },
+    subscriptionHistory: { findFirst: subscriptionHistoryFindFirst },
+    tenant: { updateMany: tenantUpdateMany },
+    subscription: { updateMany: subscriptionUpdateMany },
     userRole: { createMany: userRoleCreateMany },
     userOutlet: { createMany: userOutletCreateMany },
   };
@@ -88,11 +106,19 @@ describe('UsersInvitationsService', () => {
     assertCanAssignRoles: jest.fn().mockResolvedValue(undefined),
     assertCanGrantPermissions: jest.fn().mockResolvedValue(undefined),
   };
+  const planEntitlements = {
+    assertCanCreateUser: jest.fn().mockResolvedValue(undefined),
+  } as unknown as PlanEntitlementsService;
+  const billing = {
+    executeBilling: jest.fn().mockResolvedValue(undefined),
+  };
   const service = new UsersInvitationsService(
     prisma,
     config,
     email,
     rolePolicy as never,
+    planEntitlements,
+    billing as never,
   );
 
   beforeEach(() => {
@@ -109,6 +135,10 @@ describe('UsersInvitationsService', () => {
     invitationFindUnique.mockResolvedValue(null);
     userRoleCreateMany.mockResolvedValue({ count: 1 });
     userOutletCreateMany.mockResolvedValue({ count: 1 });
+    subscriptionHistoryFindFirst.mockResolvedValue(null);
+    tenantUpdateMany.mockResolvedValue({ count: 1 });
+    subscriptionUpdateMany.mockResolvedValue({ count: 1 });
+    billing.executeBilling.mockResolvedValue(undefined);
     sendUserInvitation.mockResolvedValue(undefined);
   });
 
@@ -171,6 +201,7 @@ describe('UsersInvitationsService', () => {
         id: 'invitation-a',
         email: 'person@example.test',
         tenantId: 'tenant-a',
+        isSelfRegistration: false,
         acceptedAt: null,
         revokedAt: null,
         expiresAt: new Date(Date.now() + 60_000),
@@ -226,6 +257,44 @@ describe('UsersInvitationsService', () => {
         { userId: 'user-new', outletId: 'outlet-main', tenantId: 'tenant-a' },
       ],
     });
+    expect(billing.executeBilling).not.toHaveBeenCalled();
+  });
+
+  it('activates a self-registered tenant and starts billing after email verification', async () => {
+    invitationFindUnique.mockResolvedValue({
+      id: 'invitation-a',
+      email: 'person@example.test',
+      tenantId: 'tenant-a',
+      isSelfRegistration: true,
+      invitedByUserId: null,
+      invitedByPlatformIdentityId: null,
+      acceptedAt: null,
+      revokedAt: null,
+      expiresAt: new Date(Date.now() + 60_000),
+      Roles: [{ roleId: 'role-owner', tenantId: 'tenant-a' }],
+      Outlets: [],
+    });
+    subscriptionHistoryFindFirst.mockResolvedValue({
+      subscriptionId: 'subscription-a',
+    });
+    invitationUpdateMany.mockResolvedValue({ count: 1 });
+
+    await expect(
+      service.accept('one-time-token', 'ValidPassword-12345'),
+    ).resolves.toEqual({
+      userId: 'user-new',
+      email: 'person@example.test',
+    });
+
+    expect(tenantUpdateMany.mock.calls[0]?.[0]).toMatchObject({
+      where: { id: 'tenant-a', status: 'SUSPENDED' },
+      data: { status: 'ACTIVE' },
+    });
+    expect(subscriptionUpdateMany.mock.calls[0]?.[0]).toMatchObject({
+      where: { id: 'subscription-a', status: 'INACTIVE' },
+      data: { status: 'ACTIVE' },
+    });
+    expect(billing.executeBilling).toHaveBeenCalledWith('subscription-a');
   });
 
   it('rejects invitations for an email that already has an account', async () => {

@@ -30,7 +30,13 @@ import { ListPlatformAuditLogsDto } from '../audit-logs/dto/list-platform-audit-
 import { ListPlatformJobExecutionsDto } from './dto/list-platform-job-executions.dto';
 import { UpdatePlatformSettingDto } from './dto/update-platform-setting.dto';
 import { PlatformSettingsService } from './platform-settings.service';
-import { InvoiceExportQueryDto } from '../billing/dto/invoice-export-query.dto';
+import { ListPlatformInvoicesDto } from './dto/list-platform-invoices.dto';
+import { ConfirmPlatformBillingActionDto } from './dto/confirm-platform-billing-action.dto';
+import { CreatePlatformInvoiceRefundDto } from './dto/create-platform-invoice-refund.dto';
+import { CreatePlatformTenantDto } from './dto/create-platform-tenant.dto';
+import { UpdateFeatureModuleDto } from './dto/update-feature-module.dto';
+import { UpdateTenantFeatureFlagDto } from './dto/update-tenant-feature-flag.dto';
+import { TenantProvisioningService } from './tenant-provisioning.service';
 
 @ApiTags('super-admin')
 @ApiBearerAuth()
@@ -40,6 +46,7 @@ export class SuperAdminController {
   constructor(
     private readonly superAdminService: SuperAdminService,
     private readonly platformSettings: PlatformSettingsService,
+    private readonly tenantProvisioning: TenantProvisioningService,
   ) {}
 
   // ---- Tenants -----------------------------------------------------------
@@ -48,6 +55,18 @@ export class SuperAdminController {
   @Permissions(PERMISSIONS.SUPER_ADMIN_READ)
   listTenants(@Query() query: SuperAdminTenantQueryDto) {
     return this.superAdminService.listTenants(query);
+  }
+
+  @Post('tenants')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_MANAGE_TENANTS)
+  provisionTenant(
+    @CurrentUser() user: PlatformJwtUser,
+    @Body() dto: CreatePlatformTenantDto,
+  ) {
+    return this.tenantProvisioning.createTenant(
+      { platformIdentityId: user.platformIdentityId },
+      dto,
+    );
   }
 
   @Get('tenants/:tenantId')
@@ -118,20 +137,76 @@ export class SuperAdminController {
 
   @Post('plans')
   @Permissions(PERMISSIONS.SUPER_ADMIN_MANAGE_PLANS)
-  createPlan(@Body() dto: CreatePlanDto) {
-    return this.superAdminService.createPlan(dto);
+  createPlan(@CurrentUser() user: PlatformJwtUser, @Body() dto: CreatePlanDto) {
+    return this.superAdminService.createPlan(
+      { platformIdentityId: user.platformIdentityId },
+      dto,
+    );
   }
 
   @Put('plans/:id')
   @Permissions(PERMISSIONS.SUPER_ADMIN_MANAGE_PLANS)
-  updatePlan(@Param('id') id: string, @Body() dto: UpdatePlanDto) {
-    return this.superAdminService.updatePlan(id, dto);
+  updatePlan(
+    @CurrentUser() user: PlatformJwtUser,
+    @Param('id') id: string,
+    @Body() dto: UpdatePlanDto,
+  ) {
+    return this.superAdminService.updatePlan(
+      { platformIdentityId: user.platformIdentityId },
+      id,
+      dto,
+    );
   }
 
   @Delete('plans/:id')
   @Permissions(PERMISSIONS.SUPER_ADMIN_MANAGE_PLANS)
-  deletePlan(@Param('id') id: string) {
-    return this.superAdminService.deletePlan(id);
+  deletePlan(@CurrentUser() user: PlatformJwtUser, @Param('id') id: string) {
+    return this.superAdminService.deletePlan(
+      { platformIdentityId: user.platformIdentityId },
+      id,
+    );
+  }
+
+  @Get('feature-modules')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_READ)
+  listFeatureModules() {
+    return this.superAdminService.listFeatureModules();
+  }
+
+  @Put('feature-modules/:id')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_MANAGE_FEATURE_FLAGS)
+  updateFeatureModule(
+    @CurrentUser() user: PlatformJwtUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateFeatureModuleDto,
+  ) {
+    return this.superAdminService.updateFeatureModule(
+      { platformIdentityId: user.platformIdentityId },
+      id,
+      dto,
+    );
+  }
+
+  @Get('tenants/:tenantId/feature-flags')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_READ)
+  listTenantFeatureFlags(@Param('tenantId') tenantId: string) {
+    return this.superAdminService.listTenantFeatureFlags(tenantId);
+  }
+
+  @Put('tenants/:tenantId/feature-flags/:key')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_MANAGE_FEATURE_FLAGS)
+  updateTenantFeatureFlag(
+    @CurrentUser() user: PlatformJwtUser,
+    @Param('tenantId') tenantId: string,
+    @Param('key') key: string,
+    @Body() dto: UpdateTenantFeatureFlagDto,
+  ) {
+    return this.superAdminService.updateTenantFeatureFlag(
+      { platformIdentityId: user.platformIdentityId },
+      tenantId,
+      key,
+      dto.enabled,
+    );
   }
 
   // ---- Subscriptions & Billing ------------------------------------------
@@ -178,7 +253,7 @@ export class SuperAdminController {
   @Header('Content-Disposition', 'attachment; filename="platform-invoices.csv"')
   async exportInvoices(
     @CurrentUser() user: PlatformJwtUser,
-    @Query() query: InvoiceExportQueryDto,
+    @Query() query: ListPlatformInvoicesDto,
   ) {
     return new StreamableFile(
       await this.superAdminService.exportInvoices(
@@ -223,10 +298,89 @@ export class SuperAdminController {
     );
   }
 
+  @Post('billing/tenants/:tenantId/subscriptions/:subscriptionId/execute')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_MANAGE_BILLING)
+  executeTenantBilling(
+    @CurrentUser() user: PlatformJwtUser,
+    @Param('tenantId') tenantId: string,
+    @Param('subscriptionId') subscriptionId: string,
+    @Body() dto: ConfirmPlatformBillingActionDto,
+  ) {
+    void dto;
+    return this.superAdminService.executePlatformBilling(
+      { platformIdentityId: user.platformIdentityId },
+      tenantId,
+      subscriptionId,
+      'execute',
+    );
+  }
+
+  @Post('billing/tenants/:tenantId/subscriptions/:subscriptionId/renew')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_MANAGE_BILLING)
+  renewTenantSubscription(
+    @CurrentUser() user: PlatformJwtUser,
+    @Param('tenantId') tenantId: string,
+    @Param('subscriptionId') subscriptionId: string,
+    @Body() dto: ConfirmPlatformBillingActionDto,
+  ) {
+    void dto;
+    return this.superAdminService.executePlatformBilling(
+      { platformIdentityId: user.platformIdentityId },
+      tenantId,
+      subscriptionId,
+      'renew',
+    );
+  }
+
+  @Post('billing/tenants/:tenantId/invoices/:invoiceId/cancel')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_MANAGE_BILLING)
+  cancelTenantPendingInvoice(
+    @CurrentUser() user: PlatformJwtUser,
+    @Param('tenantId') tenantId: string,
+    @Param('invoiceId') invoiceId: string,
+    @Body() dto: ConfirmPlatformBillingActionDto,
+  ) {
+    void dto;
+    return this.superAdminService.cancelPlatformPendingInvoice(
+      { platformIdentityId: user.platformIdentityId },
+      tenantId,
+      invoiceId,
+    );
+  }
+
+  @Post('billing/tenants/:tenantId/invoices/:invoiceId/refunds')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_MANAGE_BILLING)
+  refundTenantInvoice(
+    @CurrentUser() user: PlatformJwtUser,
+    @Param('tenantId') tenantId: string,
+    @Param('invoiceId') invoiceId: string,
+    @Body() dto: CreatePlatformInvoiceRefundDto,
+  ) {
+    return this.superAdminService.refundPlatformInvoice(
+      { platformIdentityId: user.platformIdentityId },
+      tenantId,
+      invoiceId,
+      dto.amountCents,
+      dto.reason,
+    );
+  }
+
+  @Get('billing/tenants/:tenantId/invoices/:invoiceId/refunds')
+  @Permissions(PERMISSIONS.SUPER_ADMIN_READ)
+  getTenantInvoiceRefunds(
+    @Param('tenantId') tenantId: string,
+    @Param('invoiceId') invoiceId: string,
+  ) {
+    return this.superAdminService.getPlatformInvoiceRefunds(
+      tenantId,
+      invoiceId,
+    );
+  }
+
   @Get('invoices')
   @Permissions(PERMISSIONS.SUPER_ADMIN_READ)
-  listInvoices() {
-    return this.superAdminService.listInvoices();
+  listInvoices(@Query() query: ListPlatformInvoicesDto) {
+    return this.superAdminService.listInvoices(query);
   }
 
   @Get('invoices/:id')

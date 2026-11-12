@@ -17,6 +17,8 @@ describe('SuperAdminService', () => {
   const findAllPlansMock = jest.fn();
   const findPlanByIdMock = jest.fn();
   const findPlanByTypeMock = jest.fn();
+  const findFeatureModulesByIdsMock = jest.fn();
+  const findFeatureModulesByKeysMock = jest.fn();
   const createPlanMock = jest.fn();
   const updatePlanMock = jest.fn();
   const softDeletePlanMock = jest.fn();
@@ -38,6 +40,8 @@ describe('SuperAdminService', () => {
     findAllPlans: findAllPlansMock,
     findPlanById: findPlanByIdMock,
     findPlanByType: findPlanByTypeMock,
+    findFeatureModulesByIds: findFeatureModulesByIdsMock,
+    findFeatureModulesByKeys: findFeatureModulesByKeysMock,
     createPlan: createPlanMock,
     updatePlan: updatePlanMock,
     softDeletePlan: softDeletePlanMock,
@@ -81,6 +85,11 @@ describe('SuperAdminService', () => {
 
   const txClient = {
     tenant: { update: tenantUpdateMock, updateMany: tenantUpdateManyMock },
+    plan: { create: createPlanMock, update: updatePlanMock },
+    planFeatureModule: {
+      deleteMany: jest.fn(),
+      createMany: jest.fn(),
+    },
     subscription: {
       update: subscriptionUpdateMock,
       updateMany: subscriptionUpdateManyMock,
@@ -96,6 +105,8 @@ describe('SuperAdminService', () => {
     jest.clearAllMocks();
     tenantUpdateManyMock.mockResolvedValue({ count: 1 });
     subscriptionUpdateManyMock.mockResolvedValue({ count: 1 });
+    findFeatureModulesByIdsMock.mockResolvedValue([]);
+    findFeatureModulesByKeysMock.mockResolvedValue([]);
     transactionMock.mockImplementation(async (callback) => callback(txClient));
     txClient.subscription.update = subscriptionUpdateMock;
     txClient.platformAuditLog.create = platformAuditCreateMock;
@@ -310,8 +321,13 @@ describe('SuperAdminService', () => {
   });
 
   describe('createPlan', () => {
-    it('should create when type not taken', async () => {
+    it('assigns the recommended tier modules when moduleIds are omitted', async () => {
       findPlanByTypeMock.mockResolvedValue(null);
+      findFeatureModulesByKeysMock.mockResolvedValue([
+        { id: 'module-inventory', key: 'INVENTORY' },
+        { id: 'module-procurement', key: 'PROCUREMENT' },
+        { id: 'module-analytics', key: 'ANALYTICS' },
+      ]);
       createPlanMock.mockResolvedValue({
         id: 'plan-1',
         type: 'BUSINESS',
@@ -319,13 +335,35 @@ describe('SuperAdminService', () => {
         priceCents: 49900,
       });
 
-      const result = await service.createPlan({
+      const result = await service.createPlan(actor, {
         type: 'BUSINESS',
         name: 'Business',
         priceCents: 49900,
       });
 
-      expect(createPlanMock).toHaveBeenCalled();
+      expect(findFeatureModulesByKeysMock).toHaveBeenCalledWith([
+        'INVENTORY',
+        'PROCUREMENT',
+        'ANALYTICS',
+      ]);
+      expect(createPlanMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          moduleIds: [
+            'module-inventory',
+            'module-procurement',
+            'module-analytics',
+          ],
+        }),
+        txClient,
+      );
+      expect(transactionMock).toHaveBeenCalledTimes(1);
+      expect(platformAuditCreateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'super-admin.plan.created',
+          resourceId: 'plan-1',
+        }),
+        txClient,
+      );
       expect(result).toMatchObject({ id: 'plan-1' });
     });
   });
@@ -470,12 +508,24 @@ describe('SuperAdminService', () => {
     };
 
     it('returns an explicit safe platform invoice shape', async () => {
-      findAllInvoicesMock.mockResolvedValue([invoice]);
+      findAllInvoicesMock.mockResolvedValue({
+        data: [invoice],
+        pagination: { page: 1, limit: 25, total: 1, totalPages: 1 },
+      });
 
-      const result = await service.listInvoices();
+      const result = await service.listInvoices({
+        page: 1,
+        limit: 25,
+      });
 
-      expect(result).toHaveLength(1);
-      expect(result[0]).toMatchObject({
+      expect(result.pagination).toEqual({
+        page: 1,
+        limit: 25,
+        total: 1,
+        totalPages: 1,
+      });
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0]).toMatchObject({
         id: 'invoice-1',
         tenantId: 'tenant-1',
         subscriptionId: 'sub-1',

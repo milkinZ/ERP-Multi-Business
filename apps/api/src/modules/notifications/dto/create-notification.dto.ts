@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsInt, IsEnum, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { NotificationType } from '../notification.types';
 
@@ -25,11 +25,15 @@ export class CreateNotificationDto {
 export class ListNotificationsDto {
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsInt()
+  @Min(1)
+  @Max(100)
   page?: number = 1;
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsInt()
+  @Min(1)
+  @Max(100)
   limit?: number = 20;
 }

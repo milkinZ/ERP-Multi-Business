@@ -11,7 +11,8 @@ export class ApiError extends Error {
   }
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:9867";
+export const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:9867";
 
 let refreshPromise: Promise<boolean> | null = null;
 let platformRefreshPromise: Promise<boolean> | null = null;

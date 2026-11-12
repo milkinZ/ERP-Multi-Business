@@ -48,6 +48,8 @@ describe('SupplierRepository list contract', () => {
     expect(findManyArgs?.where?.OR).toEqual(
       expect.arrayContaining([
         { name: { contains: 'acme', mode: 'insensitive' } },
+        { contactPerson: { contains: 'acme', mode: 'insensitive' } },
+        { taxNumber: { contains: 'acme', mode: 'insensitive' } },
       ]),
     );
     expect(countArgs?.where).toEqual(findManyArgs?.where);
@@ -83,6 +85,7 @@ describe('SupplierRepository list contract', () => {
             deleteMany: supplierDeleteMany,
           },
           purchaseOrder: { findFirst: purchaseOrderFindFirst },
+          supplierItemOffer: { findFirst: jest.fn().mockResolvedValue(null) },
         }),
       ),
     );
@@ -121,6 +124,7 @@ describe('SupplierRepository list contract', () => {
           purchaseOrder: {
             findFirst: jest.fn().mockResolvedValue(null),
           },
+          supplierItemOffer: { findFirst: jest.fn().mockResolvedValue(null) },
         }),
       ),
     );

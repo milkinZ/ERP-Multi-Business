@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { OperationalTelemetryQueryDto } from './dto/operational-telemetry-query.dto';
 import { OperationalTelemetryService } from './operational-telemetry.service';
+import { PlatformSchedulerExecutionService } from '../../scheduler/platform-scheduler-execution.service';
 
 type MetricUpsertCall = {
   create: {
@@ -34,6 +35,12 @@ describe('OperationalTelemetryService', () => {
   const eventFindMany = jest.fn();
   const eventDeleteMany = jest.fn();
   const transaction = jest.fn();
+  const executeSchedulerRun = jest.fn(
+    async (_name: string, operation: () => Promise<unknown>) => operation(),
+  );
+  const schedulerExecutions = {
+    execute: executeSchedulerRun,
+  } as unknown as PlatformSchedulerExecutionService;
   const prisma = {
     $transaction: transaction,
     operationalMetricBucket: {
@@ -60,7 +67,7 @@ describe('OperationalTelemetryService', () => {
     transaction.mockImplementation((operations: Promise<unknown>[]) =>
       Promise.all(operations),
     );
-    service = new OperationalTelemetryService(prisma);
+    service = new OperationalTelemetryService(prisma, schedulerExecutions);
   });
 
   it('persists aggregated requests and sanitized error summaries', async () => {
@@ -146,8 +153,12 @@ describe('OperationalTelemetryService', () => {
       new Error('database connection details'),
     );
 
-    await service.flush();
-    await service.flush();
+    await expect(service.flush()).rejects.toThrow(
+      'Operational telemetry flush failed',
+    );
+    await expect(service.flush()).rejects.toThrow(
+      'Operational telemetry flush failed',
+    );
 
     expect(metricUpsert).toHaveBeenCalledTimes(2);
     expect(eventCreateMany).toHaveBeenCalledTimes(2);

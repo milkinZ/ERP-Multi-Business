@@ -3,11 +3,15 @@
 import React, { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import type { InventoryItem } from "@/features/erp/inventory/api/queries";
 import type { Supplier } from "@/features/erp/suppliers/api/queries";
+import {
+  getAllSupplierOffers,
+  supplierKeys,
+} from "@/features/erp/suppliers/api/queries";
 import type { Warehouse } from "@/features/erp/warehouses/api/queries";
 import {
   createPurchaseOrder,
@@ -18,9 +22,11 @@ import {
 import { PurchaseOrderItemsEditor } from "@/features/erp/purchase-orders/components/purchase-order-items-editor";
 import {
   purchaseOrderSchema,
+  type PurchaseOrderFormInput,
   type PurchaseOrderFormValues,
 } from "@/features/erp/purchase-orders/schemas/purchase-order.schema";
 import { useAuthStore } from "@/stores/auth.store";
+import { hasPermission } from "@/lib/permissions";
 
 export function PurchaseOrderForm({
   purchaseOrder,
@@ -36,7 +42,9 @@ export function PurchaseOrderForm({
   onSaved: (id: string) => void;
 }) {
   const token = useAuthStore((state) => state.accessToken);
-  const tenantId = useAuthStore((state) => state.session?.tenantId);
+  const session = useAuthStore((state) => state.session);
+  const tenantId = session?.tenantId;
+  const canReadSupplier = hasPermission(session, "supplier.read");
   const queryClient = useQueryClient();
   const [serverError, setServerError] = useState<string | null>(null);
   const isEditing = Boolean(purchaseOrder);
@@ -52,8 +60,10 @@ export function PurchaseOrderForm({
     register,
     control,
     handleSubmit,
+    setValue,
+    watch,
     formState: { errors },
-  } = useForm<PurchaseOrderFormValues>({
+  } = useForm<PurchaseOrderFormInput, unknown, PurchaseOrderFormValues>({
     resolver: zodResolver(purchaseOrderSchema),
     defaultValues: {
       supplierId: purchaseOrder?.supplierId ?? "",
@@ -68,6 +78,23 @@ export function PurchaseOrderForm({
       })) ?? [{ inventoryItemId: "", quantity: 1, unitPrice: 0 }],
     },
   });
+  const selectedSupplierId = watch("supplierId");
+  const offersQuery = useQuery({
+    queryKey:
+      tenantId && selectedSupplierId
+        ? supplierKeys.offers(tenantId, selectedSupplierId, 0)
+        : ["suppliers", "offers", "not-selected"],
+    queryFn: () =>
+      getAllSupplierOffers(
+        token as string,
+        selectedSupplierId,
+        new Date().toISOString(),
+      ),
+    enabled: Boolean(
+      token && tenantId && selectedSupplierId && canReadSupplier,
+    ),
+    staleTime: 30_000,
+  });
   const mutation = useMutation({
     mutationFn: (values: PurchaseOrderFormValues) => {
       if (!token) throw new Error("Authentication required");
@@ -76,7 +103,12 @@ export function PurchaseOrderForm({
         warehouseId: values.warehouseId || undefined,
         expectedDeliveryDate: values.expectedDeliveryDate || undefined,
         notes: values.notes || undefined,
-        items: values.items,
+        items: values.items.map((item) => {
+          const unit = inventoryItems.find(
+            (inventoryItem) => inventoryItem.id === item.inventoryItemId,
+          )?.unit;
+          return { ...item, ...(unit ? { unit } : {}) };
+        }),
       };
       return purchaseOrder
         ? updatePurchaseOrder(token, purchaseOrder.id, input)
@@ -184,6 +216,9 @@ export function PurchaseOrderForm({
             register={register}
             errors={errors}
             inventoryItems={inventoryItems}
+            supplierOffers={offersQuery.data ?? []}
+            setValue={setValue}
+            watch={watch}
           />
         </div>
       </div>

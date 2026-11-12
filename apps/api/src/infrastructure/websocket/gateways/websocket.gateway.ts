@@ -22,7 +22,7 @@ import { WebsocketJwtGuard } from '../guards/websocket-jwt.guard';
     origin: '*',
     credentials: true,
   },
-  transports: ['websocket'],
+  transports: ['websocket', 'polling'],
   serveClient: false,
 })
 @UseGuards(WebsocketJwtGuard)
@@ -98,6 +98,11 @@ export class WebsocketGateway
     await this.websocketService.joinTenantRoom(client, ctx.tenantId);
     await this.websocketService.joinOutletRoom(client, ctx.outletId);
     await this.websocketService.joinUserRoom(client, ctx.userId);
+    await this.websocketService.joinKitchenRoom(
+      client,
+      ctx.tenantId,
+      ctx.outletId,
+    );
 
     client.once('disconnect', () => {
       this.websocketService.leaveAllRooms(client).catch(() => undefined);

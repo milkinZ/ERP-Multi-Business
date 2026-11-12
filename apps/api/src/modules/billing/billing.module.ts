@@ -8,6 +8,8 @@ import { PrismaModule } from '../../core/database/prisma.module';
 import { OutboxModule } from '../../infrastructure/events/outbox.module';
 import { WebhookController } from './webhook/webhook.controller';
 import { XenditPaymentGateway } from './gateway/xendit-payment.gateway';
+import { AutopayService } from './autopay.service';
+import { AutopayTokenCryptoService } from './autopay-token-crypto.service';
 
 @Module({
   imports: [
@@ -17,7 +19,18 @@ import { XenditPaymentGateway } from './gateway/xendit-payment.gateway';
     OutboxModule,
   ],
   controllers: [BillingController, WebhookController],
-  providers: [BillingService, BillingRepository, XenditPaymentGateway],
-  exports: [BillingService, BillingRepository, XenditPaymentGateway],
+  providers: [
+    BillingService,
+    BillingRepository,
+    XenditPaymentGateway,
+    AutopayService,
+    AutopayTokenCryptoService,
+  ],
+  exports: [
+    BillingService,
+    BillingRepository,
+    XenditPaymentGateway,
+    AutopayService,
+  ],
 })
 export class BillingModule {}

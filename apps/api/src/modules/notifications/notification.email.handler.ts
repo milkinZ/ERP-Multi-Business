@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Queue } from 'bullmq';
+import { createHash } from 'node:crypto';
 
 import { QueueService } from '../../infrastructure/queue/queue.service';
 import { QUEUE_NAMES } from '../../infrastructure/queue/queue.constants';
@@ -26,10 +27,26 @@ export class EmailNotificationChannelHandler implements NotificationChannelHandl
         QUEUE_NAMES.NOTIFICATION_QUEUE,
       );
 
-      await queue.add('notification.dispatch', job, {
-        removeOnComplete: 1000,
-        removeOnFail: 5000,
-      });
+      const jobId = createHash('sha256')
+        .update(
+          `${job.tenantId}:${job.recipientId}:${job.notification.sourceEventId}:EMAIL`,
+        )
+        .digest('hex');
+      await queue.add(
+        'notification.dispatch',
+        {
+          ...job,
+          notification: {
+            ...job.notification,
+            channels: [NotificationChannel.EMAIL],
+          },
+        },
+        {
+          jobId,
+          removeOnComplete: 1000,
+          removeOnFail: 5000,
+        },
+      );
     } catch (error) {
       this.logger.error(
         'Failed to enqueue email notification dispatch job',

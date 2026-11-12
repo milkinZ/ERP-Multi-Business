@@ -40,7 +40,13 @@ export const envSchema = z
     // Xendit payment provider boundary (optional until the provider is configured)
     XENDIT_API_KEY: z.string().optional(),
     XENDIT_API_BASE_URL: z.string().url().optional(),
+    XENDIT_RETURN_BASE_URL: z.string().url().optional(),
     XENDIT_WEBHOOK_TOKEN: z.string().optional(),
+    XENDIT_TOKEN_ENCRYPTION_KEYS: z.string().optional(),
+    XENDIT_TOKEN_ENCRYPTION_ACTIVE_KEY_VERSION: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{1,32}$/)
+      .optional(),
 
     // Observability (optional, non-blocking)
     METRICS_ENABLED: z.enum(['true', 'false']).default('true'),
@@ -67,6 +73,68 @@ export const envSchema = z
     LOG_PATH: z.string().optional(),
   })
   .superRefine((env, context) => {
+    if (
+      Boolean(env.XENDIT_TOKEN_ENCRYPTION_KEYS) !==
+      Boolean(env.XENDIT_TOKEN_ENCRYPTION_ACTIVE_KEY_VERSION)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'XENDIT_TOKEN_ENCRYPTION_KEYS and XENDIT_TOKEN_ENCRYPTION_ACTIVE_KEY_VERSION must be configured together.',
+        path: ['XENDIT_TOKEN_ENCRYPTION_KEYS'],
+      });
+    }
+
+    if (env.XENDIT_TOKEN_ENCRYPTION_KEYS) {
+      let keyRing: unknown;
+      try {
+        keyRing = JSON.parse(env.XENDIT_TOKEN_ENCRYPTION_KEYS);
+      } catch {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'XENDIT_TOKEN_ENCRYPTION_KEYS must be a JSON key map.',
+          path: ['XENDIT_TOKEN_ENCRYPTION_KEYS'],
+        });
+      }
+
+      if (keyRing && typeof keyRing === 'object' && !Array.isArray(keyRing)) {
+        const entries = Object.entries(keyRing);
+        const activeVersion = env.XENDIT_TOKEN_ENCRYPTION_ACTIVE_KEY_VERSION;
+        if (
+          entries.length === 0 ||
+          !activeVersion ||
+          !Object.hasOwn(keyRing, activeVersion) ||
+          entries.some(([version, encoded]) => {
+            if (
+              !/^[A-Za-z0-9_-]{1,32}$/.test(version) ||
+              typeof encoded !== 'string'
+            ) {
+              return true;
+            }
+            const decoded = Buffer.from(encoded, 'base64');
+            return (
+              decoded.length !== 32 ||
+              decoded.toString('base64').replace(/=+$/, '') !==
+                encoded.replace(/=+$/, '')
+            );
+          })
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              'XENDIT_TOKEN_ENCRYPTION_KEYS must map key versions to 32-byte base64 keys and include the active version.',
+            path: ['XENDIT_TOKEN_ENCRYPTION_KEYS'],
+          });
+        }
+      } else {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'XENDIT_TOKEN_ENCRYPTION_KEYS must be a JSON key map.',
+          path: ['XENDIT_TOKEN_ENCRYPTION_KEYS'],
+        });
+      }
+    }
+
     if (env.NODE_ENV === 'production') {
       for (const key of ['SMTP_HOST', 'SMTP_PORT', 'EMAIL_FROM'] as const) {
         if (!env[key]) {

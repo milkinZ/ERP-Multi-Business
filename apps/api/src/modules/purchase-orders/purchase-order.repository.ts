@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 import { BaseRepository } from '../../core/database/repositories/base.repository';
 import { PrismaService } from '../../core/database/prisma.service';
 import {
@@ -22,13 +26,14 @@ export class PurchaseOrderRepository extends BaseRepository {
     notes?: string | null;
     items: {
       inventoryItemId: string;
+      unit?: string | null;
       quantity: number;
       unitPrice: number;
     }[];
   }) {
     const items = data.items.map((item) => ({
       ...item,
-      subtotal: item.quantity * item.unitPrice,
+      subtotal: Math.round(item.quantity * item.unitPrice),
     }));
 
     const totalAmount = items.reduce((sum, item) => sum + item.subtotal, 0);
@@ -54,6 +59,33 @@ export class PurchaseOrderRepository extends BaseRepository {
     });
 
     const persisted = await this.prisma.$transaction(async (tx) => {
+      const itemUnits = await tx.$queryRaw<
+        Array<{ id: string; unit: string | null }>
+      >`
+        SELECT "id", "unit"
+        FROM "InventoryItem"
+        WHERE "tenantId" = ${aggregate.tenantId}
+          AND "id" IN (${Prisma.join(
+            aggregate.items.map((item) => item.inventoryItemId),
+          )})
+        ORDER BY "id"
+        FOR UPDATE
+      `;
+      if (itemUnits.length !== aggregate.items.length) {
+        throw new BadRequestException('Some inventory items not found');
+      }
+      for (const item of aggregate.items) {
+        const current = itemUnits.find(
+          (inventoryItem) => inventoryItem.id === item.inventoryItemId,
+        );
+        if (item.unit !== undefined && item.unit !== current?.unit) {
+          throw new ConflictException(
+            'Inventory item unit changed; reload the Purchase Order form',
+          );
+        }
+        item.unit = current?.unit ?? null;
+      }
+
       const tenants = await tx.$queryRaw<
         Array<{ currencyCode: string | null }>
       >`
@@ -84,6 +116,7 @@ export class PurchaseOrderRepository extends BaseRepository {
           PurchaseOrderItem: {
             create: aggregate.items.map((item) => ({
               inventoryItemId: item.inventoryItemId,
+              unit: item.unit,
               quantity: item.quantity,
               unitPrice: item.unitPrice,
               subtotal: item.subtotal,
@@ -280,6 +313,35 @@ export class PurchaseOrderRepository extends BaseRepository {
     data: Partial<PurchaseOrderProps>,
   ) {
     return this.prisma.$transaction(async (tx) => {
+      if (data.items) {
+        const itemUnits = await tx.$queryRaw<
+          Array<{ id: string; unit: string | null }>
+        >`
+          SELECT "id", "unit"
+          FROM "InventoryItem"
+          WHERE "tenantId" = ${tenantId}
+            AND "id" IN (${Prisma.join(
+              data.items.map((item) => item.inventoryItemId),
+            )})
+          ORDER BY "id"
+          FOR UPDATE
+        `;
+        if (itemUnits.length !== data.items.length) {
+          throw new BadRequestException('Some inventory items not found');
+        }
+        for (const item of data.items) {
+          const current = itemUnits.find(
+            (inventoryItem) => inventoryItem.id === item.inventoryItemId,
+          );
+          if (item.unit !== undefined && item.unit !== current?.unit) {
+            throw new ConflictException(
+              'Inventory item unit changed; reload the Purchase Order form',
+            );
+          }
+          item.unit = current?.unit ?? null;
+        }
+      }
+
       const updated = await tx.purchaseOrder.updateMany({
         where: { id, tenantId },
         data: {
@@ -309,6 +371,7 @@ export class PurchaseOrderRepository extends BaseRepository {
           data: data.items.map((item) => ({
             purchaseOrderId: id,
             inventoryItemId: item.inventoryItemId,
+            unit: item.unit,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             subtotal: item.subtotal,

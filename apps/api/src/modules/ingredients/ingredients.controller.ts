@@ -24,11 +24,52 @@ import { ListIngredientsQueryDto } from './dto/list-ingredients-query.dto';
 import { PermissionGuard } from '../rbac/permission.guard';
 import { PERMISSIONS } from '../rbac/permissions';
 import { UpdateIngredientDto } from './dto/update-ingredient.dto';
+import { CreateUnitConversionDto } from './dto/create-unit-conversion.dto';
+import { ConvertIngredientUnitDto } from './dto/convert-ingredient-unit.dto';
+import { UsePipes, ValidationPipe } from '@nestjs/common';
+import { FeatureModuleGuard } from '../feature-flags/feature-module.guard';
+import { RequireFeatureModule } from '../subscription/plans/feature-module.decorator';
 
-@UseGuards(JwtAuthGuard, PermissionGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard, FeatureModuleGuard)
+@UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 @Controller('ingredients')
+@RequireFeatureModule('INVENTORY')
 export class IngredientsController {
   constructor(private ingredientsService: IngredientsService) {}
+
+  @Get('unit-conversions')
+  @Permissions(PERMISSIONS.INGREDIENT_READ)
+  listUnitConversions(@CurrentUser() user: JwtUser) {
+    return this.ingredientsService.listUnitConversions(user.tenantId);
+  }
+
+  @Post('unit-conversions')
+  @Permissions(PERMISSIONS.INGREDIENT_UPDATE, PERMISSIONS.INVENTORY_ADJUST)
+  createUnitConversion(
+    @Body() dto: CreateUnitConversionDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.ingredientsService.createUnitConversion(
+      user.tenantId,
+      user.userId,
+      dto,
+    );
+  }
+
+  @Post(':id/convert-unit')
+  @Permissions(PERMISSIONS.INGREDIENT_UPDATE, PERMISSIONS.INVENTORY_ADJUST)
+  convertUnit(
+    @Param('id') id: string,
+    @Body() dto: ConvertIngredientUnitDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.ingredientsService.convertUnit(
+      id,
+      user.tenantId,
+      user.userId,
+      dto,
+    );
+  }
 
   @Post()
   @Permissions(PERMISSIONS.INGREDIENT_CREATE)

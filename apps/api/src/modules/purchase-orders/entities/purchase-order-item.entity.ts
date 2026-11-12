@@ -1,9 +1,8 @@
-import { PurchaseOrderItem as PrismaPurchaseOrderItem } from '@prisma/client';
-
-export class PurchaseOrderItem implements PrismaPurchaseOrderItem {
+export class PurchaseOrderItem {
   id: string;
   purchaseOrderId: string;
   inventoryItemId: string;
+  unit: string | null;
   quantity: number;
   unitPrice: number;
   subtotal: number;

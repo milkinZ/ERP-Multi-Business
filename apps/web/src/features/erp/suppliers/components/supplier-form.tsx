@@ -43,6 +43,8 @@ export function SupplierForm({
       phone: supplier?.phone ?? "",
       email: supplier?.email ?? "",
       address: supplier?.address ?? "",
+      contactPerson: supplier?.contactPerson ?? "",
+      taxNumber: supplier?.taxNumber ?? "",
       isActive: supplier?.isActive ?? true,
     },
   });
@@ -52,9 +54,11 @@ export function SupplierForm({
       if (!token) throw new Error("Authentication required");
       const input: SupplierInput = {
         name: values.name,
-        phone: values.phone || undefined,
-        email: values.email || undefined,
-        address: values.address || undefined,
+        phone: values.phone,
+        email: values.email,
+        address: values.address,
+        contactPerson: values.contactPerson,
+        taxNumber: values.taxNumber,
       };
       if (!supplier) return createSupplier(token, input);
       return updateSupplier(token, supplier.id, {
@@ -142,6 +146,34 @@ export function SupplierForm({
           {errors.email ? (
             <span className="mt-1 block text-xs text-destructive">
               {errors.email.message}
+            </span>
+          ) : null}
+        </label>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block text-sm font-medium text-foreground">
+          Contact person
+          <input
+            {...register("contactPerson")}
+            maxLength={200}
+            className="mt-2 h-11 w-full rounded-xl border border-border bg-card px-3 outline-none focus:border-primary focus:ring-2 focus:ring-ring"
+          />
+          {errors.contactPerson ? (
+            <span className="mt-1 block text-xs text-destructive">
+              {errors.contactPerson.message}
+            </span>
+          ) : null}
+        </label>
+        <label className="block text-sm font-medium text-foreground">
+          Tax number
+          <input
+            {...register("taxNumber")}
+            maxLength={100}
+            className="mt-2 h-11 w-full rounded-xl border border-border bg-card px-3 outline-none focus:border-primary focus:ring-2 focus:ring-ring"
+          />
+          {errors.taxNumber ? (
+            <span className="mt-1 block text-xs text-destructive">
+              {errors.taxNumber.message}
             </span>
           ) : null}
         </label>

@@ -16,6 +16,7 @@ import {
   ingredientKeys,
 } from "@/features/erp/ingredients/api/queries";
 import { IngredientEditForm } from "@/features/erp/ingredients/components/ingredient-edit-form";
+import { IngredientUnitConversion } from "@/features/erp/ingredients/components/ingredient-unit-conversion";
 import {
   getInventoryHistoryForItem,
   getInventoryStockBalances,
@@ -35,6 +36,7 @@ export default function IngredientDetailPage() {
   const tenantId = session?.tenantId;
   const canRead = hasPermission(session, "ingredient.read");
   const canUpdate = hasPermission(session, "ingredient.update");
+  const canAdjustInventory = hasPermission(session, "inventory.adjust");
   const canDelete = hasPermission(session, "ingredient.delete");
   const canReadInventory = hasPermission(session, "inventory.read");
   const canReadRecipes = hasPermission(session, "recipe.read");
@@ -182,6 +184,11 @@ export default function IngredientDetailPage() {
           </div>
         </div>
       </section>
+      <IngredientUnitConversion
+        ingredientId={ingredient.id}
+        currentUnit={ingredient.unit}
+        canManage={canUpdate && canAdjustInventory}
+      />
       <section className="mt-6 rounded-[22px] border border-[var(--border)] bg-[var(--panel)] p-5">
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">

@@ -203,7 +203,7 @@ export function SupplierWorkspace() {
               setPage(1);
             }}
             maxLength={100}
-            placeholder="Name, email, phone, or address"
+            placeholder="Name, contact, tax number, email, phone, or address"
             className="mt-2 h-10 w-full rounded-xl border border-border bg-background px-3 font-normal"
           />
         </label>
@@ -378,6 +378,18 @@ export function SupplierWorkspace() {
                       Email:{" "}
                     </dt>
                     <dd className="inline">{supplier.email ?? "-"}</dd>
+                  </div>
+                  <div>
+                    <dt className="inline font-medium text-foreground">
+                      Contact:{" "}
+                    </dt>
+                    <dd className="inline">{supplier.contactPerson ?? "-"}</dd>
+                  </div>
+                  <div>
+                    <dt className="inline font-medium text-foreground">
+                      Tax number:{" "}
+                    </dt>
+                    <dd className="inline">{supplier.taxNumber ?? "-"}</dd>
                   </div>
                   <div>
                     <dt className="inline font-medium text-foreground">

@@ -1,29 +1,51 @@
-import { GoneException } from '@nestjs/common';
-
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { UsersInvitationsService } from '../users/users-invitations.service';
+import { TenantRegistrationService } from './tenant-registration.service';
 
 describe('AuthController', () => {
   const login = jest.fn();
   const logout = jest.fn();
   const refresh = jest.fn();
   const accept = jest.fn();
+  const registerTenant = jest.fn();
+  const listPlans = jest.fn();
   const service = { login, logout, refresh } as unknown as AuthService;
   const invitations = { accept } as unknown as UsersInvitationsService;
+  const registration = {
+    register: registerTenant,
+    listPlans,
+  } as unknown as TenantRegistrationService;
   let controller: AuthController;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    controller = new AuthController(service, invitations);
+    controller = new AuthController(service, invitations, registration);
   });
 
-  it('disables public registration in favor of invitations', () => {
-    expect(() => controller.register()).toThrow(
-      new GoneException(
-        'Public registration is disabled; use a tenant invitation link',
-      ),
+  it('returns plans that can be selected for public tenant registration', async () => {
+    const result = [{ id: 'plan-free', type: 'FREE' }];
+    listPlans.mockResolvedValue(result);
+
+    await expect(controller.listTenantRegistrationPlans()).resolves.toBe(
+      result,
     );
+    expect(listPlans).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts public tenant registration with the submitted details', async () => {
+    const input = {
+      name: 'Cafe Example',
+      email: 'owner@example.test',
+      planId: 'plan-free',
+      businessType: 'CAFE',
+      currencyCode: 'IDR',
+    } as const;
+    const result = { message: 'check your email' };
+    registerTenant.mockResolvedValue(result);
+
+    await expect(controller.registerTenant(input)).resolves.toBe(result);
+    expect(registerTenant).toHaveBeenCalledWith(input);
   });
 
   it('accepts a user invitation with the token and password', async () => {

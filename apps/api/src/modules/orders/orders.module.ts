@@ -6,9 +6,15 @@ import { DomainEventsModule } from '../../core/events/domain-events.module';
 import { OrderOrchestratorService } from './order-orchestrator.service';
 import { InventoryModule } from '../inventory/inventory.module';
 import { FulfillmentModule } from '../fulfillment/fulfillment.module';
+import { SubscriptionModule } from '../subscription/subscription.module';
 
 @Module({
-  imports: [DomainEventsModule, InventoryModule, FulfillmentModule],
+  imports: [
+    DomainEventsModule,
+    InventoryModule,
+    FulfillmentModule,
+    SubscriptionModule,
+  ],
   controllers: [OrdersController],
   providers: [OrdersService, OrdersRepository, OrderOrchestratorService],
   exports: [OrdersRepository],

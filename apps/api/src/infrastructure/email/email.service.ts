@@ -34,4 +34,23 @@ export class EmailService {
       ].join('\n'),
     });
   }
+
+  async sendTenantOwnerVerification(
+    email: string,
+    setupUrl: string,
+  ): Promise<void> {
+    await this.transporter.sendMail({
+      from: this.from,
+      to: email,
+      subject: 'Verify your ERP Multi-Business registration',
+      text: [
+        'Complete your ERP Multi-Business workspace registration.',
+        '',
+        'Use the one-time link below to verify your email address and set your password:',
+        setupUrl,
+        '',
+        'This link expires in seven days. If you did not request this registration, you can ignore this message.',
+      ].join('\n'),
+    });
+  }
 }

@@ -14,6 +14,7 @@ export type PurchaseOrderItem = {
   id: string;
   purchaseOrderId: string;
   inventoryItemId: string;
+  unit?: string | null;
   quantity: number;
   unitPrice: number;
   subtotal: number;
@@ -63,6 +64,7 @@ export type PurchaseOrder = {
 
 export type PurchaseOrderItemInput = {
   inventoryItemId: string;
+  unit?: string;
   quantity: number;
   unitPrice: number;
 };
@@ -107,6 +109,64 @@ export type PurchaseOrderReceipt = {
 };
 export type PurchaseOrderReceiptPage = {
   data: PurchaseOrderReceipt[];
+  pagination: { total: number; skip: number; take: number; pages: number };
+};
+export type PurchaseOrderReturn = {
+  id: string;
+  purchaseOrderId: string;
+  createdById: string | null;
+  note: string | null;
+  creditAmount: number | string;
+  currencyCode: string | null;
+  createdAt: string;
+  User?: { id: string; email: string } | null;
+  Items: Array<{
+    id: string;
+    purchaseOrderItemId: string;
+    receiptItemId: string | null;
+    inventoryItemId: string;
+    quantity: number;
+    unit: string | null;
+    unitPrice: number | string;
+    creditAmount: number | string;
+    invoicedQuantity: number | string;
+    invoicedCreditAmount: number | string;
+    inventoryCost: number | string | null;
+    ReceiptItem?: { id: string; receiptId: string } | null;
+    InventoryItem?: {
+      id: string;
+      code: string;
+      name: string;
+      unit: string | null;
+    };
+  }>;
+};
+export type PurchaseOrderReturnPage = {
+  data: PurchaseOrderReturn[];
+  pagination: { total: number; skip: number; take: number; pages: number };
+  returnedQuantityByReceiptItem: Record<string, number>;
+};
+export type PurchaseOrderReturnableReceiptItem = {
+  id: string;
+  receiptId: string;
+  receivedQuantity: number;
+  returnedQuantity: number;
+  returnableQuantity: number;
+  unit: string | null;
+  Receipt: { id: string; createdAt: string; note: string | null };
+  PurchaseOrderItem: {
+    id: string;
+    unitPrice: number | string;
+  };
+  InventoryItem: {
+    id: string;
+    code: string;
+    name: string;
+    unit: string | null;
+  };
+};
+export type PurchaseOrderReturnableReceiptItemPage = {
+  data: PurchaseOrderReturnableReceiptItem[];
   pagination: { total: number; skip: number; take: number; pages: number };
 };
 export type PurchasePriceVariance = {
@@ -157,6 +217,10 @@ export type ReceivePurchaseOrderInput = {
   items: Array<{ purchaseOrderItemId: string; receivedQuantity: number }>;
   note?: string;
 };
+export type ReturnPurchaseOrderInput = {
+  items: Array<{ purchaseOrderReceiptItemId: string; quantity: number }>;
+  note?: string;
+};
 
 type PurchaseOrderAggregateResponse = { props: PurchaseOrder };
 
@@ -196,6 +260,31 @@ export const purchaseOrderKeys = {
           tenantId,
           id,
           "receipts",
+          { skip: skip ?? 0, take: take ?? 10 },
+        ] as const),
+  returns: (tenantId: string, id: string, skip?: number, take?: number) =>
+    skip === undefined && take === undefined
+      ? (["purchase-orders", tenantId, id, "returns"] as const)
+      : ([
+          "purchase-orders",
+          tenantId,
+          id,
+          "returns",
+          { skip: skip ?? 0, take: take ?? 10 },
+        ] as const),
+  returnableReceiptItems: (
+    tenantId: string,
+    id: string,
+    skip?: number,
+    take?: number,
+  ) =>
+    skip === undefined && take === undefined
+      ? (["purchase-orders", tenantId, id, "returnable-receipt-items"] as const)
+      : ([
+          "purchase-orders",
+          tenantId,
+          id,
+          "returnable-receipt-items",
           { skip: skip ?? 0, take: take ?? 10 },
         ] as const),
   priceVariances: (
@@ -339,6 +428,61 @@ export function getPurchaseOrderReceipts(
   return apiRequest<PurchaseOrderReceiptPage>(
     `/purchase-orders/${encodeURIComponent(id)}/receipts?${params}`,
     { headers: headers(accessToken) },
+  );
+}
+
+export function returnPurchaseOrder(
+  accessToken: string,
+  id: string,
+  idempotencyKey: string,
+  input: ReturnPurchaseOrderInput,
+) {
+  return apiRequest<PurchaseOrderReturn>(
+    `/purchase-orders/${encodeURIComponent(id)}/returns`,
+    {
+      method: "POST",
+      headers: { ...headers(accessToken), "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function getPurchaseOrderReturns(
+  accessToken: string,
+  id: string,
+  skip = 0,
+  take = 10,
+) {
+  const params = new URLSearchParams({
+    skip: String(skip),
+    take: String(take),
+  });
+  return apiRequest<PurchaseOrderReturnPage>(
+    `/purchase-orders/${encodeURIComponent(id)}/returns?${params}`,
+    { headers: headers(accessToken) },
+  );
+}
+
+export function getPurchaseOrderReturnableReceiptItems(
+  accessToken: string,
+  id: string,
+  skip = 0,
+  take = 100,
+) {
+  const params = new URLSearchParams({
+    skip: String(skip),
+    take: String(take),
+  });
+  return apiRequest<PurchaseOrderReturnableReceiptItemPage>(
+    `/purchase-orders/${encodeURIComponent(id)}/returnable-receipt-items?${params}`,
+    { headers: headers(accessToken) },
+  );
+}
+
+export function cancelPurchaseOrder(accessToken: string, id: string) {
+  return apiRequest<PurchaseOrder>(
+    `/purchase-orders/${encodeURIComponent(id)}/cancel`,
+    { method: "POST", headers: headers(accessToken) },
   );
 }
 

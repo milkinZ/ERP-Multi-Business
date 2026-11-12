@@ -867,6 +867,7 @@ export class InventoryCostingService {
     const items = await tx.$queryRaw<
       Array<{
         id: string;
+        unit: string | null;
         valuationMethod: InventoryValuationMethod | null;
         movingAverageScope: MovingAverageScope | null;
         standardCost: Prisma.Decimal | null;
@@ -874,7 +875,7 @@ export class InventoryCostingService {
         valuationLockedAt: Date | null;
       }>
     >`
-      SELECT "id", "valuationMethod", "movingAverageScope", "standardCost",
+      SELECT "id", "unit", "valuationMethod", "movingAverageScope", "standardCost",
              "averageUnitCost", "valuationLockedAt"
       FROM "InventoryItem"
       WHERE "id" = ${itemId} AND "tenantId" = ${tenantId}
@@ -983,6 +984,7 @@ export class InventoryCostingService {
           receivedQuantity: quantity,
           remainingQuantity: quantity,
           unitCost,
+          unit: item.unit,
         },
       });
     } else if (
@@ -993,7 +995,7 @@ export class InventoryCostingService {
 
     await tx.inventoryMovement.update({
       where: { id: input.movementId },
-      data: { unitCost, totalCost },
+      data: { unit: item.unit, unitCost, totalCost },
     });
     if (!item.valuationLockedAt) {
       await tx.inventoryItem.update({
@@ -1038,7 +1040,7 @@ export class InventoryCostingService {
     const unitCost = totalCost.div(quantity);
     await tx.inventoryMovement.update({
       where: { id: input.movementId },
-      data: { unitCost, totalCost },
+      data: { unit: item.unit, unitCost, totalCost },
     });
     await tx.inventoryMovementCostAllocation.createMany({
       data: allocations.map((allocation) => ({
@@ -1046,6 +1048,7 @@ export class InventoryCostingService {
         costLayerId: allocation.costLayerId,
         quantity: allocation.quantity,
         unitCost: allocation.unitCost,
+        unit: item.unit,
       })),
     });
     if (!item.valuationLockedAt) {
@@ -1138,6 +1141,7 @@ export class InventoryCostingService {
             receivedQuantity: allocation.quantity,
             remainingQuantity: allocation.quantity,
             unitCost: allocation.unitCost,
+            unit: item.unit,
           },
         });
       }
@@ -1148,7 +1152,11 @@ export class InventoryCostingService {
       );
       await tx.inventoryMovement.update({
         where: { id: input.movementId },
-        data: { unitCost: totalCost.div(quantity), totalCost },
+        data: {
+          unit: item.unit,
+          unitCost: totalCost.div(quantity),
+          totalCost,
+        },
       });
     } else {
       await this.receive(tx, {
@@ -1225,6 +1233,7 @@ export class InventoryCostingService {
         costLayerId: allocation.costLayerId,
         quantity: allocation.quantity,
         unitCost: allocation.unitCost,
+        unit: item.unit,
       })),
     });
     const totalCost = allocations.reduce(
@@ -1235,6 +1244,7 @@ export class InventoryCostingService {
     await tx.inventoryMovement.update({
       where: { id: input.reversalMovementId },
       data: {
+        unit: item.unit,
         unitCost: totalCost.div(new Prisma.Decimal(input.quantity)),
         totalCost,
       },
@@ -1266,7 +1276,10 @@ export class InventoryCostingService {
         AND layer."warehouseId" IS NOT DISTINCT FROM ${input.warehouseId}
         AND layer."remainingQuantity" > 0
       ORDER BY COALESCE(source."createdAt", layer."createdAt") ASC,
-               COALESCE(source."id", layer."id") ASC, layer."id" ASC
+               COALESCE(source."id", layer."id") ASC,
+               CASE WHEN layer."sourceType" = 'PURCHASE_PRICE_ADJUSTMENT'
+                    THEN 0 ELSE 1 END ASC,
+               layer."id" ASC
       FOR UPDATE OF layer
     `;
     let remaining = quantity;

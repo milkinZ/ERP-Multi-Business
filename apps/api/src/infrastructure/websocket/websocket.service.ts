@@ -34,6 +34,14 @@ export class WebsocketService {
     return `user:${userId}`;
   }
 
+  kitchenTenantRoom(tenantId: string) {
+    return `kitchen:tenant:${tenantId}`;
+  }
+
+  kitchenOutletRoom(tenantId: string, outletId: string) {
+    return `kitchen:outlet:${tenantId}:${outletId}`;
+  }
+
   joinTenantRoom(socket: Socket, tenantId: string) {
     return socket.join(this.tenantRoom(tenantId));
   }
@@ -45,6 +53,18 @@ export class WebsocketService {
 
   joinUserRoom(socket: Socket, userId: string) {
     return socket.join(this.userRoom(userId));
+  }
+
+  joinKitchenRoom(
+    socket: Socket,
+    tenantId: string,
+    outletId: string | null | undefined,
+  ) {
+    return socket.join(
+      outletId
+        ? this.kitchenOutletRoom(tenantId, outletId)
+        : this.kitchenTenantRoom(tenantId),
+    );
   }
 
   leaveAllRooms(socket: Socket) {

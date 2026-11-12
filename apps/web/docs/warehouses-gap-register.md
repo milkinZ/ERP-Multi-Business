@@ -33,6 +33,7 @@ Verified against the current `apps/api` Warehouse, Inventory, Purchase Order, Su
 - `Warehouse` relates to `InventoryStock`, `InventoryMovement`, and `PurchaseOrder` in Prisma.
 - Inventory mutations validate warehouse ownership and remain authoritative for quantities and movements.
 - Purchase Order receiving requires a warehouse and applies inventory changes inside its own backend transaction.
+- Supplier returns are recorded through the Purchase Order return contract and deduct only available, unreserved stock from that PO's receiving warehouse.
 - No direct Warehouse-Supplier relation exists.
 - No Warehouse-specific fulfillment mutation exists; fulfillment operates through Inventory and order workflows.
 
@@ -44,7 +45,7 @@ Verified against the current `apps/api` Warehouse, Inventory, Purchase Order, Su
 
 ## Test Infrastructure Gap
 
-- No frontend test runner or Warehouse frontend test suite exists in `apps/web`.
+- A shared frontend test runner is configured, but no Warehouse-specific frontend component tests exist yet.
 
 ## Realtime Infrastructure Gap
 

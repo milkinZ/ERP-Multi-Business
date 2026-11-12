@@ -5,6 +5,14 @@ describe('validateEnv', () => {
     DATABASE_URL: 'postgresql://localhost/test',
     JWT_SECRET: '12345678901234567890123456789012',
   };
+  const productionBase = {
+    ...base,
+    DATABASE_URL: 'postgresql://db.example.test:5432/cafe_os',
+    NODE_ENV: 'production',
+    SMTP_HOST: 'smtp.example.test',
+    SMTP_PORT: 587,
+    EMAIL_FROM: 'no-reply@example.test',
+  };
 
   it('accepts required configuration and applies defaults', () => {
     expect(validateEnv(base)).toEqual(
@@ -28,11 +36,14 @@ describe('validateEnv', () => {
   });
 
   it('requires complete HTTPS OIDC and MFA assurance configuration in production', () => {
-    expect(() => validateEnv({ ...base, NODE_ENV: 'production' })).toThrow(
+    expect(() => validateEnv(productionBase)).toThrow(
       /Platform OIDC must be fully configured/,
     );
 
     const platformOidc = {
+      SMTP_HOST: 'smtp.example.test',
+      SMTP_PORT: 587,
+      EMAIL_FROM: 'no-reply@example.test',
       PLATFORM_OIDC_ISSUER: 'https://identity.example.test/realms/erp',
       PLATFORM_OIDC_CLIENT_ID: 'platform-client',
       PLATFORM_OIDC_CLIENT_SECRET: 'client-secret',
@@ -87,6 +98,9 @@ describe('validateEnv', () => {
       DATABASE_URL: 'postgresql://user:secret@db.example.test:5432/cafe_os',
       JWT_SECRET: base.JWT_SECRET,
       NODE_ENV: 'production',
+      SMTP_HOST: 'smtp.example.test',
+      SMTP_PORT: 587,
+      EMAIL_FROM: 'no-reply@example.test',
       PLATFORM_OIDC_ISSUER: 'https://identity.example.test/realms/erp',
       PLATFORM_OIDC_CLIENT_ID: 'platform-client',
       PLATFORM_OIDC_CLIENT_SECRET: 'client-secret',

@@ -4,6 +4,7 @@ export type PlatformInvoiceResponse = {
   subscriptionId: string | null;
   invoiceNumber: string;
   amountCents: number;
+  refundedAmountCents: number;
   currency: string;
   status: string;
   dueAt: Date | null;

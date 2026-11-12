@@ -8,6 +8,7 @@ import { BillingService } from './billing.service';
 import { SubscriptionRepository } from '../subscription/domain/subscription.repository';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { PlanRepository } from '../subscription/plans/plan.repository';
+import { PlanEntitlementsService } from '../subscription/plans/plan-entitlements.service';
 import { TenantContextService } from '../tenants/tenant-context.service';
 
 const prisma = new PrismaClient();
@@ -27,12 +28,15 @@ const subscriptions = new SubscriptionService(
   subscriptionRepository,
   planRepository,
   tenantContext,
+  new PlanEntitlementsService(prisma as never),
 );
 
 const tenantA = 'it-billing-tenant-a';
 const tenantB = 'it-billing-tenant-b';
-const planA = 'it-billing-plan-a';
-const planB = 'it-billing-plan-b';
+let planA = 'it-billing-plan-a';
+let planB = 'it-billing-plan-b';
+let planBPriceCents = 99900;
+const createdPlanIds: string[] = [];
 const subscriptionA = 'it-billing-subscription-a';
 const invoiceA = 'it-billing-invoice-a';
 
@@ -61,7 +65,10 @@ async function cleanup() {
     where: { subscriptionId: subscriptionA },
   });
   await prisma.subscription.deleteMany({ where: { id: subscriptionA } });
-  await prisma.plan.deleteMany({ where: { id: { in: [planA, planB] } } });
+  if (createdPlanIds.length) {
+    await prisma.plan.deleteMany({ where: { id: { in: createdPlanIds } } });
+    createdPlanIds.length = 0;
+  }
   await prisma.tenant.deleteMany({ where: { id: { in: [tenantA, tenantB] } } });
 }
 
@@ -76,17 +83,42 @@ describe('Billing and subscription PostgreSQL integration', () => {
         { id: tenantB, name: 'Billing Tenant B', businessType: 'RETAIL' },
       ],
     });
-    await prisma.plan.createMany({
-      data: [
-        { id: planA, type: 'BUSINESS', name: 'Business A', priceCents: 49900 },
-        {
+    const businessPlan = await prisma.plan.findFirst({
+      where: { type: 'BUSINESS' },
+      select: { id: true },
+    });
+    if (businessPlan) {
+      planA = businessPlan.id;
+    } else {
+      await prisma.plan.create({
+        data: {
+          id: planA,
+          type: 'BUSINESS',
+          name: 'Business A',
+          priceCents: 49900,
+        },
+      });
+      createdPlanIds.push(planA);
+    }
+
+    const enterprisePlan = await prisma.plan.findFirst({
+      where: { type: 'ENTERPRISE' },
+      select: { id: true, priceCents: true },
+    });
+    if (enterprisePlan) {
+      planB = enterprisePlan.id;
+      planBPriceCents = enterprisePlan.priceCents;
+    } else {
+      await prisma.plan.create({
+        data: {
           id: planB,
           type: 'ENTERPRISE',
           name: 'Enterprise B',
-          priceCents: 99900,
+          priceCents: planBPriceCents,
         },
-      ],
-    });
+      });
+      createdPlanIds.push(planB);
+    }
   });
 
   beforeEach(async () => {
@@ -168,7 +200,9 @@ describe('Billing and subscription PostgreSQL integration', () => {
         where: { tenantId: tenantA },
         orderBy: { createdAt: 'desc' },
       }),
-    ).resolves.toEqual(expect.objectContaining({ amountCents: 99900 }));
+    ).resolves.toEqual(
+      expect.objectContaining({ amountCents: planBPriceCents }),
+    );
     await expect(
       prisma.subscriptionHistory.count({
         where: {

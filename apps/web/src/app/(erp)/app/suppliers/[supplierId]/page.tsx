@@ -18,6 +18,7 @@ import {
   supplierKeys,
 } from "@/features/erp/suppliers/api/queries";
 import { SupplierForm } from "@/features/erp/suppliers/components/supplier-form";
+import { SupplierOffersWorkspace } from "@/features/erp/suppliers/components/supplier-offers-workspace";
 import {
   getPurchaseOrders,
   purchaseOrderKeys,
@@ -36,6 +37,7 @@ export default function SupplierDetailPage() {
   const canUpdate = hasPermission(session, "supplier.update");
   const canDelete = hasPermission(session, "supplier.delete");
   const canReadPurchaseOrders = hasPermission(session, "purchase_order.read");
+  const canReadInventory = hasPermission(session, "inventory.read");
   const [isEditing, setIsEditing] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [purchaseOrderPage, setPurchaseOrderPage] = useState(0);
@@ -208,6 +210,20 @@ export default function SupplierDetailPage() {
               </p>
               <p className="mt-2 font-medium">{supplier.phone ?? "-"}</p>
             </div>
+            <div className="rounded-2xl border border-border bg-card p-5">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                Contact person
+              </p>
+              <p className="mt-2 font-medium">
+                {supplier.contactPerson ?? "-"}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border bg-card p-5">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                Tax number
+              </p>
+              <p className="mt-2 font-medium">{supplier.taxNumber ?? "-"}</p>
+            </div>
             <div className="rounded-2xl border border-border bg-card p-5 md:col-span-2 xl:col-span-3">
               <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
                 Address
@@ -217,6 +233,11 @@ export default function SupplierDetailPage() {
               </p>
             </div>
           </section>
+          <SupplierOffersWorkspace
+            supplier={supplier}
+            canReadInventory={canReadInventory}
+            canUpdateSupplier={canUpdate}
+          />
           <section className="mt-6 rounded-3xl border border-border bg-card p-5">
             <SectionHeader
               eyebrow="Purchase Order relationship"

@@ -1,7 +1,15 @@
 import {
+  AccountingAccountRole,
+  AccountingAccountType,
+  CreditAllocationType,
   InventoryItemType,
   PrismaClient,
   PurchaseOrderStatus,
+  SupplierCreditNoteType,
+  SupplierInvoiceStatus,
+  SupplierPaymentMethod,
+  TaxRuleKind,
+  WithholdingTiming,
 } from '@prisma/client';
 
 import { assertSafeIntegrationEnvironment } from '../../test/integration-environment';
@@ -9,16 +17,24 @@ import { DomainEventBus } from '../../core/events/domain-event-bus.service';
 import { InventoryCostingService } from '../inventory/inventory-costing.service';
 import { PurchaseOrderRepository } from './purchase-order.repository';
 import { PurchaseOrderService } from './purchase-order.service';
+import { AccountingService } from '../finance/accounting.service';
+import { SupplierApService } from '../finance/supplier-ap.service';
 
 const prisma = new PrismaClient();
 const publish = jest.fn().mockResolvedValue(undefined);
 const eventBus = { publish } as unknown as DomainEventBus;
 const repository = new PurchaseOrderRepository(prisma as never);
+const accountingService = new AccountingService(prisma as never);
 const service = new PurchaseOrderService(
   prisma as never,
   eventBus,
   repository,
   new InventoryCostingService(),
+  accountingService,
+);
+const supplierApService = new SupplierApService(
+  prisma as never,
+  accountingService,
 );
 
 const tenantA = 'it-po-tenant-a';
@@ -30,15 +46,174 @@ const warehouseA = 'it-po-warehouse-a';
 const warehouseB = 'it-po-warehouse-b';
 const itemA = 'it-po-item-a';
 const itemB = 'it-po-item-b';
+const itemTenantB = 'it-po-item-tenant-b';
 const poA = 'it-po-record-a';
 
-async function cleanup() {
-  await prisma.inventoryCostLayer.deleteMany({
-    where: { inventoryItemId: { in: [itemA, itemB] } },
+const financialMappings = [
+  [AccountingAccountRole.INVENTORY, AccountingAccountType.ASSET],
+  [
+    AccountingAccountRole.GOODS_RECEIVED_NOT_INVOICED,
+    AccountingAccountType.LIABILITY,
+  ],
+  [AccountingAccountRole.ACCOUNTS_PAYABLE, AccountingAccountType.LIABILITY],
+  [AccountingAccountRole.SUPPLIER_RETURN_CLEARING, AccountingAccountType.ASSET],
+  [AccountingAccountRole.INPUT_TAX, AccountingAccountType.ASSET],
+  [AccountingAccountRole.WITHHOLDING_PAYABLE, AccountingAccountType.LIABILITY],
+  [
+    AccountingAccountRole.PURCHASE_PRICE_VARIANCE,
+    AccountingAccountType.EXPENSE,
+  ],
+  [AccountingAccountRole.PURCHASE_DISCOUNT, AccountingAccountType.EXPENSE],
+  [AccountingAccountRole.COST_OF_GOODS_SOLD, AccountingAccountType.EXPENSE],
+  [AccountingAccountRole.NON_INVENTORY_EXPENSE, AccountingAccountType.EXPENSE],
+  [AccountingAccountRole.CASH_OR_BANK, AccountingAccountType.ASSET],
+] as const;
+
+async function setupFinance(tenantId: string) {
+  const accountIds = new Map<AccountingAccountRole, string>();
+  const accountRows = financialMappings.map(([role, type]) => {
+    const id = `${tenantId}-account-${role.toLowerCase()}`;
+    accountIds.set(role, id);
+    return {
+      id,
+      tenantId,
+      code: role,
+      name: role,
+      type,
+    };
+  });
+  await prisma.accountingAccount.createMany({ data: accountRows });
+  await prisma.accountingAccountMapping.createMany({
+    data: financialMappings.map(([role]) => ({
+      tenantId,
+      role,
+      accountId: accountIds.get(role)!,
+    })),
+  });
+  await prisma.accountingPeriod.create({
+    data: {
+      tenantId,
+      name: 'integration-open-period',
+      startsAt: new Date('2000-01-01T00:00:00.000Z'),
+      endsAt: new Date('2100-12-31T00:00:00.000Z'),
+    },
+  });
+}
+
+async function cleanupSupplierFinance() {
+  await prisma.taxRule.deleteMany({
+    where: {
+      tenantId: tenantA,
+      code: { in: ['IT-AP-WHT-PURCHASE', 'IT-AP-WHT-CREDIT'] },
+    },
   });
   const receipts = await prisma.purchaseOrderReceipt.findMany({
     where: { purchaseOrderId: poA },
     select: { id: true },
+  });
+  const receiptItems =
+    receipts.length > 0
+      ? await prisma.purchaseOrderReceiptItem.findMany({
+          where: { receiptId: { in: receipts.map((receipt) => receipt.id) } },
+          select: { id: true },
+        })
+      : [];
+  const invoices =
+    receiptItems.length > 0
+      ? await prisma.supplierInvoice.findMany({
+          where: {
+            tenantId: tenantA,
+            Lines: {
+              some: {
+                receiptItemId: { in: receiptItems.map((item) => item.id) },
+              },
+            },
+          },
+          select: { id: true },
+        })
+      : [];
+  const invoiceIds = invoices.map((invoice) => invoice.id);
+  if (invoiceIds.length === 0) return;
+
+  const creditNotes = await prisma.supplierCreditNote.findMany({
+    where: { tenantId: tenantA, invoiceId: { in: invoiceIds } },
+    select: { id: true },
+  });
+  const creditNoteIds = creditNotes.map((note) => note.id);
+  const payments = await prisma.supplierPayment.findMany({
+    where: {
+      tenantId: tenantA,
+      Allocations: { some: { invoiceId: { in: invoiceIds } } },
+    },
+    select: { id: true },
+  });
+  const paymentIds = payments.map((payment) => payment.id);
+  const sourceIds = [...invoiceIds, ...creditNoteIds, ...paymentIds];
+  const journals = await prisma.journalEntry.findMany({
+    where: {
+      tenantId: tenantA,
+      sourceType: {
+        in: ['SUPPLIER_INVOICE', 'SUPPLIER_CREDIT_NOTE', 'SUPPLIER_PAYMENT'],
+      },
+      sourceId: { in: sourceIds },
+    },
+    select: { id: true },
+  });
+  await prisma.journalEntryLine.deleteMany({
+    where: { journalEntryId: { in: journals.map((entry) => entry.id) } },
+  });
+  await prisma.journalEntry.deleteMany({
+    where: { id: { in: journals.map((entry) => entry.id) } },
+  });
+  await prisma.supplierCreditNoteLine.deleteMany({
+    where: { creditNoteId: { in: creditNoteIds } },
+  });
+  await prisma.supplierCreditNote.deleteMany({
+    where: { id: { in: creditNoteIds } },
+  });
+  await prisma.supplierPaymentAllocation.deleteMany({
+    where: { paymentId: { in: paymentIds } },
+  });
+  await prisma.supplierPayment.deleteMany({
+    where: { id: { in: paymentIds } },
+  });
+  await prisma.supplierInvoiceLine.deleteMany({
+    where: { invoiceId: { in: invoiceIds } },
+  });
+  await prisma.supplierInvoice.deleteMany({
+    where: { id: { in: invoiceIds } },
+  });
+}
+
+async function cleanup() {
+  await cleanupSupplierFinance();
+  await prisma.journalEntryLine.deleteMany({
+    where: { tenantId: { in: [tenantA, tenantB] } },
+  });
+  await prisma.journalEntry.deleteMany({
+    where: { tenantId: { in: [tenantA, tenantB] } },
+  });
+  await prisma.inventoryCostLayer.deleteMany({
+    where: { inventoryItemId: { in: [itemA, itemB, itemTenantB] } },
+  });
+  const receipts = await prisma.purchaseOrderReceipt.findMany({
+    where: { purchaseOrderId: poA },
+    select: { id: true },
+  });
+  const returns = await prisma.purchaseOrderReturn.findMany({
+    where: { purchaseOrderId: poA },
+    select: { id: true },
+  });
+  if (returns.length > 0) {
+    await prisma.inventoryMovement.deleteMany({
+      where: {
+        referenceType: 'PURCHASE_ORDER_RETURN',
+        referenceId: { in: returns.map((record) => record.id) },
+      },
+    });
+  }
+  await prisma.purchaseOrderReturn.deleteMany({
+    where: { purchaseOrderId: poA },
   });
   if (receipts.length > 0) {
     await prisma.inventoryMovement.deleteMany({
@@ -55,7 +230,12 @@ async function cleanup() {
     where: {
       tenantId: tenantA,
       type: {
-        in: ['purchase-order.partially-received', 'purchase-order.received'],
+        in: [
+          'purchase-order.partially-received',
+          'purchase-order.received',
+          'purchase-order.returned',
+          'purchase-order.cancelled',
+        ],
       },
     },
   });
@@ -65,7 +245,7 @@ async function cleanup() {
   await prisma.inventoryStock.deleteMany({
     where: {
       warehouseId: { in: [warehouseA, warehouseB] },
-      inventoryItemId: { in: [itemA, itemB] },
+      inventoryItemId: { in: [itemA, itemB, itemTenantB] },
     },
   });
   await prisma.purchaseOrderItem.deleteMany({
@@ -75,7 +255,7 @@ async function cleanup() {
     where: { id: poA },
   });
   await prisma.inventoryItem.deleteMany({
-    where: { id: { in: [itemA, itemB] } },
+    where: { id: { in: [itemA, itemB, itemTenantB] } },
   });
   await prisma.warehouse.deleteMany({
     where: { id: { in: [warehouseA, warehouseB] } },
@@ -159,15 +339,63 @@ describe('Purchase orders PostgreSQL integration', () => {
           valuationMethod: 'STANDARD_COST',
           standardCost: 1,
         },
+        {
+          id: itemTenantB,
+          code: 'IT-PO-ITEM-TENANT-B',
+          name: 'PO Item Tenant B',
+          type: InventoryItemType.MATERIAL,
+          tenantId: tenantB,
+          valuationMethod: 'FIFO',
+        },
       ],
     });
+    await setupFinance(tenantA);
+    await setupFinance(tenantB);
   });
 
   beforeEach(async () => {
     publish.mockClear();
+    await cleanupSupplierFinance();
+    const returns = await prisma.purchaseOrderReturn.findMany({
+      where: { purchaseOrderId: poA },
+      select: { id: true },
+    });
+    if (returns.length > 0) {
+      await prisma.inventoryMovement.deleteMany({
+        where: {
+          referenceType: 'PURCHASE_ORDER_RETURN',
+          referenceId: { in: returns.map((record) => record.id) },
+        },
+      });
+    }
+    await prisma.purchaseOrderReturn.deleteMany({
+      where: { purchaseOrderId: poA },
+    });
     const receipts = await prisma.purchaseOrderReceipt.findMany({
       where: { purchaseOrderId: poA },
       select: { id: true },
+    });
+    const financialSourceIds = [
+      ...returns.map((record) => record.id),
+      ...receipts.map((receipt) => receipt.id),
+    ];
+    const journalEntries = await prisma.journalEntry.findMany({
+      where: {
+        tenantId: tenantA,
+        sourceType: {
+          in: ['PURCHASE_ORDER_RECEIPT', 'PURCHASE_ORDER_RETURN'],
+        },
+        sourceId: { in: financialSourceIds },
+      },
+      select: { id: true },
+    });
+    await prisma.journalEntryLine.deleteMany({
+      where: {
+        journalEntryId: { in: journalEntries.map((entry) => entry.id) },
+      },
+    });
+    await prisma.journalEntry.deleteMany({
+      where: { id: { in: journalEntries.map((entry) => entry.id) } },
     });
     if (receipts.length > 0) {
       await prisma.inventoryMovement.deleteMany({
@@ -184,13 +412,18 @@ describe('Purchase orders PostgreSQL integration', () => {
       where: {
         tenantId: tenantA,
         type: {
-          in: ['purchase-order.partially-received', 'purchase-order.received'],
+          in: [
+            'purchase-order.partially-received',
+            'purchase-order.received',
+            'purchase-order.returned',
+            'purchase-order.cancelled',
+          ],
         },
       },
     });
     await prisma.inventoryMovement.deleteMany({ where: { referenceId: poA } });
     await prisma.inventoryCostLayer.deleteMany({
-      where: { inventoryItemId: { in: [itemA, itemB] } },
+      where: { inventoryItemId: { in: [itemA, itemB, itemTenantB] } },
     });
     await prisma.inventoryStock.deleteMany({
       where: { warehouseId: warehouseA, inventoryItemId: itemA },
@@ -249,7 +482,7 @@ describe('Purchase orders PostgreSQL integration', () => {
         poNumber: 'IT-PO-NO-CURRENCY',
         supplierId: supplierB,
         warehouseId: warehouseB,
-        items: [{ inventoryItemId: itemB, quantity: 1, unitPrice: 1 }],
+        items: [{ inventoryItemId: itemTenantB, quantity: 1, unitPrice: 1 }],
       }),
     ).rejects.toThrow(
       'Configure the tenant base currency before creating financial transactions',
@@ -352,6 +585,172 @@ describe('Purchase orders PostgreSQL integration', () => {
         referenceType: 'PURCHASE_ORDER_RECEIPT',
       }),
     ]);
+    const receiptJournal = await prisma.journalEntry.findUnique({
+      where: {
+        tenantId_sourceType_sourceId: {
+          tenantId: tenantA,
+          sourceType: 'PURCHASE_ORDER_RECEIPT',
+          sourceId: receipt.id,
+        },
+      },
+      include: { Lines: { include: { Account: true } } },
+    });
+    expect(
+      receiptJournal?.Lines.map((line) => ({
+        debit: line.debit.toString(),
+        credit: line.credit.toString(),
+        accountId: line.Account.id,
+      })),
+    ).toEqual([
+      {
+        debit: '100',
+        credit: '0',
+        accountId: `${tenantA}-account-inventory`,
+      },
+      {
+        debit: '0',
+        credit: '100',
+        accountId: `${tenantA}-account-goods_received_not_invoiced`,
+      },
+    ]);
+  });
+
+  it('applies posted credit notes to the AP balance before supplier payment', async () => {
+    const draft = await createDraft();
+    await service.updateStatus(tenantA, poA, PurchaseOrderStatus.PENDING);
+    await service.updateStatus(tenantA, poA, PurchaseOrderStatus.APPROVED);
+    const receipt = await service.receivePurchaseOrder(
+      tenantA,
+      poA,
+      userA,
+      'po-receipt-for-ap',
+      {
+        items: [
+          {
+            purchaseOrderItemId: draft.PurchaseOrderItem[0].id,
+            receivedQuantity: 4,
+          },
+        ],
+      },
+    );
+    const receiptItem = await prisma.purchaseOrderReceiptItem.findFirstOrThrow({
+      where: { receiptId: receipt.id, tenantId: tenantA },
+    });
+    const purchaseWithholdingRule = await prisma.taxRule.create({
+      data: {
+        tenantId: tenantA,
+        code: 'IT-AP-WHT-PURCHASE',
+        name: 'Integration purchase withholding',
+        kind: TaxRuleKind.WITHHOLDING,
+        transactionType: 'SUPPLIER_PURCHASE',
+        rate: 0.1,
+        withholdingTiming: WithholdingTiming.PAYMENT,
+        effectiveFrom: new Date('2020-01-01T00:00:00.000Z'),
+      },
+    });
+    const creditWithholdingRule = await prisma.taxRule.create({
+      data: {
+        tenantId: tenantA,
+        code: 'IT-AP-WHT-CREDIT',
+        name: 'Integration credit withholding',
+        kind: TaxRuleKind.WITHHOLDING,
+        transactionType: 'SUPPLIER_CREDIT_NOTE',
+        rate: 0.1,
+        withholdingTiming: WithholdingTiming.PAYMENT,
+        effectiveFrom: new Date('2020-01-01T00:00:00.000Z'),
+      },
+    });
+    const invoice = await supplierApService.createInvoice(
+      tenantA,
+      userA,
+      'supplier-invoice-for-ap',
+      {
+        supplierId: supplierA,
+        invoiceNumber: 'IT-AP-INVOICE-1',
+        invoiceDate: '2026-11-06',
+        lines: [
+          {
+            receiptItemId: receiptItem.id,
+            quantity: 4,
+            unitPrice: 25,
+            inputTaxRuleIds: [],
+            withholdingRuleIds: [purchaseWithholdingRule.id],
+          },
+        ],
+      },
+    );
+    expect(invoice.status).toBe(SupplierInvoiceStatus.PENDING_APPROVAL);
+    await supplierApService.approveInvoice(tenantA, userA, invoice.id);
+    await supplierApService.postInvoice(tenantA, userA, invoice.id);
+    const partialPayment = await supplierApService.createPayment(
+      tenantA,
+      userA,
+      'ap-partial-payment-before-credit',
+      {
+        supplierId: supplierA,
+        paymentDate: '2026-11-07',
+        method: SupplierPaymentMethod.BANK_TRANSFER,
+        allocations: [{ invoiceId: invoice.id, allocatedGross: 20 }],
+      },
+    );
+    expect(partialPayment.amount.toString()).toBe('18');
+    expect(partialPayment.Allocations[0]?.withholdingAmount.toString()).toBe(
+      '2',
+    );
+
+    const creditNote = await supplierApService.createCreditNote(
+      tenantA,
+      userA,
+      'supplier-credit-note-for-ap',
+      {
+        supplierId: supplierA,
+        invoiceId: invoice.id,
+        creditNumber: 'IT-AP-CREDIT-1',
+        type: SupplierCreditNoteType.NON_RETURN,
+        reason: 'Supplier granted an approved price claim',
+        claimReference: 'CLAIM-IT-1',
+        lines: [
+          {
+            allocationType: CreditAllocationType.COST_OF_GOODS_SOLD,
+            invoiceLineId: invoice.Lines[0].id,
+            amount: 10,
+            inputTaxRuleIds: [],
+            withholdingRuleIds: [creditWithholdingRule.id],
+          },
+        ],
+      },
+    );
+    await supplierApService.approveCreditNote(tenantA, userA, creditNote.id);
+    await supplierApService.postCreditNote(tenantA, userA, creditNote.id);
+
+    await expect(
+      supplierApService.createPayment(tenantA, userA, 'ap-overpayment', {
+        supplierId: supplierA,
+        paymentDate: '2026-11-08',
+        method: SupplierPaymentMethod.BANK_TRANSFER,
+        allocations: [{ invoiceId: invoice.id, allocatedGross: 71 }],
+      }),
+    ).rejects.toThrow('Payment allocation exceeds outstanding invoice balance');
+
+    const payment = await supplierApService.createPayment(
+      tenantA,
+      userA,
+      'ap-payment-after-credit',
+      {
+        supplierId: supplierA,
+        paymentDate: '2026-11-08',
+        method: SupplierPaymentMethod.BANK_TRANSFER,
+        allocations: [{ invoiceId: invoice.id, allocatedGross: 70 }],
+      },
+    );
+    expect(payment.amount.toString()).toBe('63');
+    expect(payment.Allocations[0]?.withholdingAmount.toString()).toBe('7');
+    await expect(
+      prisma.supplierInvoice.findFirstOrThrow({
+        where: { id: invoice.id, tenantId: tenantA },
+        select: { status: true },
+      }),
+    ).resolves.toEqual({ status: SupplierInvoiceStatus.PAID });
   });
 
   it('replays the same idempotent receipt without changing inventory twice', async () => {
@@ -400,6 +799,181 @@ describe('Purchase orders PostgreSQL integration', () => {
         },
       }),
     ).resolves.toBe(1);
+  });
+
+  it('cancels the unreceived remainder and returns received stock idempotently', async () => {
+    const draft = await createDraft();
+    const orderItemId = draft.PurchaseOrderItem[0].id;
+    await service.updateStatus(tenantA, poA, PurchaseOrderStatus.PENDING);
+    await service.updateStatus(tenantA, poA, PurchaseOrderStatus.APPROVED);
+    const partialReceipt = await service.receivePurchaseOrder(
+      tenantA,
+      poA,
+      userA,
+      'partial-before-return',
+      {
+        items: [{ purchaseOrderItemId: orderItemId, receivedQuantity: 2 }],
+      },
+    );
+    const receiptItemId = partialReceipt.Items[0].id;
+
+    await service.cancel(tenantA, poA);
+    await expect(service.findOne(tenantA, poA)).resolves.toEqual(
+      expect.objectContaining({ status: PurchaseOrderStatus.CANCELLED }),
+    );
+    await expect(
+      service.receivePurchaseOrder(tenantA, poA, userA, 'after-cancel', {
+        items: [{ purchaseOrderItemId: orderItemId, receivedQuantity: 1 }],
+      }),
+    ).rejects.toThrow('Cannot receive purchase order while in CANCELLED');
+
+    const returnRequest = {
+      items: [{ purchaseOrderReceiptItemId: receiptItemId, quantity: 1 }],
+      note: 'Damaged packaging',
+    };
+    const [firstReturn, repeatedReturn] = await Promise.all([
+      service.returnPurchaseOrder(
+        tenantA,
+        poA,
+        userA,
+        'po-return-idempotency',
+        returnRequest,
+      ),
+      service.returnPurchaseOrder(
+        tenantA,
+        poA,
+        userA,
+        'po-return-idempotency',
+        returnRequest,
+      ),
+    ]);
+    expect(repeatedReturn?.id).toBe(firstReturn?.id);
+    expect(firstReturn?.currencyCode).toBe('IDR');
+
+    const returnHistory = await service.findReturns(tenantA, poA, 0, 10);
+    expect(returnHistory.returnedQuantityByReceiptItem).toEqual({
+      [receiptItemId]: 1,
+    });
+    expect(returnHistory.data).toHaveLength(1);
+    await expect(service.findReturns(tenantB, poA)).rejects.toThrow(
+      'Purchase Order not found',
+    );
+
+    await expect(
+      prisma.inventoryStock.findUnique({
+        where: {
+          warehouseId_inventoryItemId: {
+            warehouseId: warehouseA,
+            inventoryItemId: itemA,
+          },
+        },
+      }),
+    ).resolves.toEqual(expect.objectContaining({ quantity: 1 }));
+    const returnMovement = await prisma.inventoryMovement.findFirst({
+      where: {
+        referenceType: 'PURCHASE_ORDER_RETURN',
+        referenceId: firstReturn?.id,
+      },
+    });
+    expect(returnMovement).toEqual(
+      expect.objectContaining({
+        type: 'STOCK_OUT',
+        quantity: 1,
+        beforeQuantity: 2,
+        afterQuantity: 1,
+      }),
+    );
+    expect(returnMovement?.unitCost?.toString()).toBe('25');
+    const returnJournal = await prisma.journalEntry.findUnique({
+      where: {
+        tenantId_sourceType_sourceId: {
+          tenantId: tenantA,
+          sourceType: 'PURCHASE_ORDER_RETURN',
+          sourceId: firstReturn!.id,
+        },
+      },
+      include: { Lines: { include: { Account: true } } },
+    });
+    expect(
+      returnJournal?.Lines.map((line) => ({
+        debit: line.debit.toString(),
+        credit: line.credit.toString(),
+        accountId: line.Account.id,
+      })),
+    ).toEqual([
+      {
+        debit: '25',
+        credit: '0',
+        accountId: `${tenantA}-account-goods_received_not_invoiced`,
+      },
+      {
+        debit: '0',
+        credit: '25',
+        accountId: `${tenantA}-account-inventory`,
+      },
+    ]);
+    await expect(
+      prisma.purchaseOrderReturn.count({ where: { purchaseOrderId: poA } }),
+    ).resolves.toBe(1);
+    await expect(
+      service.returnPurchaseOrder(
+        tenantA,
+        poA,
+        userA,
+        'po-return-over-received',
+        {
+          items: [{ purchaseOrderReceiptItemId: receiptItemId, quantity: 2 }],
+        },
+      ),
+    ).rejects.toThrow(
+      'Cannot return more than this receipt quantity not previously returned',
+    );
+    await prisma.inventoryStock.update({
+      where: {
+        warehouseId_inventoryItemId: {
+          warehouseId: warehouseA,
+          inventoryItemId: itemA,
+        },
+      },
+      data: { quantity: 0 },
+    });
+    await expect(
+      service.returnPurchaseOrder(
+        tenantA,
+        poA,
+        userA,
+        'po-return-no-available-stock',
+        {
+          items: [{ purchaseOrderReceiptItemId: receiptItemId, quantity: 0.5 }],
+        },
+      ),
+    ).rejects.toThrow('Insufficient unreserved stock');
+    await expect(
+      prisma.purchaseOrderReturn.count({ where: { purchaseOrderId: poA } }),
+    ).resolves.toBe(1);
+  });
+
+  it('cancels an approved purchase order before any receipt', async () => {
+    await createDraft();
+    await service.updateStatus(tenantA, poA, PurchaseOrderStatus.PENDING);
+    await service.updateStatus(tenantA, poA, PurchaseOrderStatus.APPROVED);
+
+    await expect(service.cancel(tenantA, poA)).resolves.toEqual(
+      expect.objectContaining({ status: PurchaseOrderStatus.CANCELLED }),
+    );
+    await expect(
+      prisma.purchaseOrderReceipt.count({ where: { purchaseOrderId: poA } }),
+    ).resolves.toBe(0);
+    await expect(
+      prisma.inventoryStock.findUnique({
+        where: {
+          warehouseId_inventoryItemId: {
+            warehouseId: warehouseA,
+            inventoryItemId: itemA,
+          },
+        },
+      }),
+    ).resolves.toBeNull();
   });
 
   it('does not delete a purchase order across tenant boundaries', async () => {
@@ -614,6 +1188,8 @@ describe('Purchase orders PostgreSQL integration', () => {
             in: [
               'purchase-order.partially-received',
               'purchase-order.received',
+              'purchase-order.returned',
+              'purchase-order.cancelled',
             ],
           },
         },

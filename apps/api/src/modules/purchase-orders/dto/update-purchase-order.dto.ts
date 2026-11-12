@@ -20,12 +20,16 @@ export class UpdatePurchaseOrderItemDto {
   @IsOptional()
   inventoryItemId?: string;
 
-  @IsNumber()
+  @IsString()
+  @IsOptional()
+  unit?: string;
+
+  @IsNumber({ allowNaN: false, allowInfinity: false, maxDecimalPlaces: 6 })
   @IsOptional()
   @Min(0.1)
   quantity?: number;
 
-  @IsNumber()
+  @IsNumber({ allowNaN: false, allowInfinity: false, maxDecimalPlaces: 6 })
   @IsOptional()
   @Min(0)
   unitPrice?: number;
